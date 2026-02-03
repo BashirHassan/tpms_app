@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Runtime
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Build
+dist/
+build/
+
+# Uploads (keep structure, ignore content)
+uploads/*
+!uploads/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temp
+tmp/
+temp/

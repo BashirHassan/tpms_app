@@ -1,0 +1,74 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE/Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+.project
+.classpath
+.settings/
+
+# Testing
+coverage/
+.nyc_output/
+
+# Uploads (user-generated content)
+backend/uploads/acceptances/*
+backend/uploads/results/*
+backend/uploads/schools/*
+backend/uploads/students/*
+!backend/uploads/**/.gitkeep
+
+# Package locks (optional - uncomment if you want to ignore)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# Misc
+*.pid
+*.seed
+*.pid.lock
+.cache/
+.parcel-cache/
+.turbo/
+*.tsbuildinfo
+
+# Debug
+debug.log
