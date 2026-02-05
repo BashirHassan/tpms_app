@@ -48,6 +48,7 @@ export { createSchoolUpdateRequestsApi } from './schoolUpdateRequests';
 export { createUsersApi } from './users';
 export { createPortalAdminApi } from './portal';
 export { createDeanAllocationsApi } from './deanAllocations';
+export { createAutoPostingApi } from './autoPosting';
 
 // Location tracking API (supervisor geofencing)
 export { locationApi } from './location';
@@ -76,3 +77,4 @@ export { documentTemplatesApi } from './documentTemplates';
 export { schoolUpdateRequestsApi } from './schoolUpdateRequests';
 export { usersApi } from './users';
 export { deanAllocationsApi } from './deanAllocations';
+export { autoPostingApi } from './autoPosting';

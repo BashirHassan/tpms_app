@@ -230,19 +230,6 @@ const create = async (req, res, next) => {
       throw new ConflictError('Acceptance already exists for this student in this session');
     }
 
-    // If group_number provided, validate capacity
-    if (group_number) {
-      const groups = await query(
-        `SELECT current_count, max_count FROM school_groups 
-         WHERE institution_school_id = ? AND group_number = ? AND session_id = ? AND institution_id = ?`,
-        [school_id, group_number, session_id, parseInt(institutionId)]
-      );
-      
-      if (groups.length > 0 && groups[0].current_count >= groups[0].max_count) {
-        throw new ValidationError('Group is at maximum capacity');
-      }
-    }
-
     const result = await transaction(async (conn) => {
       const [insertResult] = await conn.execute(
         `INSERT INTO student_acceptances 
@@ -250,15 +237,6 @@ const create = async (req, res, next) => {
          VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')`,
         [parseInt(institutionId), session_id, student_id, school_id, group_number || null, phone || null, email || null]
       );
-
-      // Update group count if applicable
-      if (group_number) {
-        await conn.execute(
-          `UPDATE school_groups SET current_count = current_count + 1 
-           WHERE institution_school_id = ? AND group_number = ? AND session_id = ? AND institution_id = ?`,
-          [school_id, group_number, session_id, parseInt(institutionId)]
-        );
-      }
 
       return insertResult;
     });
@@ -401,15 +379,6 @@ const remove = async (req, res, next) => {
         [parseInt(id), parseInt(institutionId)]
       );
 
-      // Update group count if applicable
-      if (acceptance.group_number) {
-        await conn.execute(
-          `UPDATE school_groups SET current_count = GREATEST(current_count - 1, 0) 
-           WHERE institution_school_id = ? AND group_number = ? AND session_id = ? AND institution_id = ?`,
-          [acceptance.institution_school_id, acceptance.group_number, acceptance.session_id, parseInt(institutionId)]
-        );
-      }
-
       // Reset student's acceptance_status
       await conn.execute(
         'UPDATE students SET acceptance_status = NULL WHERE id = ?',
@@ -547,15 +516,6 @@ const bulkCreate = async (req, res, next) => {
           );
 
           results.created++;
-
-          // Update group count
-          if (assignment.group_number) {
-            await conn.execute(
-              `UPDATE school_groups SET current_count = current_count + 1 
-               WHERE institution_school_id = ? AND group_number = ? AND session_id = ? AND institution_id = ?`,
-              [assignment.school_id, assignment.group_number, session_id, parseInt(institutionId)]
-            );
-          }
         } catch (err) {
           results.errors.push({ student_id: assignment.student_id, error: err.message });
         }

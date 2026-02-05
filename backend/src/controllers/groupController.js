@@ -3,58 +3,32 @@
  * 
  * MedeePay Pattern: Direct SQL with institutionId from route params
  * Handles school groups and merged group management for student postings
+ * 
+ * IMPORTANT: Groups are derived from student_acceptances table (not a separate school_groups table).
+ * A "group" is defined by the group_number column in student_acceptances for a given school + session.
  */
 
 const { z } = require('zod');
-const { query, transaction } = require('../db/database');
+const { query } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 
-// Validation schemas
+// Validation schemas - simplified since school_groups CRUD is removed
 const schemas = {
-  create: z.object({
+  assignStudent: z.object({
     body: z.object({
-      session_id: z.number().int().positive('Session ID is required'),
+      student_id: z.number().int().positive('Student ID is required'),
       school_id: z.number().int().positive('School ID is required'),
-      group_number: z.number().int().positive('Group number must be positive'),
-      max_count: z.number().int().positive().default(30),
-    }),
-  }),
-
-  update: z.object({
-    body: z.object({
-      max_count: z.number().int().positive().optional(),
-      group_number: z.number().int().positive().optional(),
-    }),
-    params: z.object({
-      institutionId: z.string(),
-      id: z.string(),
-    }),
-  }),
-
-  addStudents: z.object({
-    body: z.object({
-      student_ids: z.array(z.number().int().positive()).min(1, 'At least one student ID is required'),
-    }),
-    params: z.object({
-      institutionId: z.string(),
-      id: z.string(),
-    }),
-  }),
-
-  removeStudents: z.object({
-    body: z.object({
-      student_ids: z.array(z.number().int().positive()).min(1, 'At least one student ID is required'),
-    }),
-    params: z.object({
-      institutionId: z.string(),
-      id: z.string(),
+      group_number: z.number().int().positive('Group number is required'),
+      session_id: z.number().int().positive('Session ID is required'),
     }),
   }),
 };
 
 /**
- * Get all school groups
+ * Get all groups (derived from student_acceptances)
  * GET /:institutionId/groups
+ * 
+ * Groups are derived by aggregating student_acceptances by school + group_number
  */
 const getAll = async (req, res, next) => {
   try {
@@ -62,63 +36,66 @@ const getAll = async (req, res, next) => {
     const { session_id, school_id, limit = 100, offset = 0 } = req.query;
 
     let sql = `
-      SELECT sg.*,
-             ms.name as school_name, ms.official_code as school_code, ms.ward, ms.lga,
-             sess.name as session_name
-      FROM school_groups sg
-      LEFT JOIN institution_schools isv ON sg.institution_school_id = isv.id
-      LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
-      LEFT JOIN academic_sessions sess ON sg.session_id = sess.id
-      WHERE sg.institution_id = ?
+      SELECT 
+        sa.institution_school_id,
+        sa.group_number,
+        sa.session_id,
+        ms.name as school_name, 
+        ms.official_code as school_code, 
+        ms.ward, 
+        ms.lga,
+        sess.name as session_name,
+        COUNT(DISTINCT sa.student_id) as student_count
+      FROM student_acceptances sa
+      JOIN institution_schools isv ON sa.institution_school_id = isv.id
+      JOIN master_schools ms ON isv.master_school_id = ms.id
+      LEFT JOIN academic_sessions sess ON sa.session_id = sess.id
+      WHERE sa.institution_id = ? AND sa.status = 'approved'
     `;
     const params = [parseInt(institutionId)];
 
     if (session_id) {
-      sql += ' AND sg.session_id = ?';
+      sql += ' AND sa.session_id = ?';
       params.push(parseInt(session_id));
     }
     if (school_id) {
-      sql += ' AND sg.institution_school_id = ?';
+      sql += ' AND sa.institution_school_id = ?';
       params.push(parseInt(school_id));
     }
 
-    // Count query
-    const countSql = sql.replace(/SELECT.*FROM/s, 'SELECT COUNT(*) as total FROM');
-    const [countResult] = await query(countSql, params);
+    sql += ' GROUP BY sa.institution_school_id, sa.group_number, sa.session_id, ms.name, ms.official_code, ms.ward, ms.lga, sess.name';
+
+    // Count query - count distinct groups
+    const countSql = `
+      SELECT COUNT(*) as total FROM (
+        SELECT DISTINCT sa.institution_school_id, sa.group_number, sa.session_id
+        FROM student_acceptances sa
+        WHERE sa.institution_id = ? AND sa.status = 'approved'
+        ${session_id ? ' AND sa.session_id = ?' : ''}
+        ${school_id ? ' AND sa.institution_school_id = ?' : ''}
+      ) as group_count
+    `;
+    const countParams = [parseInt(institutionId)];
+    if (session_id) countParams.push(parseInt(session_id));
+    if (school_id) countParams.push(parseInt(school_id));
+    const [countResult] = await query(countSql, countParams);
     const total = countResult?.total || 0;
 
     // Add ordering and pagination
-    sql += ' ORDER BY ms.name, sg.group_number LIMIT ? OFFSET ?';
+    sql += ' ORDER BY ms.name, sa.group_number LIMIT ? OFFSET ?';
     params.push(parseInt(limit), parseInt(offset));
 
     const groups = await query(sql, params);
 
-    // Get student counts per group
-    const groupIds = groups.map(g => g.id);
-    if (groupIds.length > 0) {
-      const studentCounts = await query(
-        `SELECT sa.institution_school_id, sa.group_number, COUNT(*) as student_count
-         FROM student_acceptances sa
-         WHERE sa.institution_id = ? 
-           AND sa.institution_school_id IN (${groups.map(() => '?').join(',')})
-           AND sa.status = 'approved'
-         GROUP BY sa.institution_school_id, sa.group_number`,
-        [parseInt(institutionId), ...groups.map(g => g.institution_school_id)]
-      );
-
-      const countMap = new Map();
-      studentCounts.forEach(sc => {
-        countMap.set(`${sc.institution_school_id}-${sc.group_number}`, sc.student_count);
-      });
-
-      groups.forEach(group => {
-        group.student_count = countMap.get(`${group.institution_school_id}-${group.group_number}`) || 0;
-      });
-    }
+    // Generate synthetic IDs for backward compatibility
+    const groupsWithIds = groups.map((g) => ({
+      id: `${g.institution_school_id}-${g.group_number}-${g.session_id}`,
+      ...g,
+    }));
 
     res.json({
       success: true,
-      data: groups,
+      data: groupsWithIds,
       pagination: {
         total,
         limit: parseInt(limit),
@@ -131,30 +108,66 @@ const getAll = async (req, res, next) => {
 };
 
 /**
- * Get group by ID
+ * Get group by composite key (school_id-group_number-session_id)
  * GET /:institutionId/groups/:id
+ * 
+ * Note: The id can be a composite key format: "schoolId-groupNumber-sessionId"
+ * or query params school_id, group_number, session_id
  */
 const getById = async (req, res, next) => {
   try {
     const { institutionId, id } = req.params;
+    const { school_id: qSchoolId, group_number: qGroupNumber, session_id: qSessionId } = req.query;
 
-    const groups = await query(
-      `SELECT sg.*,
-              ms.name as school_name, ms.official_code as school_code, ms.address, ms.ward, ms.lga,
-              sess.name as session_name
-       FROM school_groups sg
-       LEFT JOIN institution_schools isv ON sg.institution_school_id = isv.id
-       LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
-       LEFT JOIN academic_sessions sess ON sg.session_id = sess.id
-       WHERE sg.id = ? AND sg.institution_id = ?`,
-      [parseInt(id), parseInt(institutionId)]
+    let schoolId, groupNumber, sessionId;
+
+    // Try parsing composite ID first
+    if (id && id.includes('-')) {
+      [schoolId, groupNumber, sessionId] = id.split('-').map(Number);
+    } else if (qSchoolId && qGroupNumber && qSessionId) {
+      schoolId = parseInt(qSchoolId);
+      groupNumber = parseInt(qGroupNumber);
+      sessionId = parseInt(qSessionId);
+    } else {
+      throw new ValidationError('Invalid group ID. Use composite format schoolId-groupNumber-sessionId or provide query params.');
+    }
+
+    if (!schoolId || !groupNumber || !sessionId) {
+      throw new ValidationError('Invalid group ID format. Expected: schoolId-groupNumber-sessionId');
+    }
+
+    // Get group data from student_acceptances
+    const groupData = await query(
+      `SELECT 
+        sa.institution_school_id,
+        sa.group_number,
+        sa.session_id,
+        ms.name as school_name, 
+        ms.official_code as school_code, 
+        ms.address, 
+        ms.ward, 
+        ms.lga,
+        sess.name as session_name,
+        COUNT(DISTINCT sa.student_id) as student_count
+       FROM student_acceptances sa
+       JOIN institution_schools isv ON sa.institution_school_id = isv.id
+       JOIN master_schools ms ON isv.master_school_id = ms.id
+       LEFT JOIN academic_sessions sess ON sa.session_id = sess.id
+       WHERE sa.institution_school_id = ? AND sa.group_number = ? AND sa.session_id = ? 
+         AND sa.institution_id = ? AND sa.status = 'approved'
+       GROUP BY sa.institution_school_id, sa.group_number, sa.session_id,
+                ms.name, ms.official_code, ms.address, ms.ward, ms.lga, sess.name`,
+      [schoolId, groupNumber, sessionId, parseInt(institutionId)]
     );
 
-    if (groups.length === 0) {
+    if (groupData.length === 0) {
       throw new NotFoundError('Group not found');
     }
 
-    const group = groups[0];
+    const group = {
+      id: `${schoolId}-${groupNumber}-${sessionId}`,
+      ...groupData[0],
+    };
 
     // Get students in this group
     const students = await query(
@@ -167,7 +180,7 @@ const getById = async (req, res, next) => {
        WHERE sa.institution_school_id = ? AND sa.group_number = ? 
          AND sa.session_id = ? AND sa.institution_id = ?
        ORDER BY st.full_name`,
-      [group.institution_school_id, group.group_number, group.session_id, parseInt(institutionId)]
+      [schoolId, groupNumber, sessionId, parseInt(institutionId)]
     );
 
     // Get merged groups if any
@@ -182,7 +195,7 @@ const getById = async (req, res, next) => {
        LEFT JOIN master_schools ss_ms ON ss_isv.master_school_id = ss_ms.id
        WHERE (mg.primary_institution_school_id = ? OR mg.secondary_institution_school_id = ?)
          AND mg.session_id = ? AND mg.institution_id = ?`,
-      [group.institution_school_id, group.institution_school_id, group.session_id, parseInt(institutionId)]
+      [schoolId, schoolId, sessionId, parseInt(institutionId)]
     );
 
     res.json({
@@ -200,316 +213,56 @@ const getById = async (req, res, next) => {
 };
 
 /**
- * Create school group
- * POST /:institutionId/groups
+ * Create school group - DEPRECATED
+ * Groups are now derived from student_acceptances
  */
 const create = async (req, res, next) => {
-  try {
-    const { institutionId } = req.params;
-    const { session_id, school_id, group_number, max_count } = req.body;
-
-    // Verify school belongs to institution
-    const schools = await query(
-      `SELECT isv.id, ms.name 
-       FROM institution_schools isv
-       JOIN master_schools ms ON isv.master_school_id = ms.id
-       WHERE isv.id = ? AND isv.institution_id = ?`,
-      [school_id, parseInt(institutionId)]
-    );
-    if (schools.length === 0) {
-      throw new ValidationError('Invalid school ID');
-    }
-
-    // Verify session belongs to institution
-    const sessions = await query(
-      'SELECT id FROM academic_sessions WHERE id = ? AND institution_id = ?',
-      [session_id, parseInt(institutionId)]
-    );
-    if (sessions.length === 0) {
-      throw new ValidationError('Invalid session ID');
-    }
-
-    // Check for duplicate group number
-    const existing = await query(
-      `SELECT id FROM school_groups 
-       WHERE institution_school_id = ? AND group_number = ? AND session_id = ? AND institution_id = ?`,
-      [school_id, group_number, session_id, parseInt(institutionId)]
-    );
-    if (existing.length > 0) {
-      throw new ConflictError('A group with this number already exists for this school');
-    }
-
-    const result = await query(
-      `INSERT INTO school_groups (institution_id, session_id, institution_school_id, group_number, max_count, current_count)
-       VALUES (?, ?, ?, ?, ?, 0)`,
-      [parseInt(institutionId), session_id, school_id, group_number, max_count || 30]
-    );
-
-    // Audit log
-    await query(
-      `INSERT INTO audit_logs (institution_id, user_id, user_type, action, resource_type, resource_id, details, ip_address)
-       VALUES (?, ?, 'staff', 'group_created', 'school_group', ?, ?, ?)`,
-      [parseInt(institutionId), req.user.id, result.insertId, 
-       JSON.stringify({ school_name: schools[0].name, group_number }), req.ip]
-    );
-
-    res.status(201).json({
-      success: true,
-      message: 'Group created successfully',
-      data: { id: result.insertId },
-    });
-  } catch (error) {
-    next(error);
-  }
+  res.status(400).json({
+    success: false,
+    message: 'Creating groups is no longer supported. Groups are derived from student acceptances.',
+  });
 };
 
 /**
- * Update group
- * PUT /:institutionId/groups/:id
+ * Update group - DEPRECATED
  */
 const update = async (req, res, next) => {
-  try {
-    const { institutionId, id } = req.params;
-    const { max_count, group_number } = req.body;
-
-    // Check group exists
-    const existing = await query(
-      'SELECT id, institution_school_id, session_id, current_count FROM school_groups WHERE id = ? AND institution_id = ?',
-      [parseInt(id), parseInt(institutionId)]
-    );
-
-    if (existing.length === 0) {
-      throw new NotFoundError('Group not found');
-    }
-
-    const group = existing[0];
-
-    // Check for duplicate if changing group number
-    if (group_number !== undefined) {
-      const duplicate = await query(
-        `SELECT id FROM school_groups 
-         WHERE institution_school_id = ? AND group_number = ? AND session_id = ? 
-           AND institution_id = ? AND id != ?`,
-        [group.institution_school_id, group_number, group.session_id, parseInt(institutionId), parseInt(id)]
-      );
-      if (duplicate.length > 0) {
-        throw new ConflictError('A group with this number already exists for this school');
-      }
-    }
-
-    // Validate max_count
-    if (max_count !== undefined && max_count < group.current_count) {
-      throw new ValidationError(`Max count cannot be less than current count (${group.current_count})`);
-    }
-
-    // Build update
-    const updates = [];
-    const params = [];
-
-    if (max_count !== undefined) {
-      updates.push('max_count = ?');
-      params.push(max_count);
-    }
-    if (group_number !== undefined) {
-      updates.push('group_number = ?');
-      params.push(group_number);
-    }
-
-    if (updates.length === 0) {
-      throw new ValidationError('No updates provided');
-    }
-
-    updates.push('updated_at = NOW()');
-    params.push(parseInt(id), parseInt(institutionId));
-
-    await query(
-      `UPDATE school_groups SET ${updates.join(', ')} WHERE id = ? AND institution_id = ?`,
-      params
-    );
-
-    res.json({
-      success: true,
-      message: 'Group updated successfully',
-    });
-  } catch (error) {
-    next(error);
-  }
+  res.status(400).json({
+    success: false,
+    message: 'Updating groups is no longer supported. Groups are derived from student acceptances.',
+  });
 };
 
 /**
- * Delete group
- * DELETE /:institutionId/groups/:id
+ * Delete group - DEPRECATED
  */
 const remove = async (req, res, next) => {
-  try {
-    const { institutionId, id } = req.params;
-
-    const existing = await query(
-      'SELECT id, current_count FROM school_groups WHERE id = ? AND institution_id = ?',
-      [parseInt(id), parseInt(institutionId)]
-    );
-
-    if (existing.length === 0) {
-      throw new NotFoundError('Group not found');
-    }
-
-    if (existing[0].current_count > 0) {
-      throw new ValidationError('Cannot delete group with students. Remove students first.');
-    }
-
-    await query(
-      'DELETE FROM school_groups WHERE id = ? AND institution_id = ?',
-      [parseInt(id), parseInt(institutionId)]
-    );
-
-    res.json({
-      success: true,
-      message: 'Group deleted successfully',
-    });
-  } catch (error) {
-    next(error);
-  }
+  res.status(400).json({
+    success: false,
+    message: 'Deleting groups is no longer supported. Groups are derived from student acceptances.',
+  });
 };
 
 /**
- * Add students to group
- * POST /:institutionId/groups/:id/students
+ * Add students to group - DEPRECATED
+ * Use student acceptance creation instead
  */
 const addStudents = async (req, res, next) => {
-  try {
-    const { institutionId, id } = req.params;
-    const { student_ids } = req.body;
-
-    // Get group
-    const groups = await query(
-      `SELECT sg.*, ms.name as school_name 
-       FROM school_groups sg
-       JOIN institution_schools isv ON sg.institution_school_id = isv.id
-       JOIN master_schools ms ON isv.master_school_id = ms.id
-       WHERE sg.id = ? AND sg.institution_id = ?`,
-      [parseInt(id), parseInt(institutionId)]
-    );
-
-    if (groups.length === 0) {
-      throw new NotFoundError('Group not found');
-    }
-
-    const group = groups[0];
-
-    // Check capacity
-    const newCount = group.current_count + student_ids.length;
-    if (newCount > group.max_count) {
-      throw new ValidationError(
-        `Cannot add ${student_ids.length} students. Would exceed max capacity of ${group.max_count}. ` +
-        `Current: ${group.current_count}, Available: ${group.max_count - group.current_count}`
-      );
-    }
-
-    // Verify students belong to institution
-    const students = await query(
-      `SELECT id, full_name FROM students 
-       WHERE id IN (${student_ids.map(() => '?').join(',')}) AND institution_id = ?`,
-      [...student_ids, parseInt(institutionId)]
-    );
-
-    if (students.length !== student_ids.length) {
-      throw new ValidationError('Some students not found or do not belong to this institution');
-    }
-
-    // Add students via student_acceptances (or update existing)
-    await transaction(async (conn) => {
-      for (const studentId of student_ids) {
-        // Check if acceptance exists
-        const [existing] = await conn.execute(
-          `SELECT id FROM student_acceptances 
-           WHERE student_id = ? AND session_id = ? AND institution_id = ?`,
-          [studentId, group.session_id, parseInt(institutionId)]
-        );
-
-        if (existing.length > 0) {
-          // Update existing
-          await conn.execute(
-            `UPDATE student_acceptances 
-             SET institution_school_id = ?, group_number = ?, updated_at = NOW()
-             WHERE student_id = ? AND session_id = ? AND institution_id = ?`,
-            [group.institution_school_id, group.group_number, studentId, group.session_id, parseInt(institutionId)]
-          );
-        } else {
-          // Create new
-          await conn.execute(
-            `INSERT INTO student_acceptances 
-             (institution_id, session_id, student_id, institution_school_id, group_number, status)
-             VALUES (?, ?, ?, ?, ?, 'pending')`,
-            [parseInt(institutionId), group.session_id, studentId, group.institution_school_id, group.group_number]
-          );
-        }
-      }
-
-      // Update group count
-      await conn.execute(
-        'UPDATE school_groups SET current_count = current_count + ? WHERE id = ?',
-        [student_ids.length, parseInt(id)]
-      );
-    });
-
-    res.json({
-      success: true,
-      message: `${student_ids.length} student(s) added to group successfully`,
-    });
-  } catch (error) {
-    next(error);
-  }
+  res.status(400).json({
+    success: false,
+    message: 'Use student acceptance creation to add students to groups.',
+  });
 };
 
 /**
- * Remove students from group
- * DELETE /:institutionId/groups/:id/students
+ * Remove students from group - DEPRECATED  
+ * Use student acceptance deletion instead
  */
 const removeStudents = async (req, res, next) => {
-  try {
-    const { institutionId, id } = req.params;
-    const { student_ids } = req.body;
-
-    // Get group
-    const groups = await query(
-      'SELECT * FROM school_groups WHERE id = ? AND institution_id = ?',
-      [parseInt(id), parseInt(institutionId)]
-    );
-
-    if (groups.length === 0) {
-      throw new NotFoundError('Group not found');
-    }
-
-    const group = groups[0];
-
-    // Remove students from acceptances
-    await transaction(async (conn) => {
-      const [result] = await conn.execute(
-        `DELETE FROM student_acceptances 
-         WHERE student_id IN (${student_ids.map(() => '?').join(',')})
-           AND institution_school_id = ? AND group_number = ?
-           AND session_id = ? AND institution_id = ?`,
-        [...student_ids, group.institution_school_id, group.group_number, group.session_id, parseInt(institutionId)]
-      );
-
-      const removedCount = result.affectedRows;
-
-      // Update group count
-      if (removedCount > 0) {
-        await conn.execute(
-          'UPDATE school_groups SET current_count = GREATEST(current_count - ?, 0) WHERE id = ?',
-          [removedCount, parseInt(id)]
-        );
-      }
-    });
-
-    res.json({
-      success: true,
-      message: 'Students removed from group successfully',
-    });
-  } catch (error) {
-    next(error);
-  }
+  res.status(400).json({
+    success: false,
+    message: 'Use student acceptance deletion to remove students from groups.',
+  });
 };
 
 /**
@@ -711,38 +464,6 @@ const assignStudentGroup = async (req, res, next) => {
        WHERE institution_id = ? AND student_id = ? AND institution_school_id = ? AND session_id = ?`,
       [parseInt(group_number), parseInt(institutionId), parseInt(student_id), parseInt(school_id), parseInt(session_id)]
     );
-
-    // Update school_groups counts if they exist
-    // Decrement old group
-    await query(
-      `UPDATE school_groups 
-       SET current_count = GREATEST(current_count - 1, 0)
-       WHERE institution_id = ? AND institution_school_id = ? AND session_id = ? AND group_number = ?`,
-      [parseInt(institutionId), parseInt(school_id), parseInt(session_id), parseInt(oldGroupNumber)]
-    );
-
-    // Increment new group (or create if doesn't exist)
-    const existingNewGroup = await query(
-      `SELECT id FROM school_groups 
-       WHERE institution_id = ? AND institution_school_id = ? AND session_id = ? AND group_number = ?`,
-      [parseInt(institutionId), parseInt(school_id), parseInt(session_id), parseInt(group_number)]
-    );
-
-    if (existingNewGroup.length > 0) {
-      await query(
-        `UPDATE school_groups 
-         SET current_count = current_count + 1
-         WHERE institution_id = ? AND institution_school_id = ? AND session_id = ? AND group_number = ?`,
-        [parseInt(institutionId), parseInt(school_id), parseInt(session_id), parseInt(group_number)]
-      );
-    } else {
-      // Create new group
-      await query(
-        `INSERT INTO school_groups (institution_id, session_id, institution_school_id, group_number, max_count, current_count)
-         VALUES (?, ?, ?, ?, 30, 1)`,
-        [parseInt(institutionId), parseInt(session_id), parseInt(school_id), parseInt(group_number)]
-      );
-    }
 
     // Audit log
     await query(

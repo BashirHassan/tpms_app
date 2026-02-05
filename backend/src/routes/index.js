@@ -80,6 +80,7 @@ const userRoutes = require('./users');
 const dashboardRoutes = require('./dashboard');
 const deanAllocationRoutes = require('./deanAllocations');
 const locationTrackingRoutes = require('./locationTracking');
+const autoPostingRoutes = require('./autoPosting');
 
 // =============================================================================
 // API INFO ENDPOINT (no auth)
@@ -114,6 +115,7 @@ router.get('/', (req, res) => {
       acceptances: '/api/:institutionId/acceptances',
       portal: '/api/portal/* (student auth)',
       postings: '/api/:institutionId/postings',
+      autoPosting: '/api/:institutionId/auto-posting/* (automated supervisor posting)',
       allowances: '/api/:institutionId/allowances',
       letters: '/api/:institutionId/letters',
       monitoring: '/api/:institutionId/monitoring/*',
@@ -202,6 +204,9 @@ router.use('/', acceptanceRoutes);
 
 // Supervisor postings
 router.use('/', postingRoutes);
+
+// Automated supervisor posting
+router.use('/', autoPostingRoutes);
 
 // Allowances
 router.use('/', allowanceRoutes);

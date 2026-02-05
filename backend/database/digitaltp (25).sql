@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jan 24, 2026 at 02:37 PM
+-- Generation Time: Feb 04, 2026 at 02:53 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -669,7 +669,58 @@ INSERT INTO `audit_logs` (`id`, `institution_id`, `user_id`, `user_type`, `actio
 (560, NULL, 1, 'staff', 'logout', 'auth', NULL, '{\"session_id\":\"bda73c4e-b862-4519-965c-5ccbe17823cd\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-24 13:27:07', NULL),
 (561, 1, 2, 'staff', 'login_success', 'auth', NULL, '{\"session_id\":\"c11a9ab2-0c27-41b5-adb7-0b0cb231b312\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-24 13:27:13', NULL),
 (562, 1, 32, 'staff', 'logout', 'auth', NULL, '{\"session_id\":\"6b8d58c9-b3f7-4d62-8b61-71cabd6df663\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-24 13:33:15', NULL),
-(563, 1, 32, 'staff', 'login_success', 'auth', NULL, '{\"session_id\":\"716fcfa1-2c53-452a-a441-754fbd3ff2ab\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-24 13:33:18', NULL);
+(563, 1, 32, 'staff', 'login_success', 'auth', NULL, '{\"session_id\":\"716fcfa1-2c53-452a-a441-754fbd3ff2ab\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-24 13:33:18', NULL),
+(564, 1, 2, 'staff', 'logout', 'auth', NULL, '{\"session_id\":\"c11a9ab2-0c27-41b5-adb7-0b0cb231b312\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-25 15:21:13', NULL),
+(565, 1, 2, 'staff', 'logout', 'auth', NULL, '{\"session_id\":\"c11a9ab2-0c27-41b5-adb7-0b0cb231b312\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-25 15:21:16', NULL),
+(566, NULL, 1, 'staff', 'login_success', 'auth', NULL, '{\"session_id\":\"a6c8ac20-6a4a-42a3-a60c-eb3c98adeca5\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-26 16:11:08', NULL),
+(567, NULL, NULL, 'student', 'login_failed', 'auth', NULL, '{\"reason\":\"no_subdomain\",\"attempted_subdomain\":\"admin\",\"registration_number\":\"SUPER_ADMIN@GMAIL.COM\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 10:40:20', NULL),
+(568, NULL, NULL, 'student', 'login_failed', 'auth', NULL, '{\"reason\":\"no_subdomain\",\"attempted_subdomain\":\"admin\",\"registration_number\":\"SUPER_ADMIN@GMAIL.COM\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 10:40:43', NULL),
+(569, NULL, 1, 'staff', 'logout', 'auth', NULL, '{\"session_id\":\"a6c8ac20-6a4a-42a3-a60c-eb3c98adeca5\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 14:06:41', NULL),
+(570, NULL, 1, 'staff', 'login_success', 'auth', NULL, '{\"session_id\":\"14b4dbd2-b5bf-4e05-93f7-c09def11adab\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 14:06:43', NULL),
+(571, NULL, 1, 'staff', 'login_success', 'auth', NULL, '{\"session_id\":\"7929bfb0-8751-4a3b-bd60-dd8c6a12efe2\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 16:51:26', NULL),
+(572, NULL, 1, 'staff', 'logout', 'auth', NULL, '{\"session_id\":\"7929bfb0-8751-4a3b-bd60-dd8c6a12efe2\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 16:51:29', NULL),
+(573, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"f886c40e-0f4b-4923-a148-b7f0b6456917\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 16:54:36', NULL),
+(574, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"5ded6478-20cd-4a50-8572-4975faca8560\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 16:54:51', NULL),
+(575, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"ca793899-5155-4a4b-bc9d-b98fbcd2ec00\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 16:55:23', NULL),
+(576, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"003872ae-2599-4086-8bca-588325a23d8e\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 16:55:26', NULL),
+(577, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"31d3be3e-62be-4c65-a94c-3a6f44f4ac45\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:03:04', NULL),
+(578, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"d38c349a-283a-455c-b000-927cc0c88a96\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:03:59', NULL),
+(579, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"463f1b22-75af-4e2b-9b27-1c95ae50aa27\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:12:10', NULL),
+(580, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"6d7f9e3a-d09b-4a5b-8ef3-1a3b7a12a941\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:13:21', NULL),
+(581, NULL, 1, 'staff', 'logout', 'auth', NULL, '{\"session_id\":\"6d7f9e3a-d09b-4a5b-8ef3-1a3b7a12a941\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:36:55', NULL),
+(582, NULL, 1, 'staff', 'logout', 'auth', NULL, '{\"session_id\":\"463f1b22-75af-4e2b-9b27-1c95ae50aa27\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:36:58', NULL),
+(583, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"17a68e4d-e49a-4e06-b1eb-ab0f11ee37b9\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:37:38', NULL),
+(584, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"60ede577-9ec2-4123-80ee-40c5a1267313\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:37:47', NULL),
+(585, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"d070b591-d422-48b4-856b-f94873e243b7\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:37:59', NULL),
+(586, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"e849e96d-b21e-4288-9d46-e73aa0598ba7\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:38:21', NULL),
+(587, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"3007d0f3-40e0-42a2-8ba4-30971a916e3e\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:38:24', NULL),
+(588, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"775fa649-5f3c-4fc4-b851-b780295e0d49\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:39:26', NULL),
+(589, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"737a58c6-4aca-4129-adcb-f02e5695717d\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:39:42', NULL),
+(590, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"46f93537-e08f-4452-88e8-b84334ed512e\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:52:34', NULL),
+(591, NULL, 1, 'staff', 'sso_login', 'auth', NULL, '{\"session_id\":\"7cd69860-6f3c-4bc7-b25f-fe02706c2d7e\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-01-27 17:52:46', NULL),
+(592, NULL, 1, 'staff', 'login_success', 'auth', NULL, '{\"session_id\":\"fefeba86-c52f-4f99-a7ae-3216d3c77bfd\"}', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-02-04 13:50:16', NULL);
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `auto_posting_batches`
+--
+
+CREATE TABLE `auto_posting_batches` (
+  `id` bigint(20) NOT NULL,
+  `institution_id` bigint(20) NOT NULL,
+  `session_id` bigint(20) NOT NULL,
+  `initiated_by` bigint(20) DEFAULT NULL COMMENT 'User who initiated the auto-posting',
+  `criteria` longtext NOT NULL COMMENT 'JSON: posting criteria used (number_of_postings, posting_type, priority_enabled, faculty_id)',
+  `total_postings_created` int(11) DEFAULT 0,
+  `total_supervisors_posted` int(11) DEFAULT 0,
+  `status` enum('pending','processing','completed','failed','rolled_back') DEFAULT 'pending',
+  `error_message` text DEFAULT NULL,
+  `started_at` timestamp NULL DEFAULT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -1334,19 +1385,20 @@ CREATE TABLE `institutions` (
   `favicon_url` varchar(500) DEFAULT NULL COMMENT 'Favicon for browser tab',
   `login_background_url` varchar(500) DEFAULT NULL COMMENT 'Custom login page background',
   `tagline` varchar(255) DEFAULT NULL COMMENT 'Institution tagline for login page',
-  `tp_unit_name` varchar(255) DEFAULT 'Teaching Practice Coordination Unit' COMMENT 'Name of the Teaching Practice unit displayed on documents'
+  `tp_unit_name` varchar(255) DEFAULT 'Teaching Practice Coordination Unit' COMMENT 'Name of the Teaching Practice unit displayed on documents',
+  `sso_enabled` tinyint(1) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- Dumping data for table `institutions`
 --
 
-INSERT INTO `institutions` (`id`, `name`, `code`, `subdomain`, `institution_type`, `email`, `phone`, `address`, `state`, `location`, `logo_url`, `primary_color`, `secondary_color`, `smtp_host`, `smtp_port`, `smtp_secure`, `smtp_user`, `smtp_password`, `smtp_from_name`, `smtp_from_email`, `maintenance_mode`, `maintenance_message`, `allow_student_portal`, `require_pin_change`, `session_timeout_minutes`, `payment_type`, `payment_base_amount`, `payment_currency`, `payment_allow_partial`, `payment_minimum_percentage`, `payment_program_pricing`, `paystack_public_key`, `paystack_secret_key`, `paystack_split_code`, `payment_enabled`, `status`, `created_at`, `updated_at`, `favicon_url`, `login_background_url`, `tagline`, `tp_unit_name`) VALUES
-(1, 'Demo College of Education', 'DEMOCOE', 'demo', 'college_of_education', 'info@demofce.com', '09088337345', 'Alhajiyel Plaza, Opposite APC Square, Along Bauchi Road Gombe', 'Gombe', NULL, 'https://res.cloudinary.com/dh3diz0fc/image/upload/v1767335788/digitaltp/logos/DEMOCOE/logo-1767335786604.png', '#1a5f2a', '#8b4513', 'smtp.titan.email', 465, 1, 'cloudmail@sistpms.com', 'X+qnEKavkAU6wiSewA9eNQ==:Hp8sc4MNV5txRTO6b4myhw==:rDWLbaVBfJOuIfDIPZEQVfk=', 'DigitalTP App', 'cloudmail@sistpms.com', 0, '', 1, 1, 1440, 'per_student', 5000.00, 'NGN', 0, 50.00, '{\"1\":0,\"2\":0,\"3\":0,\"4\":0,\"5\":0}', '5ih0EdPc9qgJVKGyJLTpFg==:qHUgcnoBfmDHk2mzJEzK0Q==:I2HC4NTYe/Lcxj/QpLWbc9ygKTzZ2locxLqDtnOBGmOCO7/qPOX4V1lKuNf0A+Ot', 'ocU+jV3DAuSeR/b3BTHyww==:kEhy+4R+Sfn0YZC8OALHjg==:1ZQqQiB2ctP7bVAhY6re5+14ah5xPAvCVC/7Plzqe5zPywPW8J3EuFjIqGU+kU0n', '', 1, 'active', '2025-12-20 12:51:12', '2026-01-20 15:59:15', NULL, NULL, NULL, 'Directorate of Teaching Practice'),
-(6, 'Federal College of Education (Technical) Gombe', 'FCETGOMBE', 'fcetgombe', 'college_of_education', 'info@fcetgombe.edu.ng', '08099382273', 'Alhajiyel Plaza, Opposite APC Square, Along Bauchi Road Gombe', 'Gombe', NULL, 'https://res.cloudinary.com/dh3diz0fc/image/upload/v1767336688/digitaltp/logos/FCETGOMBE/logo-1767336684307.png', '#1a5f2a', '#8b4513', NULL, 465, 1, NULL, NULL, NULL, NULL, 0, NULL, 1, 1, 1440, 'per_session', 0.00, 'NGN', 0, 100.00, NULL, NULL, NULL, NULL, 0, 'active', '2026-01-02 07:00:29', '2026-01-02 07:00:29', NULL, NULL, NULL, 'Teaching Practice Coordination Unit'),
-(7, 'Federal University Kashere', 'FUK', 'fuk', 'university', '', NULL, NULL, NULL, NULL, NULL, '#1a5f2a', '#8b4513', NULL, 465, 1, NULL, NULL, NULL, NULL, 0, NULL, 1, 1, 1440, 'per_student', 0.00, 'NGN', 0, 100.00, NULL, NULL, NULL, NULL, 0, 'active', '2026-01-02 09:56:52', '2026-01-02 09:57:24', NULL, NULL, 'Excellence in Education', 'Teaching Practice Coordination Unit'),
-(8, 'Gombe State University', 'GSU', 'gsu', 'university', '', NULL, NULL, NULL, NULL, NULL, '#1e40af', '#f59e0b', NULL, 465, 1, NULL, NULL, NULL, NULL, 0, NULL, 1, 1, 1440, 'per_student', 0.00, 'NGN', 0, 100.00, NULL, NULL, NULL, NULL, 0, 'active', '2026-01-02 09:56:52', '2026-01-02 09:57:31', NULL, NULL, 'Knowledge for Development', 'Teaching Practice Coordination Unit'),
-(9, 'FCE Technical Gombe', 'FCETG', 'fcetg', 'college_of_education', '', NULL, NULL, NULL, NULL, NULL, '#7c3aed', '#10b981', NULL, 465, 1, NULL, NULL, NULL, NULL, 0, NULL, 1, 1, 1440, 'per_student', 0.00, 'NGN', 0, 100.00, NULL, NULL, NULL, NULL, 0, 'active', '2026-01-02 09:56:52', '2026-01-19 12:29:49', NULL, NULL, 'Technical Excellence', 'Teaching Practice Coordination Unit');
+INSERT INTO `institutions` (`id`, `name`, `code`, `subdomain`, `institution_type`, `email`, `phone`, `address`, `state`, `location`, `logo_url`, `primary_color`, `secondary_color`, `smtp_host`, `smtp_port`, `smtp_secure`, `smtp_user`, `smtp_password`, `smtp_from_name`, `smtp_from_email`, `maintenance_mode`, `maintenance_message`, `allow_student_portal`, `require_pin_change`, `session_timeout_minutes`, `payment_type`, `payment_base_amount`, `payment_currency`, `payment_allow_partial`, `payment_minimum_percentage`, `payment_program_pricing`, `paystack_public_key`, `paystack_secret_key`, `paystack_split_code`, `payment_enabled`, `status`, `created_at`, `updated_at`, `favicon_url`, `login_background_url`, `tagline`, `tp_unit_name`, `sso_enabled`) VALUES
+(1, 'Demo College of Education', 'DEMOCOE', 'demo', 'college_of_education', 'info@demofce.com', '09088337345', 'Alhajiyel Plaza, Opposite APC Square, Along Bauchi Road Gombe', 'Gombe', NULL, 'https://res.cloudinary.com/dh3diz0fc/image/upload/v1767335788/digitaltp/logos/DEMOCOE/logo-1767335786604.png', '#1a5f2a', '#8b4513', 'smtp.titan.email', 465, 1, 'cloudmail@sistpms.com', 'X+qnEKavkAU6wiSewA9eNQ==:Hp8sc4MNV5txRTO6b4myhw==:rDWLbaVBfJOuIfDIPZEQVfk=', 'DigitalTP App', 'cloudmail@sistpms.com', 0, '', 1, 1, 1440, 'per_student', 5000.00, 'NGN', 0, 50.00, '{\"1\":0,\"2\":0,\"3\":0,\"4\":0,\"5\":0}', '5ih0EdPc9qgJVKGyJLTpFg==:qHUgcnoBfmDHk2mzJEzK0Q==:I2HC4NTYe/Lcxj/QpLWbc9ygKTzZ2locxLqDtnOBGmOCO7/qPOX4V1lKuNf0A+Ot', 'ocU+jV3DAuSeR/b3BTHyww==:kEhy+4R+Sfn0YZC8OALHjg==:1ZQqQiB2ctP7bVAhY6re5+14ah5xPAvCVC/7Plzqe5zPywPW8J3EuFjIqGU+kU0n', '', 1, 'active', '2025-12-20 12:51:12', '2026-01-27 16:43:13', NULL, NULL, NULL, 'Directorate of Teaching Practice', 1),
+(6, 'Federal College of Education (Technical) Gombe', 'FCETGOMBE', 'fcetgombe', 'college_of_education', 'info@fcetgombe.edu.ng', '08099382273', 'Alhajiyel Plaza, Opposite APC Square, Along Bauchi Road Gombe', 'Gombe', NULL, 'https://res.cloudinary.com/dh3diz0fc/image/upload/v1767336688/digitaltp/logos/FCETGOMBE/logo-1767336684307.png', '#1a5f2a', '#8b4513', NULL, 465, 1, NULL, NULL, NULL, NULL, 0, NULL, 1, 1, 1440, 'per_session', 0.00, 'NGN', 0, 100.00, NULL, NULL, NULL, NULL, 0, 'active', '2026-01-02 07:00:29', '2026-01-02 07:00:29', NULL, NULL, NULL, 'Teaching Practice Coordination Unit', 0),
+(7, 'Federal University Kashere', 'FUK', 'fuk', 'university', '', NULL, NULL, NULL, NULL, NULL, '#1a5f2a', '#8b4513', NULL, 465, 1, NULL, NULL, NULL, NULL, 0, NULL, 1, 1, 1440, 'per_student', 0.00, 'NGN', 0, 100.00, NULL, NULL, NULL, NULL, 0, 'active', '2026-01-02 09:56:52', '2026-01-02 09:57:24', NULL, NULL, 'Excellence in Education', 'Teaching Practice Coordination Unit', 0),
+(8, 'Gombe State University', 'GSU', 'gsu', 'university', '', NULL, NULL, NULL, NULL, NULL, '#1e40af', '#f59e0b', NULL, 465, 1, NULL, NULL, NULL, NULL, 0, NULL, 1, 1, 1440, 'per_student', 0.00, 'NGN', 0, 100.00, NULL, NULL, NULL, NULL, 0, 'active', '2026-01-02 09:56:52', '2026-01-02 09:57:31', NULL, NULL, 'Knowledge for Development', 'Teaching Practice Coordination Unit', 0),
+(9, 'FCE Technical Gombe', 'FCETG', 'fcetg', 'college_of_education', '', NULL, NULL, NULL, NULL, NULL, '#7c3aed', '#10b981', NULL, 465, 1, NULL, NULL, NULL, NULL, 0, NULL, 1, 1, 1440, 'per_student', 0.00, 'NGN', 0, 100.00, NULL, NULL, NULL, NULL, 0, 'active', '2026-01-02 09:56:52', '2026-01-19 12:29:49', NULL, NULL, 'Technical Excellence', 'Teaching Practice Coordination Unit', 0);
 
 -- --------------------------------------------------------
 
@@ -1611,7 +1663,8 @@ INSERT INTO `institution_schools` (`id`, `institution_id`, `master_school_id`, `
 (7, 1, 7, 2, 'outside', 22.00, 28, 100, 'active', NULL, '2025-12-20 14:11:53', '2025-12-22 06:05:07'),
 (8, 1, 8, 2, 'outside', 18.00, 45, 100, 'active', NULL, '2025-12-20 14:11:53', '2025-12-21 12:56:50'),
 (9, 1, 9, 1, 'inside', 5.00, 50, 100, 'active', NULL, '2025-12-25 13:48:33', '2025-12-25 13:48:33'),
-(10, 1, 10, 2, 'outside', 100.00, 30, 1000, 'active', NULL, '2025-12-25 16:17:26', '2025-12-29 14:36:58');
+(10, 1, 10, 2, 'outside', 35.00, 30, 1000, 'active', NULL, '2025-12-25 16:17:26', '2026-01-25 15:08:48'),
+(16, 7, 10, 14, 'outside', 45.00, 100, 1000, 'active', NULL, '2026-01-27 17:17:32', '2026-01-27 17:17:32');
 
 -- --------------------------------------------------------
 
@@ -1659,8 +1712,8 @@ INSERT INTO `master_schools` (`id`, `name`, `official_code`, `school_type`, `cat
 (6, 'Ogun State College', 'OSC-ABK', 'senior', 'public', 'Ogun', 'Abeokuta South', 'Abeokuta', NULL, NULL, 'Alhaji Yusuf Adebisi', '08067890123', NULL, NULL, NULL, 1, '2026-01-17 08:07:38', NULL, 1, NULL, 'active', NULL, '2025-12-20 14:11:53', '2026-01-17 08:07:38'),
 (7, 'Unity Secondary School', 'USS-AGG', 'senior', 'private', 'Lagos', 'Agege', 'Agege', NULL, NULL, 'Mr. Taiwo Ogundimu', '08078901234', NULL, NULL, NULL, 1, '2026-01-17 08:07:42', NULL, 1, NULL, 'active', NULL, '2025-12-20 14:11:53', '2026-01-17 08:07:42'),
 (8, 'Comprehensive High School', 'CHS-SUR', 'both', 'public', 'Lagos', 'Surulere', 'Surulere', NULL, NULL, 'Mrs. Ngozi Ibe', '08089012345', NULL, NULL, NULL, 1, '2026-01-17 08:07:27', NULL, 1, NULL, 'active', NULL, '2025-12-20 14:11:53', '2026-01-17 08:07:27'),
-(9, 'Government Science Secondary School Gombe', 'GJSS', 'senior', 'public', 'Gombe', 'Gombe', 'Jeka Dafari', 'Opposite APC Square, Along Bauchi Road Gombe', 0x000000000101000000c3f7276e91932440d2745bba64512640, 'Musa Adam', '08088272622', NULL, NULL, NULL, 1, '2026-01-17 08:07:31', NULL, 1, NULL, 'active', NULL, '2025-12-25 13:48:33', '2026-01-17 14:00:56'),
-(10, 'Central Primary School kumo', 'CPS-KUMO', 'primary', 'public', 'Gombe', 'Akko', 'Gombe', 'Opposite APC Square, Along Bauchi Road Gombe', 0x000000000101000000ec4d0cc9c96c26401b9e5e29cb182440, 'ABUBAKAR ADAMU', '08073635334', NULL, NULL, NULL, 1, '2026-01-17 08:07:12', NULL, 1, NULL, 'active', NULL, '2025-12-25 16:17:26', '2026-01-17 08:07:12'),
+(9, 'Government Science Secondary School Gombe', 'GJSS', 'senior', 'public', 'Gombe', 'Gombe', 'Jeka Dafari', 'Opposite APC Square, Along Bauchi Road Gombe', 0x000000000101000000eec4ec0d3c9324407fd0706b83502640, 'Musa Adam', '08088272622', NULL, NULL, NULL, 1, '2026-01-17 08:07:31', NULL, 1, NULL, 'active', NULL, '2025-12-25 13:48:33', '2026-01-24 19:05:03'),
+(10, 'Central Primary School kumo', 'CPS-KUMO', 'primary', 'public', 'Gombe', 'Akko', 'Gombe', 'Opposite APC Square, Along Bauchi Road Gombe', 0x00000000010100000037dd0577c3182440d013e4a5cd6c2640, 'ABUBAKAR ADAMU', '08073635334', NULL, NULL, NULL, 1, '2026-01-17 08:07:12', NULL, 1, NULL, 'active', NULL, '2025-12-25 16:17:26', '2026-01-24 16:33:23'),
 (16, 'Government Secondary School Kaduna', 'GSS001', 'senior', 'public', 'Kaduna', 'Kaduna North', 'Unguwan Sarki', '123 School Road, Kaduna', 0x000000000101000000b8af03e78c0825405d6dc5feb2bb1d40, 'Mr. John Doe', '08012345678', NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL, 'active', NULL, '2026-01-23 07:00:24', '2026-01-23 07:00:24');
 
 -- --------------------------------------------------------
@@ -1801,6 +1854,7 @@ CREATE TABLE `ranks` (
   `dsa` decimal(10,2) DEFAULT 0.00 COMMENT 'Daily Subsistence Allowance',
   `dta` decimal(10,2) DEFAULT 0.00 COMMENT 'Daily Transport Allowance',
   `tetfund` decimal(10,2) DEFAULT 0.00 COMMENT 'TETFUND Allowance',
+  `priority_number` int(11) NOT NULL DEFAULT 99 COMMENT 'Priority for auto-posting: 1=highest, larger=lower priority. Higher priority supervisors get assigned first and receive longest distance schools',
   `other_allowances` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'Additional allowances as JSON array' CHECK (json_valid(`other_allowances`)),
   `status` enum('active','inactive') DEFAULT 'active',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
@@ -1811,14 +1865,14 @@ CREATE TABLE `ranks` (
 -- Dumping data for table `ranks`
 --
 
-INSERT INTO `ranks` (`id`, `institution_id`, `name`, `code`, `local_running_allowance`, `transport_per_km`, `dsa`, `dta`, `tetfund`, `other_allowances`, `status`, `created_at`, `updated_at`) VALUES
-(1, 1, 'Chief Lecturer', 'CL', 5000.00, 140.00, 11250.00, 37500.00, 151250.00, NULL, 'active', '2025-12-22 06:28:58', '2025-12-22 06:28:58'),
-(2, 1, 'Principal Lecturer', 'PL', 5000.00, 140.00, 7500.00, 25000.00, 102500.00, NULL, 'active', '2025-12-22 06:28:58', '2025-12-22 06:28:58'),
-(3, 1, 'Senior Lecturer', 'SL', 5000.00, 140.00, 7500.00, 25000.00, 102500.00, NULL, 'active', '2025-12-22 06:28:58', '2025-12-22 06:28:58'),
-(4, 1, 'Lecturer I', 'LI', 5000.00, 140.00, 6000.00, 20000.00, 83000.00, NULL, 'active', '2025-12-22 06:28:58', '2025-12-22 06:28:58'),
-(5, 1, 'Lecturer II', 'LII', 5000.00, 140.00, 6000.00, 20000.00, 83000.00, NULL, 'active', '2025-12-22 06:28:58', '2025-12-22 06:28:58'),
-(6, 1, 'Lecturer III', 'LIII', 5000.00, 140.00, 5250.00, 17500.00, 73250.00, NULL, 'active', '2025-12-22 06:28:58', '2025-12-22 06:28:58'),
-(7, 1, 'Assistant Lecturer', 'AL', 5000.00, 140.00, 5250.00, 17500.00, 73250.00, NULL, 'active', '2025-12-22 06:28:58', '2025-12-22 06:28:58');
+INSERT INTO `ranks` (`id`, `institution_id`, `name`, `code`, `local_running_allowance`, `transport_per_km`, `dsa`, `dta`, `tetfund`, `priority_number`, `other_allowances`, `status`, `created_at`, `updated_at`) VALUES
+(1, 1, 'Chief Lecturer', 'CL', 5000.00, 140.00, 11250.00, 37500.00, 151250.00, 1, NULL, 'active', '2025-12-22 06:28:58', '2026-02-03 12:53:04'),
+(2, 1, 'Principal Lecturer', 'PL', 5000.00, 140.00, 7500.00, 25000.00, 102500.00, 2, NULL, 'active', '2025-12-22 06:28:58', '2026-02-03 12:53:04'),
+(3, 1, 'Senior Lecturer', 'SL', 5000.00, 140.00, 7500.00, 25000.00, 102500.00, 3, NULL, 'active', '2025-12-22 06:28:58', '2026-02-03 12:53:04'),
+(4, 1, 'Lecturer I', 'LI', 5000.00, 140.00, 6000.00, 20000.00, 83000.00, 4, NULL, 'active', '2025-12-22 06:28:58', '2026-02-03 12:53:04'),
+(5, 1, 'Lecturer II', 'LII', 5000.00, 140.00, 6000.00, 20000.00, 83000.00, 5, NULL, 'active', '2025-12-22 06:28:58', '2026-02-03 12:53:04'),
+(6, 1, 'Lecturer III', 'LIII', 5000.00, 140.00, 5250.00, 17500.00, 73250.00, 6, NULL, 'active', '2025-12-22 06:28:58', '2026-02-03 12:53:04'),
+(7, 1, 'Assistant Lecturer', 'AL', 5000.00, 140.00, 5250.00, 17500.00, 73250.00, 7, NULL, 'active', '2025-12-22 06:28:58', '2026-02-03 12:53:04');
 
 -- --------------------------------------------------------
 
@@ -1845,7 +1899,9 @@ INSERT INTO `routes` (`id`, `institution_id`, `name`, `code`, `description`, `st
 (1, 1, 'Route A - Urban', 'ROUTE-A', 'Urban schools within city center', 'active', '2025-12-20 14:11:53', '2026-01-06 08:48:08'),
 (2, 1, 'Route B - Suburban', 'ROUTE-B', 'Schools in suburban areas', 'active', '2025-12-20 14:11:53', '2025-12-21 12:56:50'),
 (3, 1, 'Route C - Rural', 'ROUTE-C', 'Rural and distant schools', 'active', '2025-12-20 14:11:53', '2025-12-21 12:56:50'),
-(4, 1, 'Route D - Interstate', 'ROUTE-D', 'Schools in neighboring states', 'active', '2025-12-20 14:11:53', '2025-12-21 12:56:50');
+(4, 1, 'Route D - Interstate', 'ROUTE-D', 'Schools in neighboring states', 'active', '2025-12-20 14:11:53', '2025-12-21 12:56:50'),
+(14, 7, 'Yola Route A', 'YLR A', 'From rainbow cross to Kaltungo', 'active', '2026-01-27 17:15:54', '2026-01-27 17:15:54'),
+(15, 7, 'Yola Route B', 'YLR B', 'From Kaltungo to Bambam', 'active', '2026-01-27 17:16:36', '2026-01-27 17:16:36');
 
 -- --------------------------------------------------------
 
@@ -1981,6 +2037,53 @@ INSERT INTO `scoring_criteria` (`id`, `institution_id`, `session_id`, `name`, `l
 (4, 1, 1, 'student_engagement_score', 'Student Engagement', 'Effectiveness in engaging students in learning activities', 15.00, 4, 1, 2, NULL, '2025-12-25 20:05:44', '2025-12-26 05:42:08'),
 (5, 1, 1, 'teaching_aids_score', 'Teaching Aids', 'Use of appropriate instructional materials and resources', 10.00, 5, 1, 2, NULL, '2025-12-25 20:05:44', '2025-12-26 05:42:12'),
 (7, 1, 1, 'professionalism_score', 'Professionalism', 'Professional conduct, punctuality, and ethical behavior', 15.00, 7, 1, 2, NULL, '2025-12-25 20:05:44', '2025-12-26 05:42:19');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `sso_logs`
+--
+
+CREATE TABLE `sso_logs` (
+  `id` bigint(20) NOT NULL,
+  `institution_id` bigint(20) NOT NULL,
+  `partner_id` varchar(100) NOT NULL,
+  `user_type` enum('student','staff') NOT NULL,
+  `identifier` varchar(255) NOT NULL,
+  `status` enum('success','failed') NOT NULL,
+  `error_code` varchar(50) DEFAULT NULL,
+  `error_message` varchar(255) DEFAULT NULL,
+  `ip_address` varchar(45) DEFAULT NULL,
+  `user_agent` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `sso_partners`
+--
+
+CREATE TABLE `sso_partners` (
+  `id` bigint(20) NOT NULL,
+  `institution_id` bigint(20) NOT NULL,
+  `partner_id` varchar(100) NOT NULL,
+  `secret_key_hash` varchar(255) NOT NULL,
+  `secret_key_hint` varchar(10) DEFAULT NULL,
+  `name` varchar(255) DEFAULT NULL,
+  `allowed_origins` text DEFAULT NULL,
+  `is_enabled` tinyint(1) DEFAULT 1,
+  `created_by` bigint(20) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Dumping data for table `sso_partners`
+--
+
+INSERT INTO `sso_partners` (`id`, `institution_id`, `partner_id`, `secret_key_hash`, `secret_key_hint`, `name`, `allowed_origins`, `is_enabled`, `created_by`, `created_at`, `updated_at`) VALUES
+(2, 1, 'ptn_democoe_91196f39', 'ede66f4e50da6a9f98cfc8e932fbbf6a15c31236ea8286900aec73a6602749f6', 'ede6...49f', 'DEMOCOE SSO Integration', NULL, 1, 1, '2026-01-27 16:43:13', '2026-01-27 16:44:35');
 
 -- --------------------------------------------------------
 
@@ -2845,6 +2948,7 @@ CREATE TABLE `supervisor_postings` (
   `location_log_id` bigint(20) UNSIGNED DEFAULT NULL COMMENT 'Reference to the accepted location log',
   `status` enum('pending','active','completed','cancelled') NOT NULL DEFAULT 'pending',
   `posted_by` bigint(20) DEFAULT NULL,
+  `auto_posting_batch_id` bigint(20) DEFAULT NULL COMMENT 'Reference to auto_posting_batches if created via auto-posting',
   `created_by_dean_id` bigint(20) DEFAULT NULL,
   `posted_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
@@ -2855,18 +2959,18 @@ CREATE TABLE `supervisor_postings` (
 -- Dumping data for table `supervisor_postings`
 --
 
-INSERT INTO `supervisor_postings` (`id`, `institution_id`, `session_id`, `supervisor_id`, `institution_school_id`, `distance_km`, `group_number`, `visit_number`, `route_id`, `is_primary_posting`, `merged_with_posting_id`, `posting_type`, `local_running`, `transport`, `dsa`, `dta`, `tetfund`, `rank_id`, `coordinates`, `lga`, `nearest_address`, `accuracy`, `location_verified`, `location_verified_at`, `location_log_id`, `status`, `posted_by`, `created_by_dean_id`, `posted_at`, `created_at`, `updated_at`) VALUES
-(1, 1, 1, 2, 10, 100.00, 1, 1, 2, 1, NULL, 'multiposting', 0.00, 14000.00, 0.00, 37500.00, 151250.00, 1, '', '', '', '', 0, NULL, NULL, 'active', 2, NULL, '2026-01-07 14:12:28', '2026-01-07 14:12:28', '2026-01-17 07:40:04'),
-(2, 1, 1, 2, 4, 45.00, 1, 1, 2, 1, NULL, 'multiposting', 0.00, 6300.00, 0.00, 37500.00, 151250.00, 1, '', '', '', '', 0, NULL, NULL, 'active', 2, NULL, '2026-01-07 14:12:28', '2026-01-07 14:12:28', '2026-01-17 07:40:04'),
-(3, 1, 1, 2, 3, 15.00, 1, 1, 2, 0, 2, 'multiposting', 0.00, 0.00, 0.00, 0.00, 0.00, 1, '', '', '', '', 0, NULL, NULL, 'active', 2, NULL, '2026-01-07 14:12:28', '2026-01-07 14:12:28', '2026-01-17 07:40:04'),
-(4, 1, 1, 2, 9, 5.00, 2, 1, 1, 1, NULL, 'multiposting', 5000.00, 0.00, 0.00, 0.00, 0.00, 1, '', '', '', '', 0, NULL, NULL, 'active', 2, NULL, '2026-01-07 14:12:28', '2026-01-07 14:12:28', '2026-01-17 07:40:04'),
-(5, 1, 1, 32, 10, 100.00, 1, 2, 2, 1, NULL, 'multiposting', 0.00, 14000.00, 0.00, 20000.00, 83000.00, 5, '\'\'', '\'\'', '\'\'', '\'\'', 0, NULL, NULL, 'active', 2, NULL, '2026-01-21 08:28:44', '2026-01-21 08:28:44', '2026-01-21 08:28:44'),
-(6, 1, 1, 32, 4, 45.00, 1, 2, 2, 1, NULL, 'multiposting', 0.00, 6300.00, 0.00, 20000.00, 83000.00, 5, '\'\'', '\'\'', '\'\'', '\'\'', 0, NULL, NULL, 'active', 2, NULL, '2026-01-21 08:28:44', '2026-01-21 08:28:44', '2026-01-21 08:28:44'),
-(7, 1, 1, 32, 3, 15.00, 1, 2, 2, 0, 6, 'multiposting', 0.00, 0.00, 0.00, 0.00, 0.00, 5, '\'\'', '\'\'', '\'\'', '\'\'', 0, NULL, NULL, 'active', 2, NULL, '2026-01-21 08:28:44', '2026-01-21 08:28:44', '2026-01-21 08:28:44'),
-(8, 1, 1, 32, 10, 100.00, 1, 3, 2, 1, NULL, 'multiposting', 0.00, 14000.00, 0.00, 20000.00, 83000.00, 5, '\'\'', '\'\'', '\'\'', '\'\'', 0, NULL, NULL, 'active', 32, 32, '2026-01-21 15:31:35', '2026-01-21 15:31:35', '2026-01-21 15:31:35'),
-(9, 1, 1, 3, 4, 45.00, 1, 3, 2, 1, NULL, 'multiposting', 0.00, 6300.00, 0.00, 25000.00, 102500.00, 2, '\'\'', '\'\'', '\'\'', '\'\'', 0, NULL, NULL, 'active', 32, 32, '2026-01-21 15:31:35', '2026-01-21 15:31:35', '2026-01-21 15:31:35'),
-(10, 1, 1, 3, 3, 15.00, 1, 3, 2, 0, 9, 'multiposting', 0.00, 0.00, 0.00, 0.00, 0.00, 2, '\'\'', '\'\'', '\'\'', '\'\'', 0, NULL, NULL, 'active', 32, NULL, '2026-01-21 15:31:35', '2026-01-21 15:31:35', '2026-01-21 15:31:35'),
-(11, 1, 1, 4, 4, 45.00, 2, 1, 2, 1, NULL, 'multiposting', 0.00, 6300.00, 0.00, 25000.00, 102500.00, 3, '\'\'', '\'\'', '\'\'', '\'\'', 0, NULL, NULL, 'active', 32, 32, '2026-01-21 16:16:37', '2026-01-21 16:16:37', '2026-01-21 16:16:37');
+INSERT INTO `supervisor_postings` (`id`, `institution_id`, `session_id`, `supervisor_id`, `institution_school_id`, `distance_km`, `group_number`, `visit_number`, `route_id`, `is_primary_posting`, `merged_with_posting_id`, `posting_type`, `local_running`, `transport`, `dsa`, `dta`, `tetfund`, `rank_id`, `coordinates`, `lga`, `nearest_address`, `accuracy`, `location_verified`, `location_verified_at`, `location_log_id`, `status`, `posted_by`, `auto_posting_batch_id`, `created_by_dean_id`, `posted_at`, `created_at`, `updated_at`) VALUES
+(1, 1, 1, 2, 10, 100.00, 1, 1, 2, 1, NULL, 'multiposting', 0.00, 14000.00, 0.00, 37500.00, 151250.00, 1, '', '', '', '', 0, NULL, NULL, 'active', 2, NULL, NULL, '2026-01-07 14:12:28', '2026-01-07 14:12:28', '2026-01-17 07:40:04'),
+(2, 1, 1, 2, 4, 45.00, 1, 1, 2, 1, NULL, 'multiposting', 0.00, 6300.00, 0.00, 37500.00, 151250.00, 1, '', '', '', '', 0, NULL, NULL, 'active', 2, NULL, NULL, '2026-01-07 14:12:28', '2026-01-07 14:12:28', '2026-01-17 07:40:04'),
+(3, 1, 1, 2, 3, 15.00, 1, 1, 2, 0, 2, 'multiposting', 0.00, 0.00, 0.00, 0.00, 0.00, 1, '', '', '', '', 0, NULL, NULL, 'active', 2, NULL, NULL, '2026-01-07 14:12:28', '2026-01-07 14:12:28', '2026-01-17 07:40:04'),
+(4, 1, 1, 2, 9, 5.00, 2, 1, 1, 1, NULL, 'multiposting', 5000.00, 0.00, 0.00, 0.00, 0.00, 1, '', '', '', '', 0, NULL, NULL, 'active', 2, NULL, NULL, '2026-01-07 14:12:28', '2026-01-07 14:12:28', '2026-01-17 07:40:04'),
+(5, 1, 1, 32, 10, 100.00, 1, 2, 2, 1, NULL, 'multiposting', 0.00, 14000.00, 0.00, 20000.00, 83000.00, 5, '\'\'', '\'\'', '\'\'', '\'\'', 0, NULL, NULL, 'active', 2, NULL, NULL, '2026-01-21 08:28:44', '2026-01-21 08:28:44', '2026-01-21 08:28:44'),
+(6, 1, 1, 32, 4, 45.00, 1, 2, 2, 1, NULL, 'multiposting', 0.00, 6300.00, 0.00, 20000.00, 83000.00, 5, '\'\'', '\'\'', '\'\'', '\'\'', 0, NULL, NULL, 'active', 2, NULL, NULL, '2026-01-21 08:28:44', '2026-01-21 08:28:44', '2026-01-21 08:28:44'),
+(7, 1, 1, 32, 3, 15.00, 1, 2, 2, 0, 6, 'multiposting', 0.00, 0.00, 0.00, 0.00, 0.00, 5, '\'\'', '\'\'', '\'\'', '\'\'', 0, NULL, NULL, 'active', 2, NULL, NULL, '2026-01-21 08:28:44', '2026-01-21 08:28:44', '2026-01-21 08:28:44'),
+(8, 1, 1, 32, 10, 100.00, 1, 3, 2, 1, NULL, 'multiposting', 0.00, 14000.00, 0.00, 20000.00, 83000.00, 5, '\'\'', '\'\'', '\'\'', '\'\'', 0, NULL, NULL, 'active', 32, NULL, 32, '2026-01-21 15:31:35', '2026-01-21 15:31:35', '2026-01-21 15:31:35'),
+(9, 1, 1, 3, 4, 45.00, 1, 3, 2, 1, NULL, 'multiposting', 0.00, 6300.00, 0.00, 25000.00, 102500.00, 2, '\'\'', '\'\'', '\'\'', '\'\'', 0, NULL, NULL, 'active', 32, NULL, 32, '2026-01-21 15:31:35', '2026-01-21 15:31:35', '2026-01-21 15:31:35'),
+(10, 1, 1, 3, 3, 15.00, 1, 3, 2, 0, 9, 'multiposting', 0.00, 0.00, 0.00, 0.00, 0.00, 2, '\'\'', '\'\'', '\'\'', '\'\'', 0, NULL, NULL, 'active', 32, NULL, NULL, '2026-01-21 15:31:35', '2026-01-21 15:31:35', '2026-01-21 15:31:35'),
+(11, 1, 1, 4, 4, 45.00, 2, 1, 2, 1, NULL, 'multiposting', 0.00, 6300.00, 0.00, 25000.00, 102500.00, 3, '\'\'', '\'\'', '\'\'', '\'\'', 0, NULL, NULL, 'active', 32, NULL, 32, '2026-01-21 16:16:37', '2026-01-21 16:16:37', '2026-01-21 16:16:37');
 
 -- --------------------------------------------------------
 
@@ -2899,7 +3003,7 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `institution_id`, `name`, `email`, `phone`, `password_hash`, `role`, `rank_id`, `faculty_id`, `file_number`, `is_dean`, `status`, `reset_token`, `reset_token_expires`, `last_login`, `created_at`, `updated_at`) VALUES
-(1, NULL, 'Super Admin', 'super_admin@gmail.com', '08061616161', '$2b$12$PNBWGw6lhcDxSStng1BRf.mlITkwvzz0/clmn6sYDhoIdOJYy8wNm', 'super_admin', NULL, NULL, NULL, 0, 'active', NULL, NULL, '2026-01-24 10:56:25', '2025-12-20 12:51:12', '2026-01-24 10:56:25'),
+(1, NULL, 'Super Admin', 'super_admin@gmail.com', '08061616161', '$2b$12$PNBWGw6lhcDxSStng1BRf.mlITkwvzz0/clmn6sYDhoIdOJYy8wNm', 'super_admin', NULL, NULL, NULL, 0, 'active', NULL, NULL, '2026-02-04 13:50:16', '2025-12-20 12:51:12', '2026-02-04 13:50:16'),
 (2, 1, 'Dr. James Okonkwo', 'head@democoe.edu.ng', '08073363326', '$2b$12$PNBWGw6lhcDxSStng1BRf.mlITkwvzz0/clmn6sYDhoIdOJYy8wNm', 'head_of_teaching_practice', 1, 1, 'P0001', 0, 'active', NULL, NULL, '2026-01-24 13:27:13', '2025-12-20 12:51:13', '2026-01-24 13:27:13'),
 (3, 1, 'Dr. Mary Adebayo', 'mary.adebayo@democoe.edu.ng', '08082733632', '$2b$12$PNBWGw6lhcDxSStng1BRf.mlITkwvzz0/clmn6sYDhoIdOJYy8wNm', 'supervisor', 2, 1, 'P0002', 0, 'active', NULL, NULL, NULL, '2025-12-20 12:51:13', '2026-01-03 17:04:01'),
 (4, 1, 'Mr. Peter Okoro', 'peter.okoro@democoe.edu.ng', '08071123473', '$2b$12$PNBWGw6lhcDxSStng1BRf.mlITkwvzz0/clmn6sYDhoIdOJYy8wNm', 'supervisor', 3, 1, 'P0003', 0, 'active', NULL, NULL, '2025-12-26 07:25:00', '2025-12-20 12:51:13', '2026-01-03 17:04:01'),
@@ -2968,8 +3072,29 @@ INSERT INTO `user_sessions` (`id`, `session_id`, `user_id`, `student_id`, `insti
 (31, 'fe55ae49-e3aa-4299-9556-b82347d8d088', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-24 10:56:14', '2026-01-24 10:56:14', '2026-01-25 11:56:14', NULL, 1),
 (32, 'bda73c4e-b862-4519-965c-5ccbe17823cd', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-24 10:56:25', '2026-01-24 13:27:07', '2026-01-25 11:56:25', '2026-01-24 14:27:07', 0),
 (33, '6b8d58c9-b3f7-4d62-8b61-71cabd6df663', 32, NULL, 1, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-24 10:57:11', '2026-01-24 13:33:15', '2026-01-25 11:57:11', '2026-01-24 14:33:15', 0),
-(34, 'c11a9ab2-0c27-41b5-adb7-0b0cb231b312', 2, NULL, 1, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-24 13:27:13', '2026-01-24 13:27:13', '2026-01-25 14:27:13', NULL, 1),
-(35, '716fcfa1-2c53-452a-a441-754fbd3ff2ab', 32, NULL, 1, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-24 13:33:18', '2026-01-24 13:33:18', '2026-01-25 14:33:18', NULL, 1);
+(34, 'c11a9ab2-0c27-41b5-adb7-0b0cb231b312', 2, NULL, 1, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-24 13:27:13', '2026-01-25 15:21:16', '2026-01-25 14:27:13', '2026-01-25 16:21:16', 0),
+(35, '716fcfa1-2c53-452a-a441-754fbd3ff2ab', 32, NULL, 1, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-24 13:33:18', '2026-01-24 13:33:18', '2026-01-25 14:33:18', NULL, 1),
+(36, 'a6c8ac20-6a4a-42a3-a60c-eb3c98adeca5', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-26 16:11:08', '2026-01-27 14:06:41', '2026-01-27 17:11:08', '2026-01-27 15:06:41', 0),
+(37, '14b4dbd2-b5bf-4e05-93f7-c09def11adab', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 14:06:43', '2026-01-27 14:06:43', '2026-01-28 15:06:43', NULL, 1),
+(38, '7929bfb0-8751-4a3b-bd60-dd8c6a12efe2', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 16:51:26', '2026-01-27 16:51:29', '2026-01-28 17:51:26', '2026-01-27 17:51:29', 0),
+(39, 'f886c40e-0f4b-4923-a148-b7f0b6456917', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 16:54:36', '2026-01-27 16:54:36', '2026-01-28 17:54:36', NULL, 1),
+(40, '5ded6478-20cd-4a50-8572-4975faca8560', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 16:54:51', '2026-01-27 16:54:51', '2026-01-28 17:54:51', NULL, 1),
+(41, 'ca793899-5155-4a4b-bc9d-b98fbcd2ec00', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 16:55:23', '2026-01-27 16:55:23', '2026-01-28 17:55:23', NULL, 1),
+(42, '003872ae-2599-4086-8bca-588325a23d8e', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 16:55:26', '2026-01-27 16:55:26', '2026-01-28 17:55:26', NULL, 1),
+(43, '31d3be3e-62be-4c65-a94c-3a6f44f4ac45', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 17:03:04', '2026-01-27 17:03:04', '2026-01-28 18:03:04', NULL, 1),
+(44, 'd38c349a-283a-455c-b000-927cc0c88a96', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 17:03:59', '2026-01-27 17:03:59', '2026-01-28 18:03:59', NULL, 1),
+(45, '463f1b22-75af-4e2b-9b27-1c95ae50aa27', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 17:12:10', '2026-01-27 17:36:58', '2026-01-28 18:12:10', '2026-01-27 18:36:58', 0),
+(46, '6d7f9e3a-d09b-4a5b-8ef3-1a3b7a12a941', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 17:13:21', '2026-01-27 17:36:55', '2026-01-28 18:13:21', '2026-01-27 18:36:55', 0),
+(47, '17a68e4d-e49a-4e06-b1eb-ab0f11ee37b9', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 17:37:38', '2026-01-27 17:37:38', '2026-01-28 18:37:38', NULL, 1),
+(48, '60ede577-9ec2-4123-80ee-40c5a1267313', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 17:37:47', '2026-01-27 17:37:47', '2026-01-28 18:37:47', NULL, 1),
+(49, 'd070b591-d422-48b4-856b-f94873e243b7', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 17:37:59', '2026-01-27 17:37:59', '2026-01-28 18:37:59', NULL, 1),
+(50, 'e849e96d-b21e-4288-9d46-e73aa0598ba7', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 17:38:21', '2026-01-27 17:38:21', '2026-01-28 18:38:21', NULL, 1),
+(51, '3007d0f3-40e0-42a2-8ba4-30971a916e3e', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 17:38:24', '2026-01-27 17:38:24', '2026-01-28 18:38:24', NULL, 1),
+(52, '775fa649-5f3c-4fc4-b851-b780295e0d49', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 17:39:26', '2026-01-27 17:39:26', '2026-01-28 18:39:26', NULL, 1),
+(53, '737a58c6-4aca-4129-adcb-f02e5695717d', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 17:39:42', '2026-01-27 17:39:42', '2026-01-28 18:39:42', NULL, 1),
+(54, '46f93537-e08f-4452-88e8-b84334ed512e', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 17:52:34', '2026-01-27 17:52:34', '2026-01-28 18:52:34', NULL, 1),
+(55, '7cd69860-6f3c-4bc7-b25f-fe02706c2d7e', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-01-27 17:52:46', '2026-01-27 17:52:46', '2026-01-28 18:52:46', NULL, 1),
+(56, 'fefeba86-c52f-4f99-a7ae-3216d3c77bfd', 1, NULL, NULL, 'staff', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', NULL, '2026-02-04 13:50:16', '2026-02-04 13:50:16', '2026-02-05 14:50:16', NULL, 1);
 
 -- --------------------------------------------------------
 
@@ -3065,6 +3190,16 @@ ALTER TABLE `audit_logs`
   ADD KEY `idx_action` (`action`),
   ADD KEY `idx_resource` (`resource_type`,`resource_id`),
   ADD KEY `idx_created_at` (`created_at`);
+
+--
+-- Indexes for table `auto_posting_batches`
+--
+ALTER TABLE `auto_posting_batches`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_institution_session` (`institution_id`,`session_id`),
+  ADD KEY `idx_status` (`status`),
+  ADD KEY `idx_initiated_by` (`initiated_by`),
+  ADD KEY `fk_apb_session` (`session_id`);
 
 --
 -- Indexes for table `dean_posting_allocations`
@@ -3270,7 +3405,8 @@ ALTER TABLE `ranks`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `unique_rank_code` (`institution_id`,`code`),
   ADD KEY `idx_institution` (`institution_id`),
-  ADD KEY `idx_status` (`status`);
+  ADD KEY `idx_status` (`status`),
+  ADD KEY `idx_ranks_priority` (`institution_id`,`priority_number`);
 
 --
 -- Indexes for table `routes`
@@ -3325,6 +3461,26 @@ ALTER TABLE `scoring_criteria`
   ADD KEY `updated_by` (`updated_by`),
   ADD KEY `idx_institution_active` (`institution_id`,`is_active`),
   ADD KEY `idx_session_order` (`session_id`,`order_index`);
+
+--
+-- Indexes for table `sso_logs`
+--
+ALTER TABLE `sso_logs`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_sso_logs_institution` (`institution_id`),
+  ADD KEY `idx_sso_logs_partner` (`partner_id`),
+  ADD KEY `idx_sso_logs_created` (`created_at`),
+  ADD KEY `idx_sso_logs_status` (`status`);
+
+--
+-- Indexes for table `sso_partners`
+--
+ALTER TABLE `sso_partners`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `partner_id` (`partner_id`),
+  ADD KEY `fk_sso_partners_created_by` (`created_by`),
+  ADD KEY `idx_sso_partners_institution` (`institution_id`),
+  ADD KEY `idx_sso_partners_partner_id` (`partner_id`);
 
 --
 -- Indexes for table `students`
@@ -3429,7 +3585,8 @@ ALTER TABLE `supervisor_postings`
   ADD KEY `idx_posting_session_supervisor` (`session_id`,`supervisor_id`),
   ADD KEY `idx_institution_school` (`institution_school_id`),
   ADD KEY `idx_sp_created_by_dean` (`created_by_dean_id`),
-  ADD KEY `idx_sp_location_verified` (`supervisor_id`,`session_id`,`location_verified`);
+  ADD KEY `idx_sp_location_verified` (`supervisor_id`,`session_id`,`location_verified`),
+  ADD KEY `fk_sp_auto_batch` (`auto_posting_batch_id`);
 
 --
 -- Indexes for table `users`
@@ -3476,7 +3633,13 @@ ALTER TABLE `academic_sessions`
 -- AUTO_INCREMENT for table `audit_logs`
 --
 ALTER TABLE `audit_logs`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=564;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=593;
+
+--
+-- AUTO_INCREMENT for table `auto_posting_batches`
+--
+ALTER TABLE `auto_posting_batches`
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `dean_posting_allocations`
@@ -3560,7 +3723,7 @@ ALTER TABLE `institution_provisioning`
 -- AUTO_INCREMENT for table `institution_schools`
 --
 ALTER TABLE `institution_schools`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=17;
 
 --
 -- AUTO_INCREMENT for table `master_schools`
@@ -3602,7 +3765,7 @@ ALTER TABLE `ranks`
 -- AUTO_INCREMENT for table `routes`
 --
 ALTER TABLE `routes`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
 
 --
 -- AUTO_INCREMENT for table `school_groups`
@@ -3627,6 +3790,18 @@ ALTER TABLE `school_principal_update_requests`
 --
 ALTER TABLE `scoring_criteria`
   MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+
+--
+-- AUTO_INCREMENT for table `sso_logs`
+--
+ALTER TABLE `sso_logs`
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `sso_partners`
+--
+ALTER TABLE `sso_partners`
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `students`
@@ -3686,7 +3861,7 @@ ALTER TABLE `users`
 -- AUTO_INCREMENT for table `user_sessions`
 --
 ALTER TABLE `user_sessions`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=36;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=57;
 
 --
 -- Constraints for dumped tables
@@ -3704,6 +3879,14 @@ ALTER TABLE `academic_sessions`
 --
 ALTER TABLE `audit_logs`
   ADD CONSTRAINT `audit_logs_ibfk_1` FOREIGN KEY (`institution_id`) REFERENCES `institutions` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `auto_posting_batches`
+--
+ALTER TABLE `auto_posting_batches`
+  ADD CONSTRAINT `fk_apb_initiated_by` FOREIGN KEY (`initiated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_apb_institution` FOREIGN KEY (`institution_id`) REFERENCES `institutions` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_apb_session` FOREIGN KEY (`session_id`) REFERENCES `academic_sessions` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `dean_posting_allocations`
@@ -3870,6 +4053,19 @@ ALTER TABLE `scoring_criteria`
   ADD CONSTRAINT `scoring_criteria_ibfk_4` FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
 
 --
+-- Constraints for table `sso_logs`
+--
+ALTER TABLE `sso_logs`
+  ADD CONSTRAINT `fk_sso_logs_institution` FOREIGN KEY (`institution_id`) REFERENCES `institutions` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `sso_partners`
+--
+ALTER TABLE `sso_partners`
+  ADD CONSTRAINT `fk_sso_partners_created_by` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_sso_partners_institution` FOREIGN KEY (`institution_id`) REFERENCES `institutions` (`id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `students`
 --
 ALTER TABLE `students`
@@ -3923,6 +4119,7 @@ ALTER TABLE `supervision_visit_timelines`
 -- Constraints for table `supervisor_postings`
 --
 ALTER TABLE `supervisor_postings`
+  ADD CONSTRAINT `fk_sp_auto_batch` FOREIGN KEY (`auto_posting_batch_id`) REFERENCES `auto_posting_batches` (`id`) ON DELETE SET NULL,
   ADD CONSTRAINT `fk_sp_created_by_dean` FOREIGN KEY (`created_by_dean_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   ADD CONSTRAINT `fk_sp_institution_school` FOREIGN KEY (`institution_school_id`) REFERENCES `institution_schools` (`id`) ON DELETE SET NULL,
   ADD CONSTRAINT `supervisor_postings_ibfk_1` FOREIGN KEY (`institution_id`) REFERENCES `institutions` (`id`) ON DELETE CASCADE,

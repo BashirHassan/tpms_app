@@ -2109,13 +2109,17 @@ const getPostingsForDisplay = async (req, res, next) => {
 
     let sql = `
       SELECT sp.id, sp.visit_number, sp.status, sp.created_at,
+             sp.group_number,
              ms.name as school_name,
+             ms.lga,
+             r.name as route_name,
              u.name as supervisor_name,
              sess.name as session_name,
              sp.is_primary_posting, sp.merged_with_posting_id
       FROM supervisor_postings sp
       JOIN institution_schools isv ON sp.institution_school_id = isv.id
       JOIN master_schools ms ON isv.master_school_id = ms.id
+      LEFT JOIN routes r ON isv.route_id = r.id
       JOIN users u ON sp.supervisor_id = u.id
       JOIN academic_sessions sess ON sp.session_id = sess.id
       WHERE sp.institution_id = ? AND sp.session_id = ? AND sp.status != 'cancelled'
@@ -2123,8 +2127,8 @@ const getPostingsForDisplay = async (req, res, next) => {
     const params = [parseInt(institutionId), parseInt(session_id)];
 
     if (search) {
-      sql += ` AND (ms.name LIKE ? OR u.name LIKE ?)`;
-      params.push(`%${search}%`, `%${search}%`);
+      sql += ` AND (ms.name LIKE ? OR u.name LIKE ? OR CAST(sp.group_number AS CHAR) LIKE ? OR r.name LIKE ? OR ms.lga LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     sql += ` ORDER BY ms.name ASC, sp.visit_number ASC LIMIT ? OFFSET ?`;
@@ -2138,13 +2142,14 @@ const getPostingsForDisplay = async (req, res, next) => {
       FROM supervisor_postings sp
       JOIN institution_schools isv ON sp.institution_school_id = isv.id
       JOIN master_schools ms ON isv.master_school_id = ms.id
+      LEFT JOIN routes r ON isv.route_id = r.id
       JOIN users u ON sp.supervisor_id = u.id
       WHERE sp.institution_id = ? AND sp.session_id = ? AND sp.status != 'cancelled'
     `;
     const countParams = [parseInt(institutionId), parseInt(session_id)];
     if (search) {
-      countSql += ` AND (ms.name LIKE ? OR u.name LIKE ?)`;
-      countParams.push(`%${search}%`, `%${search}%`);
+      countSql += ` AND (ms.name LIKE ? OR u.name LIKE ? OR CAST(sp.group_number AS CHAR) LIKE ? OR r.name LIKE ? OR ms.lga LIKE ?)`;
+      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
     const countResult = await query(countSql, countParams);
 
@@ -2216,10 +2221,10 @@ const getSchoolsWithStudents = async (req, res, next) => {
 };
 
 /**
- * Get schools with count of supervisor postings
+ * Get groups with count of supervisor postings
  * GET /:institutionId/postings/schools-supervisors
- * Returns: school, supervisors_count
- * (From legacy SupervisorPosting.getSchoolsWithSupervisors)
+ * Returns: school, group_number, supervisors_count, max_supervision_visits
+ * Groups by school+group to show which groups don't have max supervision visits
  */
 const getSchoolsWithSupervisors = async (req, res, next) => {
   try {
@@ -2230,21 +2235,37 @@ const getSchoolsWithSupervisors = async (req, res, next) => {
       throw new ValidationError('Session ID is required');
     }
 
+    // Get max_supervision_visits from session
+    const [session] = await query(
+      'SELECT max_supervision_visits FROM academic_sessions WHERE id = ? AND institution_id = ?',
+      [parseInt(session_id), parseInt(institutionId)]
+    );
+    const maxVisits = session?.max_supervision_visits || 3;
+
+    // Get all unique school+group combinations from approved acceptances
+    // and count how many supervisor postings exist for each
     const rows = await query(
       `SELECT 
          isv.id as school_id,
          ms.name as school_name,
-         COUNT(sp.id) as supervisors_count
+         sa.group_number,
+         ? as max_supervision_visits,
+         COUNT(DISTINCT sp.id) as supervisors_count,
+         COUNT(DISTINCT sa.student_id) as student_count
        FROM institution_schools isv
        JOIN master_schools ms ON isv.master_school_id = ms.id
-       INNER JOIN supervisor_postings sp ON isv.id = sp.institution_school_id 
-         AND sp.session_id = ? 
+       INNER JOIN student_acceptances sa ON isv.id = sa.institution_school_id 
+         AND sa.session_id = ? 
+         AND sa.status = 'approved'
+       LEFT JOIN supervisor_postings sp ON isv.id = sp.institution_school_id 
+         AND sp.session_id = sa.session_id
+         AND sp.group_number = sa.group_number
          AND sp.status != 'cancelled'
          AND sp.supervisor_id IS NOT NULL
        WHERE isv.institution_id = ?
-       GROUP BY isv.id, ms.name
-       ORDER BY ms.name ASC`,
-      [parseInt(session_id), parseInt(institutionId)]
+       GROUP BY isv.id, ms.name, sa.group_number
+       ORDER BY ms.name ASC, sa.group_number ASC`,
+      [maxVisits, parseInt(session_id), parseInt(institutionId)]
     );
 
     res.json({

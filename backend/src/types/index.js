@@ -141,51 +141,6 @@ const ROLE_HIERARCHY = [
   'super_admin',
 ];
 
-// =============================================================================
-// REPOSITORY TYPES
-// =============================================================================
-
-/**
- * @typedef {Object} RepositoryOptions
- * @property {string} [columns] - Columns to select
- * @property {string} [joins] - SQL joins
- * @property {string} [orderBy] - Order by clause
- * @property {number} [limit] - Result limit
- * @property {number} [offset] - Result offset
- */
-
-/**
- * @typedef {Object} BaseRepository
- * @property {number} institutionId - Scoped institution ID
- * @property {function(string, Object=): Promise<Array>} findAll - Find all records
- * @property {function(string, number, Object=): Promise<Object|null>} findById - Find by ID
- * @property {function(string, Object, Object=): Promise<Object|null>} findOne - Find one record
- * @property {function(string, Object=): Promise<number>} count - Count records
- * @property {function(string, Object): Promise<Object>} create - Create record
- * @property {function(string, Object, Object): Promise<Object>} update - Update records
- * @property {function(string, Object): Promise<Object>} delete - Delete records
- */
-
-/**
- * @typedef {Object} Repositories
- * @property {StudentRepository} students
- * @property {UserRepository} users
- * @property {SchoolRepository} schools
- * @property {RouteRepository} routes
- * @property {PostingRepository} postings
- * @property {AcademicSessionRepository} sessions
- * @property {FacultyRepository} faculties
- * @property {DepartmentRepository} departments
- * @property {ProgramRepository} programs
- * @property {PaymentRepository} payments
- * @property {AcceptanceRepository} acceptances
- * @property {RankRepository} ranks
- * @property {AllowanceRepository} allowances
- * @property {StudentGroupRepository} groups
- * @property {FeatureToggleRepository} features
- * @property {AuditLogRepository} auditLogs
- */
-
 module.exports = {
   ROLE_HIERARCHY,
 };

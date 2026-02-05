@@ -48,7 +48,8 @@ const getCurrentSession = async (institutionId) => {
 
 /**
  * Get posting stats for the current session
- * Total postings = submitted acceptances × max_supervision_visits - merged_count
+ * Total postings = unique groups (from student_acceptances) × max_supervision_visits
+ * Primary postings = total postings - merged groups
  */
 const getPostingStats = async (institutionId, sessionId) => {
   // Get max supervision visits
@@ -58,29 +59,31 @@ const getPostingStats = async (institutionId, sessionId) => {
   );
   const maxVisits = session?.max_supervision_visits || 3;
 
-  // Count submitted acceptances
-  const [acceptanceStats] = await query(
-    `SELECT COUNT(*) as total_submitted FROM student_acceptances 
-     WHERE institution_id = ? AND session_id = ?`,
+  // Count unique groups (school + group_number combinations) from approved acceptances
+  const [groupStats] = await query(
+    `SELECT COUNT(DISTINCT CONCAT(institution_school_id, '-', group_number)) as unique_groups 
+     FROM student_acceptances 
+     WHERE institution_id = ? AND session_id = ? AND status = 'approved'`,
     [parseInt(institutionId), parseInt(sessionId)]
   );
 
-  // Count merged groups
+  // Count merged groups (secondary groups that are merged into primary groups)
   const [mergedStats] = await query(
     `SELECT COUNT(*) as merged_count FROM merged_groups 
      WHERE institution_id = ? AND session_id = ? AND status = 'active'`,
     [parseInt(institutionId), parseInt(sessionId)]
   );
 
-  const totalSubmitted = acceptanceStats?.total_submitted || 0;
+  const uniqueGroups = groupStats?.unique_groups || 0;
   const mergedCount = mergedStats?.merged_count || 0;
-  const totalExpected = totalSubmitted * maxVisits;
-  const primaryPostings = totalExpected - mergedCount;
+  const totalExpected = uniqueGroups * maxVisits;
+  const primaryPostings = totalExpected - (mergedCount * maxVisits);
 
   return {
     total_postings: totalExpected,
     primary_postings: primaryPostings,
-    merged_postings: mergedCount,
+    merged_postings: mergedCount * maxVisits,
+    unique_groups: uniqueGroups,
     max_supervision_visits: maxVisits,
   };
 };
@@ -142,6 +145,8 @@ const getStats = async (req, res, next) => {
           total_postings: postingStats.total_postings,
           primary_postings: postingStats.primary_postings,
           merged_postings: postingStats.merged_postings,
+          unique_groups: postingStats.unique_groups,
+          max_supervision_visits: postingStats.max_supervision_visits,
         },
         allocations: {
           total_allocated: totalAllocated,

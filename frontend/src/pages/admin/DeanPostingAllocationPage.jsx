@@ -337,11 +337,18 @@ function DeanPostingAllocationPage() {
   // Stats cards
   const statsCards = [
     {
+      title: 'Unique Groups',
+      value: stats?.postings?.unique_groups || 0,
+      icon: IconUsers,
+      color: 'bg-indigo-500',
+      description: 'School-group combinations',
+    },
+    {
       title: 'Total Postings',
       value: stats?.postings?.total_postings || 0,
       icon: IconClipboardList,
       color: 'bg-blue-500',
-      description: 'Expected supervision visits',
+      description: `Groups × ${stats?.postings?.max_supervision_visits || 3} visits`,
     },
     {
       title: 'Primary Postings',
@@ -393,7 +400,7 @@ function DeanPostingAllocationPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {statsCards.map((card) => (
           <Card key={card.title}>
             <CardContent className="p-4">
@@ -526,7 +533,7 @@ function DeanPostingAllocationPage() {
               required
             />
             <p className="mt-1 text-xs text-gray-500">
-              Available to allocate: {(stats?.allocations?.available_to_allocate || 0) + (editAllocation?.allocated_postings || 0)}
+              Available to allocate: {(stats?.allocations?.available_to_allocate || 0)}
               {editAllocation && editAllocation.used_postings > 0 && (
                 <span className="text-amber-600 ml-2">
                   • Minimum: {editAllocation.used_postings} (already used)

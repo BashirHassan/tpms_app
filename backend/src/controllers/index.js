@@ -29,6 +29,9 @@ const resultController = require('./resultController');
 const ssoController = require('./ssoController');
 const apiKeysController = require('./apiKeysController');
 
+// Automated Posting
+const autoPostingController = require('./autoPostingController');
+
 module.exports = {
   authController,
   institutionController,
@@ -52,4 +55,6 @@ module.exports = {
   // SSO Integration
   ssoController,
   apiKeysController,
+  // Automated Posting
+  autoPostingController,
 };

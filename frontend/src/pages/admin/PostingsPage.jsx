@@ -26,6 +26,7 @@ import {
   IconCheck,
   IconClock,
   IconX,
+  IconSearch,
 } from '@tabler/icons-react';
 import { getOrdinal } from '../../utils/helpers';
 
@@ -48,8 +49,10 @@ function PostingsPage() {
   const [schoolsSupervisors, setSchoolsSupervisors] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0 });
 
-  // Filters
-  const [search, setSearch] = useState('');
+  // Filters/Search for each tab
+  const [allPostingsSearch, setAllPostingsSearch] = useState('');
+  const [schoolsStudentsSearch, setSchoolsStudentsSearch] = useState('');
+  const [schoolsSupervisorsSearch, setSchoolsSupervisorsSearch] = useState('');
 
   // Delete confirmation
   const [deletingPosting, setDeletingPosting] = useState(null);
@@ -66,7 +69,7 @@ function PostingsPage() {
       fetchSummaryStats();
       fetchTabData();
     }
-  }, [selectedSession, activeTab, pagination.page, search]);
+  }, [selectedSession, activeTab, pagination.page, allPostingsSearch]);
 
   const fetchSessions = async () => {
     try {
@@ -118,7 +121,7 @@ function PostingsPage() {
       session_id: selectedSession,
       page: pagination.page,
       limit: pagination.limit,
-      search,
+      search: allPostingsSearch,
     });
     setAllPostings(response.data.data || response.data || []);
     setPagination((prev) => ({
@@ -173,6 +176,13 @@ function PostingsPage() {
         render: (value) => <span className="font-medium text-gray-900">{value}</span>,
       },
       {
+        accessor: 'group_number',
+        header: 'Group',
+        render: (value) => (
+          <Badge variant="outline">Group {value || 1}</Badge>
+        ),
+      },
+      {
         accessor: 'visit_number',
         header: 'Visit',
         render: (value) => <Badge variant="outline">{getOrdinal(value)} Visit</Badge>,
@@ -181,6 +191,18 @@ function PostingsPage() {
         accessor: 'supervisor_name',
         header: 'Supervisor',
         render: (value) => value || 'N/A',
+      },
+      {
+        accessor: 'route_name',
+        header: 'Route',
+        render: (value) => (
+          <Badge variant="outline">{value || 'N/A'}</Badge>
+        ),
+      },
+      {
+        accessor: 'lga',
+        header: 'LGA',
+        render: (value) => <span className="text-gray-600">{value || 'N/A'}</span>,
       },
       {
         accessor: 'session_name',
@@ -291,7 +313,7 @@ function PostingsPage() {
     []
   );
 
-  // Column definitions for Schools & Supervisors tab
+  // Column definitions for Groups & Supervisors tab
   const schoolsSupervisorsColumns = useMemo(
     () => [
       {
@@ -306,29 +328,84 @@ function PostingsPage() {
         render: (value) => <span className="font-medium text-gray-900">{value}</span>,
       },
       {
+        accessor: 'group_number',
+        header: 'Group',
+        render: (value) => <Badge variant="outline">Group {value || 1}</Badge>,
+      },
+      {
+        accessor: 'student_count',
+        header: 'Students',
+        render: (value) => <span className="text-gray-600">{value || 0}</span>,
+      },
+      {
         accessor: 'supervisors_count',
-        header: 'Supervisors',
-        render: (value) => (
-          <div className="flex items-center gap-2">
-            <IconClipboardList className="w-4 h-4 text-gray-400" />
-            <span className="font-semibold">{value || 0}</span>
-            <span className="text-xs text-gray-500">supervisors</span>
-          </div>
-        ),
+        header: 'Supervisors Assigned',
+        render: (value, row) => {
+          const max = row.max_supervision_visits || 3;
+          const count = value || 0;
+          const isComplete = count >= max;
+          return (
+            <div className="flex items-center gap-2">
+              <span className={`font-semibold ${isComplete ? 'text-green-600' : 'text-orange-600'}`}>
+                {count} / {max}
+              </span>
+              {isComplete ? (
+                <IconCheck className="w-4 h-4 text-green-600" />
+              ) : (
+                <IconClock className="w-4 h-4 text-orange-500" />
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        accessor: 'status',
+        header: 'Status',
+        render: (_, row) => {
+          const max = row.max_supervision_visits || 3;
+          const count = row.supervisors_count || 0;
+          const remaining = max - count;
+          if (remaining <= 0) {
+            return <Badge variant="success">Complete</Badge>;
+          }
+          return (
+            <Badge variant="warning">{remaining} supervisor{remaining > 1 ? 's' : ''} needed</Badge>
+          );
+        },
       },
     ],
     []
   );
 
-  // Get current data based on active tab
+  // Filter data based on search (for client-side search)
+  const filterData = (data, search, searchFields) => {
+    if (!search.trim()) return data;
+    const searchLower = search.toLowerCase();
+    return data.filter((row) =>
+      searchFields.some((field) => {
+        const value = row[field];
+        return value && String(value).toLowerCase().includes(searchLower);
+      })
+    );
+  };
+
+  // Get current data based on active tab (with search filtering for non-paginated tabs)
   const getCurrentData = () => {
     switch (activeTab) {
       case 'all-postings':
-        return allPostings;
+        return allPostings; // Server-side search
       case 'schools-students':
-        return schoolsStudents;
+        return filterData(schoolsStudents, schoolsStudentsSearch, [
+          'school_name',
+          'route_name',
+          'state',
+          'lga',
+        ]);
       case 'schools-supervisors':
-        return schoolsSupervisors;
+        return filterData(schoolsSupervisors, schoolsSupervisorsSearch, [
+          'school_name',
+          'group_number',
+        ]);
       default:
         return [];
     }
@@ -491,7 +568,7 @@ function PostingsPage() {
             }`}
           >
             <IconUsers className="w-4 h-4 flex-shrink-0" />
-            <span className="hidden sm:inline">Schools &</span> Supervisors
+            <span className="hidden sm:inline">Groups &</span> Supervisors
           </Button>
         </nav>
       </div>
@@ -499,6 +576,41 @@ function PostingsPage() {
       {/* Data Table */}
       <Card>
         <CardContent className="p-0">
+          {/* Search Input for each tab */}
+          <div className="p-3 sm:p-4 border-b bg-gray-50">
+            <div className="relative w-full sm:w-64">
+              <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder={
+                  activeTab === 'all-postings'
+                    ? 'Search by school, route, LGA, supervisor, or group...'
+                    : activeTab === 'schools-students'
+                    ? 'Search by school, route, state, or LGA...'
+                    : 'Search by school or group...'
+                }
+                value={
+                  activeTab === 'all-postings'
+                    ? allPostingsSearch
+                    : activeTab === 'schools-students'
+                    ? schoolsStudentsSearch
+                    : schoolsSupervisorsSearch
+                }
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (activeTab === 'all-postings') {
+                    setAllPostingsSearch(value);
+                    setPagination((prev) => ({ ...prev, page: 1 }));
+                  } else if (activeTab === 'schools-students') {
+                    setSchoolsStudentsSearch(value);
+                  } else {
+                    setSchoolsSupervisorsSearch(value);
+                  }
+                }}
+                className="pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 w-full"
+              />
+            </div>
+          </div>
           <DataTable
             data={getCurrentData()}
             columns={getCurrentColumns()}
@@ -506,18 +618,22 @@ function PostingsPage() {
             sortable
             exportable
             exportFilename={`postings-${activeTab}-${new Date().toISOString().split('T')[0]}`}
-            searchable={activeTab === 'all-postings'}
-            searchValue={search}
-            onSearchChange={setSearch}
-            searchPlaceholder="Search by school or supervisor..."
-            pagination={activeTab === 'all-postings' ? pagination : null}
-            onPageChange={(page) => setPagination((prev) => ({ ...prev, page }))}
+            pagination={
+              activeTab === 'all-postings'
+                ? {
+                    page: pagination.page,
+                    limit: pagination.limit,
+                    total: pagination.total,
+                    onPageChange: (page) => setPagination((prev) => ({ ...prev, page })),
+                  }
+                : null
+            }
             emptyMessage={
               activeTab === 'all-postings'
                 ? 'No postings found for this session'
                 : activeTab === 'schools-students'
                 ? 'No schools with students found'
-                : 'No schools with supervisors found'
+                : 'No groups with approved students found'
             }
           />
         </CardContent>

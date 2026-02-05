@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { postingsApi, sessionsApi, deanAllocationsApi } from '../../api';
+import { postingsApi, sessionsApi, deanAllocationsApi, autoPostingApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
@@ -20,6 +20,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import { Select } from '../../components/ui/Select';
 import { SearchableSelect } from '../../components/ui/SearchableSelect';
 import { Dialog } from '../../components/ui/Dialog';
+import AutoPostDialog from '../../components/AutoPostDialog';
 import {
   IconUsers,
   IconBuildingBank as IconSchool,
@@ -35,6 +36,7 @@ import {
   IconRefresh,
   IconCrown,
   IconList,
+  IconWand,
 } from '@tabler/icons-react';
 import { formatCurrency, getOrdinal } from '../../utils/helpers';
 
@@ -521,6 +523,9 @@ function MultipostingPage() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successData, setSuccessData] = useState(null);
 
+  // Auto-posting dialog
+  const [showAutoPostDialog, setShowAutoPostDialog] = useState(false);
+
   // Create empty row
   function createEmptyRow(id) {
     return {
@@ -920,6 +925,19 @@ function MultipostingPage() {
           <Button variant="outline" onClick={fetchData} disabled={loading} className="active:scale-95">
             <IconRefresh className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
+          {/* Auto-Post button - only for admin-level users */}
+          {isAdminLevel && !isReadOnlyMode && (
+            <Button 
+              variant="outline" 
+              onClick={() => setShowAutoPostDialog(true)}
+              disabled={loading || !selectedSession}
+              className="flex whitespace-nowrap"
+              title="Auto-post supervisors"
+            >
+              <IconWand className="w-4 h-4 mr-2" />
+              Auto-Post
+            </Button>
+          )}
           <Select
             value={selectedSession}
             onChange={(e) => setSelectedSession(e.target.value)}
@@ -1316,6 +1334,19 @@ function MultipostingPage() {
           </div>
         )}
       </Dialog>
+
+      {/* Auto-Post Dialog */}
+      <AutoPostDialog
+        open={showAutoPostDialog}
+        onClose={() => setShowAutoPostDialog(false)}
+        sessionId={selectedSession ? parseInt(selectedSession) : null}
+        maxVisits={maxSupervisionVisits}
+        facultyId={facultyIdFilter}
+        onComplete={() => {
+          // Refresh data after auto-posting completes
+          fetchData();
+        }}
+      />
     </div>
   );
 }
