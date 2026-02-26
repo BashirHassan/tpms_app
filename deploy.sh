@@ -5,10 +5,10 @@
 
 set -e
 
-PROJECT_DIR="/var/www/digitaltp"
+PROJECT_DIR="/var/www/tpms"
 BACKEND_DIR="$PROJECT_DIR/backend"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
-PM2_APP_NAME="digitaltp-backend"
+PM2_APP_NAME="tpms-backend"
 
 # Colors for output
 RED='\033[0;31m'

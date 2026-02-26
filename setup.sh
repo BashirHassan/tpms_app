@@ -18,7 +18,7 @@ print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-PROJECT_DIR="/var/www/digitaltp"
+PROJECT_DIR="/var/www/tpms"
 
 echo ""
 echo "======================================"
@@ -70,7 +70,7 @@ if [ -d "$PROJECT_DIR/.git" ]; then
     git fetch origin && git reset --hard origin/main && git clean -fd
 else
     print_status "Cloning repository..."
-    ~/clone_from_bash_repo tpms_app /var/www/digitaltp
+    ~/clone_from_bash_repo tpms /var/www/digitaltp
 fi
 
 cd $PROJECT_DIR
@@ -97,7 +97,7 @@ PORT=5007
 # Database
 DB_HOST=localhost
 DB_PORT=3306
-DB_USER=digitaltp_user
+DB_USER=psimas
 DB_PASSWORD=your_secure_password
 DB_NAME=digitaltp
 
@@ -180,8 +180,8 @@ print_success "      DIGITALTP Setup Complete!            "
 print_success "============================================"
 echo ""
 print_status "Next steps:"
-echo "  1. Edit /var/www/digitaltp/backend/.env with your database credentials"
-echo "  2. Create database 'digitaltp' and import schema"
+echo "  1. Edit /var/www/tpms/backend/.env with your database credentials"
+echo "  2. Create database 'tpms' and import schema"
 echo "  3. Copy nginx config: sudo cp nginx/sitpms.conf /etc/nginx/sites-available/sitpms"
 echo "  4. Enable nginx site: sudo ln -s /etc/nginx/sites-available/sitpms /etc/nginx/sites-enabled/"
 echo "  5. Test nginx: sudo nginx -t && sudo systemctl reload nginx"

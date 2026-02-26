@@ -3,7 +3,7 @@
 ## Server Details
 - **IP Address:** 207.180.224.105
 - **OS:** Ubuntu 22.04.5 LTS
-- **Repository:** https://github.com/BashirHassan/tpms_app.git
+- **Repository:** https://github.com/BashirHassan/tpms.git
 - **Database Panel:** https://db.kasuwapos.com/
 - **Domain:** sitpms.com
 
@@ -40,7 +40,7 @@ Add these DNS records in Cloudflare for the **sitpms.com** domain:
 |---------|--------------|----------|
 | **MedeePay** | **5005** | **medeepay-backend** |
 | **Bokkis Payslip** | **5006** | **bokkis-backend** |
-| **DigitalTP** | **5007** | **digitaltp-backend** |
+| **DigitalTP** | **5007** | **tpms-backend** |
 
 ---
 
@@ -53,15 +53,15 @@ ssh psimas21@207.180.224.105
 
 ### Clone the repository (using auto-clone script)
 ```bash
-~/clone_from_bash_repo tpms_app /var/www/digitaltp
+~/clone_from_bash_repo tpms /var/www/tpms
 ```
 
 ### Or manual clone
 ```bash
-sudo mkdir -p /var/www/digitaltp
-sudo chown -R $USER:$USER /var/www/digitaltp
-cd /var/www/digitaltp
-git clone https://github.com/BashirHassan/tpms_app.git .
+sudo mkdir -p /var/www/tpms
+sudo chown -R $USER:$USER /var/www/tpms
+cd /var/www/tpms
+git clone https://github.com/BashirHassan/tpms.git .
 ```
 
 ### Run Setup Script (Recommended)
@@ -74,13 +74,13 @@ chmod +x setup.sh
 
 #### Install Backend Dependencies
 ```bash
-cd /var/www/digitaltp/backend
+cd /var/www/tpms/backend
 npm install --production
 ```
 
 #### Install Frontend Dependencies & Build
 ```bash
-cd /var/www/digitaltp/frontend
+cd /var/www/tpms/frontend
 npm install
 npm run build
 ```
@@ -90,10 +90,10 @@ npm run build
 ## 2. Environment Configuration
 
 ### Backend Environment (.env)
-Create the file `/var/www/digitaltp/backend/.env`:
+Create the file `/var/www/tpms/backend/.env`:
 
 ```bash
-nano /var/www/digitaltp/backend/.env
+nano /var/www/tpms/backend/.env
 ```
 
 Add the following content:
@@ -105,9 +105,9 @@ PORT=5007
 # Database (Configure via https://db.kasuwapos.com/)
 DB_HOST=localhost
 DB_PORT=3306
-DB_USER=digitaltp_user
+DB_USER=psimas
 DB_PASSWORD=your_secure_password
-DB_NAME=digitaltp
+DB_NAME=tpms
 
 # JWT
 JWT_SECRET=your-super-secure-jwt-secret-change-this
@@ -156,10 +156,10 @@ node -e "console.log(require('crypto').randomBytes(16).toString('hex'))"
 ```
 
 ### Frontend Environment (.env.production)
-Create the file `/var/www/digitaltp/frontend/.env.production`:
+Create the file `/var/www/tpms/frontend/.env.production`:
 
 ```bash
-nano /var/www/digitaltp/frontend/.env.production
+nano /var/www/tpms/frontend/.env.production
 ```
 
 Add the following content:
@@ -176,19 +176,19 @@ VITE_APP_NAME=DigitalTP
 
 ### Create Database
 1. Go to https://db.kasuwapos.com/
-2. Create a new database named `digitaltp`
+2. Create a new database named `tpms`
 3. Create a user with appropriate privileges
 4. Update the `.env` file with the credentials
 
 ### Import Schema
 ```bash
-cd /var/www/digitaltp
-mysql -u digitaltp_user -p digitaltp < backend/database/digitaltp.sql
+cd /var/www/tpms
+mysql -u psimas -p tpms < backend/database/tpms.sql
 ```
 
 ### Run Migrations
 ```bash
-cd /var/www/digitaltp/backend
+cd /var/www/tpms/backend
 npm run migrate
 ```
 
@@ -198,7 +198,7 @@ npm run migrate
 
 ### Start the backend with PM2
 ```bash
-cd /var/www/digitaltp
+cd /var/www/tpms
 pm2 start ecosystem.config.js --env production
 pm2 save
 ```
@@ -206,12 +206,12 @@ pm2 save
 ### View PM2 status
 ```bash
 pm2 status
-pm2 logs digitaltp-backend
+pm2 logs tpms-backend
 ```
 
 ### Restart after code changes
 ```bash
-pm2 restart digitaltp-backend
+pm2 restart tpms-backend
 ```
 
 ---
@@ -225,7 +225,7 @@ sudo nano /etc/nginx/sites-available/sitpms
 
 Or copy from project:
 ```bash
-sudo cp /var/www/digitaltp/nginx/sitpms.conf /etc/nginx/sites-available/sitpms
+sudo cp /var/www/tpms/nginx/sitpms.conf /etc/nginx/sites-available/sitpms
 ```
 
 ### Enable the site
@@ -275,7 +275,7 @@ curl -I https://app.sitpms.com
 
 ### Full Deployment (Backend + Frontend)
 ```bash
-cd /var/www/digitaltp
+cd /var/www/tpms
 ./deploy.sh full
 ```
 
@@ -291,11 +291,11 @@ cd /var/www/digitaltp
 
 ### Manual Quick Deploy
 ```bash
-cd /var/www/digitaltp
+cd /var/www/tpms
 git pull origin main
 cd backend && npm install --production && npm run migrate
 cd ../frontend && npm install && npm run build
-pm2 restart digitaltp-backend
+pm2 restart tpms-backend
 ```
 
 ---
@@ -304,8 +304,8 @@ pm2 restart digitaltp-backend
 
 ### Check PM2 Logs
 ```bash
-pm2 logs digitaltp-backend --lines 100
-pm2 logs digitaltp-backend --err --lines 50
+pm2 logs tpms-backend --lines 100
+pm2 logs tpms-backend --err --lines 50
 ```
 
 ### Check Nginx Error Logs
@@ -315,7 +315,7 @@ sudo tail -f /var/log/nginx/error.log
 
 ### Restart Services
 ```bash
-pm2 restart digitaltp-backend
+pm2 restart tpms-backend
 sudo systemctl reload nginx
 ```
 
@@ -332,7 +332,7 @@ sudo lsof -i :5007
 
 ### Database Connection Test
 ```bash
-cd /var/www/digitaltp/backend
+cd /var/www/tpms/backend
 node -e "const db = require('./src/db/database'); db.query('SELECT 1').then(() => { console.log('DB OK'); process.exit(0); }).catch(e => { console.error(e); process.exit(1); })"
 ```
 
@@ -342,12 +342,12 @@ node -e "const db = require('./src/db/database'); db.query('SELECT 1').then(() =
 
 ### Database Backup
 ```bash
-mysqldump -u digitaltp_user -p digitaltp > ~/backups/digitaltp_$(date +%Y%m%d).sql
+mysqldump -u digitaltp_user -p tpms > ~/backups/digitaltp_$(date +%Y%m%d).sql
 ```
 
 ### Full Project Backup
 ```bash
-tar -czvf ~/backups/digitaltp_full_$(date +%Y%m%d).tar.gz /var/www/digitaltp
+tar -czvf ~/backups/digitaltp_full_$(date +%Y%m%d).tar.gz /var/www/tpms
 ```
 
 ---
@@ -355,7 +355,7 @@ tar -czvf ~/backups/digitaltp_full_$(date +%Y%m%d).tar.gz /var/www/digitaltp
 ## 10. Directory Structure on VPS
 
 ```
-/var/www/digitaltp/
+/var/www/tpms/
 ├── backend/
 │   ├── .env                 # Production environment
 │   ├── src/
@@ -415,12 +415,12 @@ The nginx wildcard configuration (`*.sitpms.com`) routes all subdomain requests 
 | Action | Command |
 |--------|---------|
 | SSH to server | `ssh psimas21@207.180.224.105` |
-| Go to project | `cd /var/www/digitaltp` |
+| Go to project | `cd /var/www/tpms` |
 | Deploy all | `./deploy.sh full` |
 | Deploy backend | `./deploy.sh backend` |
 | Deploy frontend | `./deploy.sh frontend` |
-| View logs | `pm2 logs digitaltp-backend` |
-| Restart backend | `pm2 restart digitaltp-backend` |
+| View logs | `pm2 logs tpms-backend` |
+| Restart backend | `pm2 restart tpms-backend` |
 | Nginx reload | `sudo systemctl reload nginx` |
 | Health check | `curl http://127.0.0.1:5007/api/health` |
 | Run migrations | `cd backend && npm run migrate` |

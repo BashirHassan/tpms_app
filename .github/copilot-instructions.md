@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-DigitalTP is a **multi-tenant SaaS platform** for managing Teaching Practice programs at educational institutions. Uses subdomain-based tenancy (`fuk.digitaltipi.com`, `gsu.digitaltipi.com`) with strict data isolation.
+DigitalTP is a **multi-tenant SaaS platform** for managing Teaching Practice programs at educational institutions. Uses subdomain-based tenancy (`fuk.sitpms.com`, `gsu.sitpms.com`) with strict data isolation.
 
 **Stack:** Express.js (Node 18+) + MySQL | React + Vite + Tailwind CSS
 
