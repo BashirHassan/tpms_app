@@ -65,6 +65,36 @@ export default defineConfig(({ mode }) => {
       },
     },
     
+    // Build optimization
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            // React core
+            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+            // UI framework
+            'vendor-ui': [
+              '@radix-ui/react-dialog',
+              '@radix-ui/react-select',
+              '@radix-ui/react-tabs',
+              '@radix-ui/react-toast',
+              '@radix-ui/react-tooltip',
+              'framer-motion',
+              'class-variance-authority',
+              'clsx',
+              'tailwind-merge',
+            ],
+            // Icons
+            'vendor-icons': ['@tabler/icons-react'],
+            // Forms & validation
+            'vendor-forms': ['react-hook-form', 'zod'],
+            // HTTP client
+            'vendor-http': ['axios'],
+          },
+        },
+      },
+    },
+
     // Environment variables
     define: {
       'import.meta.env.VITE_LOCAL_DEV': JSON.stringify(isDev),

@@ -16,9 +16,6 @@ import { cn, formatCurrency } from '../../utils/helpers';
 import { Button } from './Button';
 import { Badge } from './Badge';
 import { Dialog } from './Dialog';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import {
   IconChevronUp,
   IconChevronDown,
@@ -236,10 +233,12 @@ const ExportModal = ({ isOpen, onClose, columns, onExport, exportType }) => {
 };
 
 /**
- * Export data to Excel format using xlsx library
+ * Export data to Excel format using xlsx library (lazy-loaded)
  */
-const exportToExcel = (data, columns, filename = 'export') => {
+const exportToExcel = async (data, columns, filename = 'export') => {
   if (!data || data.length === 0) return;
+
+  const XLSX = await import('xlsx');
 
   // Get visible columns for export
   const exportColumns = columns.filter((col) => col.exportable !== false && col.accessor !== 'actions');
@@ -283,10 +282,15 @@ const exportToExcel = (data, columns, filename = 'export') => {
 };
 
 /**
- * Export data to PDF format using jsPDF and autoTable
+ * Export data to PDF format using jsPDF and autoTable (lazy-loaded)
  */
-const exportToPdf = (data, columns, filename = 'export', options = {}) => {
+const exportToPdf = async (data, columns, filename = 'export', options = {}) => {
   if (!data || data.length === 0) return;
+
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+  ]);
 
   // Get visible columns for export
   const exportColumns = columns.filter((col) => col.exportable !== false && col.accessor !== 'actions');

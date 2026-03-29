@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { InstitutionSelectionProvider } from './context/InstitutionSelectionContext';
 import { ToastProvider } from './context/ToastContext';
@@ -17,78 +18,87 @@ import ProtectedRoute, {
 } from './components/auth/ProtectedRoute';
 import { ROLE_GROUPS } from './utils/roles';
 
-// Error Pages
-import NotFoundPage from './pages/errors/NotFoundPage';
-
-// Landing Page
-import LandingPage from './pages/LandingPage';
-
-// Layouts
+// Layouts (kept eager - they wrap all routes)
 import AdminLayout from './layouts/AdminLayout';
 import StudentLayout from './layouts/StudentLayout';
 import PublicLayout from './layouts/PublicLayout';
 
+// Loading fallback for lazy-loaded pages
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600" />
+    </div>
+  );
+}
+
+// Error Pages
+const NotFoundPage = lazy(() => import('./pages/errors/NotFoundPage'));
+
+// Landing Page
+const LandingPage = lazy(() => import('./pages/LandingPage'));
+
 // Auth Pages
-import LoginPage from './pages/auth/LoginPage';
-import StudentLoginPage from './pages/auth/StudentLoginPage';
-import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
-import ResetPasswordPage from './pages/auth/ResetPasswordPage';
+const LoginPage = lazy(() => import('./pages/auth/LoginPage'));
+const StudentLoginPage = lazy(() => import('./pages/auth/StudentLoginPage'));
+const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('./pages/auth/ResetPasswordPage'));
 
 // Admin Pages
-import DashboardPage from './pages/admin/DashboardPage';
-import UsersPage from './pages/admin/UsersPage';
-import ProfilePage from './pages/admin/ProfilePage';
-import InstitutionsPage from './pages/admin/InstitutionsPage';
-import CreateInstitutionPage from './pages/admin/CreateInstitutionPage';
-import EditInstitutionPage from './pages/admin/EditInstitutionPage';
-import FeaturesPage from './pages/admin/FeaturesPage';
-import AcademicPage from './pages/admin/AcademicPage';
-import StudentsPage from './pages/admin/StudentsPage';
-import PrintPinPage from './pages/admin/PrintPinPage';
-import RanksPage from './pages/admin/RanksPage';
-import RoutesPage from './pages/admin/RoutesPage';
-import SchoolsPage from './pages/admin/SchoolsPage';
-import MasterSchoolsPage from './pages/admin/MasterSchoolsPage';
-import SessionsPage from './pages/admin/SessionsPage';
-import PaymentsPage from './pages/admin/PaymentsPage';
-import AcceptancesPage from './pages/admin/AcceptancesPage';
-import PostingsPage from './pages/admin/PostingsPage';
-import MultipostingPage from './pages/admin/MultipostingPage';
-import AllowancesPage from './pages/admin/AllowancesPage';
-import MonitoringPage from './pages/admin/MonitoringPage';
-import StudentsRegroupPage from './pages/admin/StudentsRegroupPage';
-import MergeRoutesPage from './pages/admin/MergeRoutesPage';
-import AdminResultsPage from './pages/admin/AdminResultsPage';
-import AllPostingsPage from './pages/admin/AllPostingsPage';
-import SchoolUpdateRequestsPage from './pages/admin/SchoolUpdateRequestsPage';
-import DocumentTemplatesPage from './pages/admin/DocumentTemplatesPage';
-import DeanPostingAllocationPage from './pages/admin/DeanPostingAllocationPage';
-import DeansPostingsPage from './pages/admin/DeansPostingsPage';
-import AdminLocationLogsPage from './pages/admin/AdminLocationLogsPage';
+const DashboardPage = lazy(() => import('./pages/admin/DashboardPage'));
+const UsersPage = lazy(() => import('./pages/admin/UsersPage'));
+const ProfilePage = lazy(() => import('./pages/admin/ProfilePage'));
+const InstitutionsPage = lazy(() => import('./pages/admin/InstitutionsPage'));
+const CreateInstitutionPage = lazy(() => import('./pages/admin/CreateInstitutionPage'));
+const EditInstitutionPage = lazy(() => import('./pages/admin/EditInstitutionPage'));
+const FeaturesPage = lazy(() => import('./pages/admin/FeaturesPage'));
+const AcademicPage = lazy(() => import('./pages/admin/AcademicPage'));
+const StudentsPage = lazy(() => import('./pages/admin/StudentsPage'));
+const PrintPinPage = lazy(() => import('./pages/admin/PrintPinPage'));
+const RanksPage = lazy(() => import('./pages/admin/RanksPage'));
+const RoutesPage = lazy(() => import('./pages/admin/RoutesPage'));
+const SchoolsPage = lazy(() => import('./pages/admin/SchoolsPage'));
+const MasterSchoolsPage = lazy(() => import('./pages/admin/MasterSchoolsPage'));
+const SessionsPage = lazy(() => import('./pages/admin/SessionsPage'));
+const PaymentsPage = lazy(() => import('./pages/admin/PaymentsPage'));
+const AcceptancesPage = lazy(() => import('./pages/admin/AcceptancesPage'));
+const PostingsPage = lazy(() => import('./pages/admin/PostingsPage'));
+const MultipostingPage = lazy(() => import('./pages/admin/MultipostingPage'));
+const AllowancesPage = lazy(() => import('./pages/admin/AllowancesPage'));
+const MonitoringPage = lazy(() => import('./pages/admin/MonitoringPage'));
+const StudentsRegroupPage = lazy(() => import('./pages/admin/StudentsRegroupPage'));
+const MergeRoutesPage = lazy(() => import('./pages/admin/MergeRoutesPage'));
+const AdminResultsPage = lazy(() => import('./pages/admin/AdminResultsPage'));
+const AllPostingsPage = lazy(() => import('./pages/admin/AllPostingsPage'));
+const SchoolUpdateRequestsPage = lazy(() => import('./pages/admin/SchoolUpdateRequestsPage'));
+const DocumentTemplatesPage = lazy(() => import('./pages/admin/DocumentTemplatesPage'));
+const DeanPostingAllocationPage = lazy(() => import('./pages/admin/DeanPostingAllocationPage'));
+const DeansPostingsPage = lazy(() => import('./pages/admin/DeansPostingsPage'));
+const AdminLocationLogsPage = lazy(() => import('./pages/admin/AdminLocationLogsPage'));
 
 // Supervisor Pages
-import SupervisorResultUploadPage from './pages/supervisor/SupervisorResultUploadPage';
-import SupervisorMyPostingsPage from './pages/supervisor/SupervisorMyPostingsPage';
-import SupervisorInvitationPage from './pages/supervisor/SupervisorInvitationPage';
-import LocationTrackerPage from './pages/supervisor/LocationTrackerPage';
+const SupervisorResultUploadPage = lazy(() => import('./pages/supervisor/SupervisorResultUploadPage'));
+const SupervisorMyPostingsPage = lazy(() => import('./pages/supervisor/SupervisorMyPostingsPage'));
+const SupervisorInvitationPage = lazy(() => import('./pages/supervisor/SupervisorInvitationPage'));
+const LocationTrackerPage = lazy(() => import('./pages/supervisor/LocationTrackerPage'));
 
 // Global Admin Pages (admin subdomain only)
-import GlobalUsersPage from './pages/admin/GlobalUsersPage';
-import GlobalFeaturesPage from './pages/admin/GlobalFeaturesPage';
-import GlobalPaymentsPage from './pages/admin/GlobalPaymentsPage';
+const GlobalUsersPage = lazy(() => import('./pages/admin/GlobalUsersPage'));
+const GlobalFeaturesPage = lazy(() => import('./pages/admin/GlobalFeaturesPage'));
+const GlobalPaymentsPage = lazy(() => import('./pages/admin/GlobalPaymentsPage'));
 
 // Student Pages
-import StudentDashboard from './pages/student/StudentDashboard';
-import PaymentPage from './pages/student/PaymentPage';
-import AcceptanceFormPage from './pages/student/AcceptanceFormPage';
-import PostingLetterPage from './pages/student/PostingLetterPage';
-import IntroductionLetterPage from './pages/student/IntroductionLetterPage';
-import AcceptanceDocumentPage from './pages/student/AcceptanceDocumentPage';
+const StudentDashboard = lazy(() => import('./pages/student/StudentDashboard'));
+const PaymentPage = lazy(() => import('./pages/student/PaymentPage'));
+const AcceptanceFormPage = lazy(() => import('./pages/student/AcceptanceFormPage'));
+const PostingLetterPage = lazy(() => import('./pages/student/PostingLetterPage'));
+const IntroductionLetterPage = lazy(() => import('./pages/student/IntroductionLetterPage'));
+const AcceptanceDocumentPage = lazy(() => import('./pages/student/AcceptanceDocumentPage'));
 
 // Public Pages
-import PrincipalUpdatePage from './pages/public/PrincipalUpdatePage';
-import LocationUpdatePage from './pages/public/LocationUpdatePage';
-import DocsPage from './pages/public/DocsPage';
+const PrincipalUpdatePage = lazy(() => import('./pages/public/PrincipalUpdatePage'));
+const LocationUpdatePage = lazy(() => import('./pages/public/LocationUpdatePage'));
+const DocsPage = lazy(() => import('./pages/public/DocsPage'));
 
 /**
  * InstitutionSelectionWrapper - Provides InstitutionSelectionContext with access to the authenticated user
@@ -108,15 +118,18 @@ function AppRoutes() {
   // Primary domain (no subdomain) shows landing page
   if (isLanding) {
     return (
-      <Routes>
-        <Route path="/docs" element={<DocsPage />} />
-        <Route path="*" element={<LandingPage />} />
-      </Routes>
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          <Route path="/docs" element={<DocsPage />} />
+          <Route path="*" element={<LandingPage />} />
+        </Routes>
+      </Suspense>
     );
   }
 
   // Institution subdomain shows main app
   return (
+    <Suspense fallback={<PageLoader />}>
     <Routes>
                 {/* Auth Routes */}
                 <Route path="/login" element={<LoginPage />} />
@@ -441,6 +454,7 @@ function AppRoutes() {
             {/* 404 Not Found - Must be last */}
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
+    </Suspense>
   );
 }
 
