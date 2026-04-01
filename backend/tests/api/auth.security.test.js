@@ -61,7 +61,7 @@ describe('Subdomain Authentication Enforcement', () => {
       const response = await request(app)
         .post('/api/auth/login')
         .set('X-Subdomain', 'any-institution')
-        .send({ email: 'superadmin@digitaltp.com', password: 'superadmin123' });
+        .send({ email: 'superadmin@sitpms.com', password: 'superadmin123' });
       
       // If user exists, should succeed
       if (response.status === 200) {
@@ -281,7 +281,7 @@ describe('Token Verification Security', () => {
     // First login to get token
     const loginResponse = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'superadmin@digitaltp.com', password: 'superadmin123' });
+      .send({ email: 'superadmin@sitpms.com', password: 'superadmin123' });
     
     if (loginResponse.status === 200) {
       const token = loginResponse.body.data.token;
@@ -370,7 +370,7 @@ describe('Session Management', () => {
   it('should include token expiration in response', async () => {
     const response = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'superadmin@digitaltp.com', password: 'superadmin123' });
+      .send({ email: 'superadmin@sitpms.com', password: 'superadmin123' });
     
     if (response.status === 200) {
       // Token should be a valid JWT
@@ -389,7 +389,7 @@ describe('Sensitive Data Protection', () => {
   it('should not include password in user response', async () => {
     const response = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'superadmin@digitaltp.com', password: 'superadmin123' });
+      .send({ email: 'superadmin@sitpms.com', password: 'superadmin123' });
     
     if (response.status === 200) {
       const user = response.body.data.user;
@@ -401,7 +401,7 @@ describe('Sensitive Data Protection', () => {
   it('should not include sensitive fields in profile response', async () => {
     const response = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'superadmin@digitaltp.com', password: 'superadmin123' });
+      .send({ email: 'superadmin@sitpms.com', password: 'superadmin123' });
     
     if (response.status === 200) {
       const token = response.body.data.token;

@@ -340,8 +340,8 @@ async function getFrontendUrl(institutionId) {
   // If institution has a subdomain, use subdomain-based URL
   if (subdomain) {
     if (process.env.NODE_ENV === 'production') {
-      // Production: https://subdomain.digitaltp.com (or custom domain from env)
-      const baseDomain = process.env.PRODUCTION_DOMAIN || 'digitaltp.com';
+      // Production: https://subdomain.sitpms.com (or custom domain from env)
+      const baseDomain = process.env.PRODUCTION_DOMAIN || 'sitpms.com';
       return `https://${subdomain}.${baseDomain}`;
     } else {
       // Development: http://subdomain.localhost:5173
@@ -353,7 +353,7 @@ async function getFrontendUrl(institutionId) {
   }
 
   // Fallback to base URL (no subdomain)
-  return process.env.FRONTEND_URL || 'https://digitaltp.com';
+  return process.env.FRONTEND_URL || 'https://sitpms.com';
 }
 
 /**
@@ -362,8 +362,8 @@ async function getFrontendUrl(institutionId) {
  */
 function getSuperAdminFrontendUrl() {
   if (process.env.NODE_ENV === 'production') {
-    // Production: https://admin.digitaltp.com or base domain
-    const baseDomain = process.env.PRODUCTION_DOMAIN || 'digitaltp.com';
+    // Production: https://admin.sitpms.com or base domain
+    const baseDomain = process.env.PRODUCTION_DOMAIN || 'sitpms.com';
     return `https://admin.${baseDomain}`;
   } else {
     // Development: http://localhost:5173 (no subdomain for super admin)

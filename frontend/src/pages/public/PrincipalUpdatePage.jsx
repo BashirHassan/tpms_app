@@ -187,7 +187,7 @@ export default function PrincipalUpdatePage() {
               Please access this page from your institution&apos;s portal to submit principal updates.
             </p>
             <p className="text-sm text-gray-500">
-              Example: <code className="bg-gray-100 px-2 py-1 rounded">fuk.digitaltp.ng/update-principal</code>
+              Example: <code className="bg-gray-100 px-2 py-1 rounded">fuk.sitpms.ng/update-principal</code>
             </p>
           </CardContent>
         </Card>

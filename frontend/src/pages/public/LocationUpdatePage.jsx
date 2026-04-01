@@ -229,7 +229,7 @@ export default function LocationUpdatePage() {
               Please access this page from your institution&apos;s portal to submit location updates.
             </p>
             <p className="text-sm text-gray-500">
-              Example: <code className="bg-gray-100 px-2 py-1 rounded">portal.digitaltp.ng/update-location</code>
+              Example: <code className="bg-gray-100 px-2 py-1 rounded">portal.sitpms.ng/update-location</code>
             </p>
           </CardContent>
         </Card>

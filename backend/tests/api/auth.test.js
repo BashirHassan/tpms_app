@@ -109,7 +109,7 @@ describe('POST /api/auth/login', () => {
       // For CI, this would be mocked or use a test database
       const response = await request(app)
         .post('/api/auth/login')
-        .send({ email: 'superadmin@digitaltp.com', password: 'superadmin123' });
+        .send({ email: 'superadmin@sitpms.com', password: 'superadmin123' });
       
       if (response.status === 200) {
         expect(response.body.success).toBe(true);
@@ -231,7 +231,7 @@ describe('GET /api/auth/me', () => {
       // First login to get a valid token
       const loginResponse = await request(app)
         .post('/api/auth/login')
-        .send({ email: 'superadmin@digitaltp.com', password: 'superadmin123' });
+        .send({ email: 'superadmin@sitpms.com', password: 'superadmin123' });
       
       if (loginResponse.status === 200) {
         const token = loginResponse.body.data.token;
@@ -453,7 +453,7 @@ describe('Complete Authentication Flow', () => {
     // Step 1: Login
     const loginResponse = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'superadmin@digitaltp.com', password: 'superadmin123' });
+      .send({ email: 'superadmin@sitpms.com', password: 'superadmin123' });
     
     if (loginResponse.status !== 200) {
       console.log('Skipping integration test - no test user available');

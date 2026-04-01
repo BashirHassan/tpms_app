@@ -77,7 +77,7 @@ module.exports = {
     },
     from: {
       name: process.env.SMTP_FROM_NAME || 'DigitalTP',
-      email: process.env.SMTP_FROM_EMAIL || 'noreply@digitaltp.com',
+      email: process.env.SMTP_FROM_EMAIL || 'noreply@sitpms.com',
     },
   },
 

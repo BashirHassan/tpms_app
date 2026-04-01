@@ -1108,7 +1108,7 @@ const initializeStudentPayment = async (req, res, next) => {
 
     // Generate reference
     const reference = `TP${institution.code || institutionId}-${studentId}-${Date.now()}`;
-    const email = `${student.registration_number}@student.digitaltp.ng`;
+    const email = `${student.registration_number}@student.sitpms.ng`;
 
     // Use Paystack service - REQUIRED for payment initialization
     const paystackService = require('../services/paystackService');

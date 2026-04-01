@@ -21,7 +21,7 @@ describe('DigitalTP System Tests', () => {
     const staffLogin = await request(app)
       .post('/api/auth/login')
       .send({
-        email: 'jest-test@digitaltp.test',
+        email: 'jest-test@sitpms.test',
         password: 'TestPassword123!'
       });
     
@@ -34,7 +34,7 @@ describe('DigitalTP System Tests', () => {
     const superAdminLogin = await request(app)
       .post('/api/auth/login')
       .send({
-        email: 'jest-super@digitaltp.test',
+        email: 'jest-super@sitpms.test',
         password: 'SuperAdmin123!'
       });
     
@@ -59,7 +59,7 @@ describe('DigitalTP System Tests', () => {
       const response = await request(app)
         .post('/api/auth/login')
         .send({
-          email: 'jest-test@digitaltp.test',
+          email: 'jest-test@sitpms.test',
           password: 'TestPassword123!'
         });
 
@@ -73,7 +73,7 @@ describe('DigitalTP System Tests', () => {
       const response = await request(app)
         .post('/api/auth/login')
         .send({
-          email: 'jest-test@digitaltp.test',
+          email: 'jest-test@sitpms.test',
           password: 'wrongpassword'
         });
 
@@ -88,7 +88,7 @@ describe('DigitalTP System Tests', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
-      expect(response.body.data.email).toBe('jest-test@digitaltp.test');
+      expect(response.body.data.email).toBe('jest-test@sitpms.test');
     });
 
     test('GET /api/auth/me - should fail without token', async () => {

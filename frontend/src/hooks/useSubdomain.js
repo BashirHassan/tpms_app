@@ -253,7 +253,7 @@ if (typeof window !== 'undefined' && isLocalDev()) {
     getSubdomainInfo,
     clearSubdomain: () => setDevSubdomain(null),
   };
-  console.log('🔧 DigitalTP Dev Tools loaded. Use window.digitaltp.setSubdomain("fuk") to test institutions.');
+  console.log('🔧 DigitalTP Dev Tools loaded. Use window.sitpms.setSubdomain("fuk") to test institutions.');
 }
 
 export default useSubdomain;

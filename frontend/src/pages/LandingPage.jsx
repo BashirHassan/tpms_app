@@ -104,7 +104,7 @@ function LandingPage() {
               <p className="text-sm text-amber-800">
                 <strong>Development Mode:</strong> Add <code className="px-1.5 py-0.5 rounded bg-amber-100">?subdomain=fuk</code> to 
                 the URL to test institution login, or use the console command{' '}
-                <code className="px-1.5 py-0.5 rounded bg-amber-100">digitaltp.setSubdomain(&apos;fuk&apos;)</code>
+                <code className="px-1.5 py-0.5 rounded bg-amber-100">sitpms.setSubdomain(&apos;fuk&apos;)</code>
               </p>
             </div>
           )}
