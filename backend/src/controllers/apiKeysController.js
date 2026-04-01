@@ -70,7 +70,7 @@ const getAPIKeys = async (req, res, next) => {
       data: {
         ssoEnabled: Boolean(institution.sso_enabled),
         institutionCode: institution.code,
-        ssoEndpoint: `https://${institution.code.toLowerCase()}.digitaltipi.com/sso`,
+        ssoEndpoint: `https://${institution.code.toLowerCase()}.sitpms.com/sso`,
         partner: partner
           ? {
               id: partner.id,
@@ -152,7 +152,7 @@ const createAPIKeys = async (req, res, next) => {
         secretKey, // Only returned once on creation!
         secretKeyHint,
         institutionCode: institution.code,
-        ssoEndpoint: `https://${institution.code.toLowerCase()}.digitaltipi.com/sso`,
+        ssoEndpoint: `https://${institution.code.toLowerCase()}.sitpms.com/sso`,
       },
       warning: 'Save the secret key now. It will not be shown again.',
     });
@@ -206,7 +206,7 @@ const regenerateSecretKey = async (req, res, next) => {
         partnerId: partner.partner_id,
         secretKey, // Only returned once!
         secretKeyHint,
-        ssoEndpoint: `https://${institution.code.toLowerCase()}.digitaltipi.com/sso`,
+        ssoEndpoint: `https://${institution.code.toLowerCase()}.sitpms.com/sso`,
       },
       warning: 'Save the secret key now. It will not be shown again. All existing tokens are now invalid.',
     });

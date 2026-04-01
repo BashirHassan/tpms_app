@@ -1347,7 +1347,7 @@ CREATE TABLE `institutions` (
   `id` bigint(20) NOT NULL,
   `name` varchar(255) NOT NULL,
   `code` varchar(20) NOT NULL,
-  `subdomain` varchar(100) DEFAULT NULL COMMENT 'Unique subdomain for SaaS routing (e.g., fuk for fuk.digitaltipi.com)',
+  `subdomain` varchar(100) DEFAULT NULL COMMENT 'Unique subdomain for SaaS routing (e.g., fuk for fuk.sitpms.com)',
   `institution_type` enum('college_of_education','university','polytechnic','other') NOT NULL DEFAULT 'college_of_education',
   `email` varchar(255) NOT NULL,
   `phone` varchar(20) DEFAULT NULL,

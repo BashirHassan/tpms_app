@@ -218,7 +218,7 @@ export function SuperAdminRoute({ children }) {
 
 /**
  * Global route - requires super_admin AND admin subdomain
- * 🔒 SECURITY: Platform-wide routes only accessible from admin.digitaltipi.com
+ * 🔒 SECURITY: Platform-wide routes only accessible from admin.sitpms.com
  * If accessed from institution subdomain, redirects to admin subdomain
  */
 export function GlobalRoute({ children }) {

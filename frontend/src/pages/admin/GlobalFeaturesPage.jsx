@@ -3,7 +3,7 @@
  * 
  * Platform-wide feature management for super_admin only.
  * Shows all features with institution usage counts.
- * Accessible from admin.digitaltipi.com subdomain.
+ * Accessible from admin.sitpms.com subdomain.
  */
 
 import { useState, useEffect, useCallback } from 'react';

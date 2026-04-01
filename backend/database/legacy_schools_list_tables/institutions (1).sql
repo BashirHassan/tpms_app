@@ -31,7 +31,7 @@ CREATE TABLE `institutions` (
   `id` bigint NOT NULL,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `code` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `subdomain` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Unique subdomain for SaaS routing (e.g., fuk for fuk.digitaltipi.com)',
+  `subdomain` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Unique subdomain for SaaS routing (e.g., fuk for fuk.sitpms.com)',
   `institution_type` enum('college_of_education','university','polytechnic','other') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'college_of_education',
   `email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `phone` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,

@@ -54,7 +54,7 @@ export function getSubdomain() {
     }
   }
   
-  // Handle .local domains (e.g., fuk.digitaltipi.local, admin.digitaltipi.local)
+  // Handle .local domains (e.g., fuk.sitpms.local, admin.sitpms.local)
   if (host.endsWith('.local') && parts.length >= 3) {
     const subdomain = parts[0].toLowerCase();
     const reserved = ['www', 'api'];
@@ -108,14 +108,14 @@ export function isSuperAdminPortal() {
     if (subdomain === 'admin') {
       return true;
     }
-    // Check for admin.digitaltipi.local
+    // Check for admin.sitpms.local
     if (parts.length >= 3 && parts[0].toLowerCase() === 'admin') {
       return true;
     }
     return false;
   }
   
-  // PRODUCTION: admin.digitaltipi.com
+  // PRODUCTION: admin.sitpms.com
   if (parts.length >= 3) {
     const subdomain = parts[0].toLowerCase();
     return subdomain === 'admin';
@@ -155,7 +155,7 @@ export function isLandingPage() {
     return false;
   }
   
-  // Main domain without subdomain (digitaltipi.com)
+  // Main domain without subdomain (sitpms.com)
   if (parts.length === 2) {
     return true;
   }
@@ -230,7 +230,7 @@ export function getAdminDomain() {
   if (host.includes('localhost')) {
     return 'http://admin.localhost:5173';
   }
-  return 'https://admin.digitaltipi.com';
+  return 'https://admin.sitpms.com';
 }
 
 /**
@@ -243,7 +243,7 @@ export function getInstitutionUrl(subdomain) {
   if (host.includes('localhost')) {
     return `http://${subdomain}.localhost:5173`;
   }
-  return `https://${subdomain}.digitaltipi.com`;
+  return `https://${subdomain}.sitpms.com`;
 }
 
 // Expose helpers to window for console debugging

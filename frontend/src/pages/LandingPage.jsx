@@ -87,10 +87,10 @@ function LandingPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center text-sm">
               <code className="px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700">
-                fuk.digitaltipi.com
+                fuk.sitpms.com
               </code>
               <code className="px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700">
-                gsu.digitaltipi.com
+                gsu.sitpms.com
               </code>
             </div>
             <p className="text-xs text-gray-500 mt-4">

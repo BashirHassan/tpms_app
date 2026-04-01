@@ -2,7 +2,7 @@
  * Global Routes - MedeePay Pattern
  * 
  * Platform-wide operations for super_admin only.
- * Accessible from admin.digitaltipi.com subdomain.
+ * Accessible from admin.sitpms.com subdomain.
  * 
  * Routes:
  * - GET /api/global/users - List all users across institutions
@@ -302,7 +302,7 @@ router.post(
             email: email.toLowerCase(),
             password: plainPassword,
             role: getRoleDisplayName(role),
-            loginUrl: process.env.FRONTEND_URL || 'https://digitaltipi.com',
+            loginUrl: process.env.FRONTEND_URL || 'https://sitpms.com',
           },
         }, { priority: 'high' });
       } catch (emailErr) {
@@ -473,7 +473,7 @@ router.post(
             email: user.email,
             password: plainPassword,
             role: getRoleDisplayName(user.role),
-            loginUrl: process.env.FRONTEND_URL || 'https://digitaltipi.com',
+            loginUrl: process.env.FRONTEND_URL || 'https://sitpms.com',
           },
         }, { priority: 'high' });
       } catch (emailErr) {

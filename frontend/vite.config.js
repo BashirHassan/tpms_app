@@ -41,7 +41,7 @@ export default defineConfig(({ mode }) => {
                   subdomain = sub;
                 }
               }
-              // Check for .local domain subdomain (e.g., fuk.digitaltipi.local)
+              // Check for .local domain subdomain (e.g., fuk.sitpms.local)
               else if (parts.length >= 3) {
                 const sub = parts[0].toLowerCase();
                 const reserved = ['www', 'api', 'admin'];

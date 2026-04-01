@@ -101,14 +101,14 @@ module.exports = {
   localDev: {
     enabled: nodeEnv !== 'production',
     // Domains considered "local" for subdomain extraction
-    localDomains: ['localhost', '127.0.0.1', 'digitaltipi.local'],
+    localDomains: ['localhost', '127.0.0.1', 'sitpms.local'],
     // Allow subdomain via query param in dev
     allowQuerySubdomain: nodeEnv !== 'production',
   },
 
   // Multi-tenant settings
   multiTenant: {
-    baseDomain: process.env.BASE_DOMAIN || 'digitaltipi.com',
+    baseDomain: process.env.BASE_DOMAIN || 'sitpms.com',
     adminSubdomain: 'admin',
     apiSubdomain: 'api',
   },

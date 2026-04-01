@@ -22,7 +22,7 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Extract subdomain from host (with local dev support)
- * @param {string} host - Full host header (e.g., "fuk.digitaltipi.com")
+ * @param {string} host - Full host header (e.g., "fuk.sitpms.com")
  * @param {object} query - Query parameters
  * @returns {string|null} - Subdomain or null
  */
@@ -50,7 +50,7 @@ function extractSubdomain(host, query = {}) {
     }
   }
   
-  // LOCAL DEV: Handle .local domains (e.g., fuk.digitaltipi.local)
+  // LOCAL DEV: Handle .local domains (e.g., fuk.sitpms.local)
   if (config.localDev?.enabled) {
     const localDomains = config.localDev.localDomains || [];
     
@@ -234,7 +234,7 @@ function isGlobalAdminPortal(req) {
   const hostWithoutPort = host.split(':')[0];
   const parts = hostWithoutPort.split('.');
   
-  // Check for admin subdomain (admin.localhost, admin.digitaltipi.com)
+  // Check for admin subdomain (admin.localhost, admin.sitpms.com)
   if (parts.length >= 2 && parts[0].toLowerCase() === 'admin') {
     return true;
   }

@@ -1,8 +1,8 @@
 # DigitalTP SSO API Documentation
 
 > **Version:** 1.0  
-> **Base URL:** `https://{subdomain}.digitaltipi.com`  
-> **Documentation URL:** `https://docs.digitaltipi.com`
+> **Base URL:** `https://{subdomain}.sitpms.com`  
+> **Documentation URL:** `https://docs.sitpms.com`
 
 ---
 
@@ -86,7 +86,7 @@ SSO uses HMAC-SHA256 signed tokens. The token consists of:
 
 **Example:**
 ```
-https://fukashere.digitaltipi.com/sso/student?token=eyJwYXJ0bmVyX2lkIj...
+https://fukashere.sitpms.com/sso/student?token=eyJwYXJ0bmVyX2lkIj...
 ```
 
 **Success Response:**
@@ -115,7 +115,7 @@ https://fukashere.digitaltipi.com/sso/student?token=eyJwYXJ0bmVyX2lkIj...
 
 **Example:**
 ```
-https://fukashere.digitaltipi.com/sso/staff?token=eyJwYXJ0bmVyX2lkIj...
+https://fukashere.sitpms.com/sso/staff?token=eyJwYXJ0bmVyX2lkIj...
 ```
 
 **Success Response:**
@@ -286,7 +286,7 @@ function generateDigitalTPToken(partnerId, secretKey, userType, identifier, inst
  * @returns {string} Full redirect URL
  */
 function buildSSOUrl(subdomain, userType, token) {
-  return `https://${subdomain}.digitaltipi.com/sso/${userType}?token=${encodeURIComponent(token)}`;
+  return `https://${subdomain}.sitpms.com/sso/${userType}?token=${encodeURIComponent(token)}`;
 }
 
 // Express.js endpoint example
@@ -349,7 +349,7 @@ function generateDigitalTPToken($partnerId, $secretKey, $userType, $identifier, 
  * Build SSO redirect URL
  */
 function buildSSOUrl($subdomain, $userType, $token) {
-    return "https://{$subdomain}.digitaltipi.com/sso/{$userType}?token=" . urlencode($token);
+    return "https://{$subdomain}.sitpms.com/sso/{$userType}?token=" . urlencode($token);
 }
 
 // Usage in controller
@@ -417,7 +417,7 @@ def generate_digitaltp_token(partner_id: str, secret_key: str, user_type: str,
 
 def build_sso_url(subdomain: str, user_type: str, token: str) -> str:
     """Build SSO redirect URL."""
-    return f"https://{subdomain}.digitaltipi.com/sso/{user_type}?token={token}"
+    return f"https://{subdomain}.sitpms.com/sso/{user_type}?token={token}"
 
 
 # Flask example
@@ -523,7 +523,7 @@ public class DigitalTPSSOService
 
     public string BuildSSOUrl(string userType, string token)
     {
-        return $"https://{_subdomain}.digitaltipi.com/sso/{userType}?token={HttpUtility.UrlEncode(token)}";
+        return $"https://{_subdomain}.sitpms.com/sso/{userType}?token={HttpUtility.UrlEncode(token)}";
     }
 
     private static string Base64UrlEncode(byte[] input)
@@ -623,7 +623,7 @@ public class DigitalTPSSOService {
     }
 
     public String buildSSOUrl(String userType, String token) {
-        return String.format("https://%s.digitaltipi.com/sso/%s?token=%s",
+        return String.format("https://%s.sitpms.com/sso/%s?token=%s",
             subdomain, userType, java.net.URLEncoder.encode(token, StandardCharsets.UTF_8));
     }
 
@@ -676,8 +676,8 @@ Use the sandbox environment for testing:
 
 | Environment | Base URL |
 |-------------|----------|
-| Sandbox | `https://sandbox.digitaltipi.com` |
-| Production | `https://{subdomain}.digitaltipi.com` |
+| Sandbox | `https://sandbox.sitpms.com` |
+| Production | `https://{subdomain}.sitpms.com` |
 
 ### Test Credentials
 
@@ -791,7 +791,7 @@ A: Each institution has its own Partner ID and Secret Key. You'll need separate 
 A: Yes, 100 SSO requests per minute per partner. Contact support if you need higher limits.
 
 **Q: Can I test without affecting production?**  
-A: Yes, use the sandbox environment (`sandbox.digitaltipi.com`) for testing.
+A: Yes, use the sandbox environment (`sandbox.sitpms.com`) for testing.
 
 ---
 
@@ -807,10 +807,10 @@ A: Yes, use the sandbox environment (`sandbox.digitaltipi.com`) for testing.
 
 | Resource | Link/Contact |
 |----------|--------------|
-| Documentation | https://docs.digitaltipi.com |
-| Technical Support | integration@digitaltipi.com |
-| Status Page | https://status.digitaltipi.com |
-| Partner Portal | https://partners.digitaltipi.com |
+| Documentation | https://docs.sitpms.com |
+| Technical Support | integration@sitpms.com |
+| Status Page | https://status.sitpms.com |
+| Partner Portal | https://partners.sitpms.com |
 
 ---
 

@@ -131,7 +131,7 @@ function generateDigitalTPToken(partnerId, secretKey, userType, identifier, inst
 }
 
 function buildSSOUrl(subdomain, userType, token) {
-  return \`https://\${subdomain}.digitaltipi.com/sso/\${userType}?token=\${encodeURIComponent(token)}\`;
+  return \`https://\${subdomain}.sitpms.com/sso/\${userType}?token=\${encodeURIComponent(token)}\`;
 }
 
 // Usage
@@ -165,7 +165,7 @@ function generateDigitalTPToken($partnerId, $secretKey, $userType, $identifier, 
 }
 
 function buildSSOUrl($subdomain, $userType, $token) {
-    return "https://{$subdomain}.digitaltipi.com/sso/{$userType}?token=" . urlencode($token);
+    return "https://{$subdomain}.sitpms.com/sso/{$userType}?token=" . urlencode($token);
 }
 
 // Usage
@@ -208,7 +208,7 @@ def generate_digitaltp_token(partner_id, secret_key, user_type, identifier, inst
     return f"{payload_base64}.{signature_base64}"
 
 def build_sso_url(subdomain, user_type, token):
-    return f"https://{subdomain}.digitaltipi.com/sso/{user_type}?token={token}"
+    return f"https://{subdomain}.sitpms.com/sso/{user_type}?token={token}"
 
 # Usage
 token = generate_digitaltp_token(
@@ -377,7 +377,7 @@ export default function DocsPage() {
               <div className="flex flex-wrap gap-4 mt-6">
                 <div className="bg-white/10 rounded-lg px-4 py-2">
                   <span className="text-blue-200 text-sm">Base URL</span>
-                  <p className="font-mono text-sm">https://{'{subdomain}'}.digitaltipi.com</p>
+                  <p className="font-mono text-sm">https://{'{subdomain}'}.sitpms.com</p>
                 </div>
                 <div className="bg-white/10 rounded-lg px-4 py-2">
                   <span className="text-blue-200 text-sm">Version</span>
@@ -479,7 +479,7 @@ export default function DocsPage() {
                     <div className="mt-3">
                       <h5 className="font-medium text-gray-900 text-sm mb-2">Example</h5>
                       <code className="text-xs bg-gray-100 p-2 rounded block overflow-x-auto">
-                        https://fukashere.digitaltipi.com/sso/student?token=eyJwYXJ0bmVyX2lkIj...
+                        https://fukashere.sitpms.com/sso/student?token=eyJwYXJ0bmVyX2lkIj...
                       </code>
                     </div>
                   </div>
@@ -505,7 +505,7 @@ export default function DocsPage() {
                     <div className="mt-3">
                       <h5 className="font-medium text-gray-900 text-sm mb-2">Example</h5>
                       <code className="text-xs bg-gray-100 p-2 rounded block overflow-x-auto">
-                        https://fukashere.digitaltipi.com/sso/staff?token=eyJwYXJ0bmVyX2lkIj...
+                        https://fukashere.sitpms.com/sso/staff?token=eyJwYXJ0bmVyX2lkIj...
                       </code>
                     </div>
                   </div>
@@ -717,11 +717,11 @@ export default function DocsPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <p className="text-sm text-gray-500">Technical Support</p>
-                  <p className="text-gray-900">integration@digitaltipi.com</p>
+                  <p className="text-gray-900">integration@sitpms.com</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">Partner Portal</p>
-                  <p className="text-gray-900">partners.digitaltipi.com</p>
+                  <p className="text-gray-900">partners.sitpms.com</p>
                 </div>
               </div>
             </div>

@@ -14,9 +14,9 @@ const path = require('path');
 // ─── File paths ──────────────────────────────────────────────────────
 const LEGACY_DIR = path.join(__dirname, '..', 'database', 'legacy_schools_list_tables');
 const FILES = [
-  { file: 'tbl_tp_schools (1).sql', institution: 'FUK', institutionId: 7 },
-  { file: 'tbl_tp_schools (2).sql', institution: 'GSU', institutionId: 8 },
-  { file: 'tbl_tp_schools (3).sql', institution: 'FCET_GOMBE', institutionId: 6 },
+  { file: 'tbl_tp_schools (1).sql', institution: 'FUK', institutionId: 3 },
+  { file: 'tbl_tp_schools (2).sql', institution: 'GSU', institutionId: 2 },
+  { file: 'tbl_tp_schools (3).sql', institution: 'FCETG', institutionId: 1 },
 ];
 const OUTPUT_DIR = path.join(__dirname, '..', 'database', 'migrations');
 
@@ -240,11 +240,14 @@ const DESCRIPTOR_WORDS = new Set([
 ]);
 
 function generateOfficialCode(name) {
+  const MAX_CODE_LENGTH = 50;
+
   // Try known patterns first
   for (const [pattern, abbrev] of CODE_ABBREVIATIONS) {
     if (pattern.test(name)) {
       const location = name.replace(pattern, '').trim();
-      return location ? `${abbrev} ${location}` : abbrev;
+      const code = location ? `${abbrev} ${location}` : abbrev;
+      return code.length > MAX_CODE_LENGTH ? code.substring(0, MAX_CODE_LENGTH).trim() : code;
     }
   }
 
@@ -262,20 +265,22 @@ function generateOfficialCode(name) {
     }
   }
 
+  let code;
   if (prefixParts.length > 0 && locationStart > 0) {
     const prefix = prefixParts.join('');
     const location = words.slice(locationStart).join(' ');
-    return `${prefix} ${location}`;
+    code = `${prefix} ${location}`;
+  } else if (words.length <= 3) {
+    // No descriptor words found — it's a named institution (e.g. "BAPTIST ACADEMY GOMBE")
+    // Use first letter of each word + last word
+    code = words.map(w => w[0]).join('') + (words.length > 1 ? ' ' + words.slice(-1)[0] : '');
+  } else {
+    // Take initials of first 2 words + rest as location
+    const initials = words.slice(0, 2).map(w => w[0]).join('');
+    code = `${initials} ${words.slice(2).join(' ')}`;
   }
 
-  // No descriptor words found — it's a named institution (e.g. "BAPTIST ACADEMY GOMBE")
-  // Use first letter of each word (up to 4) + remaining location
-  if (words.length <= 3) {
-    return words.map(w => w[0]).join('') + (words.length > 1 ? ' ' + words.slice(-1)[0] : '');
-  }
-  // Take initials of first 2 words + rest as location
-  const initials = words.slice(0, 2).map(w => w[0]).join('');
-  return `${initials} ${words.slice(2).join(' ')}`;
+  return code.length > MAX_CODE_LENGTH ? code.substring(0, MAX_CODE_LENGTH).trim() : code;
 }
 
 // ─── Generate a dedup key ────────────────────────────────────────────
@@ -492,7 +497,7 @@ function main() {
   const escapeSql = (str) => str.replace(/'/g, "''").replace(/\\/g, '\\\\');
 
   let sql = `-- Master Schools Data Migration
--- Generated from 3 legacy institution databases: FUK, GSU, FCET Gombe
+-- Generated from 3 legacy institution databases: FUK, GSU, FCETG
 -- Generated on: ${new Date().toISOString().split('T')[0]}
 -- Total unique schools: ${masterSchools.length}
 --
@@ -548,28 +553,39 @@ INSERT INTO master_schools (
 
   // 8. Generate institution_schools linking SQL (separate migration)
   let linkSql = `-- Institution Schools Linking Migration
--- Generated from 3 legacy institution databases: FUK, GSU, FCET Gombe
+-- Generated from 3 legacy institution databases: FUK, GSU, FCETG
 -- Generated on: ${new Date().toISOString().split('T')[0]}
 --
 -- This migration links existing master_schools to their respective institutions
 -- based on legacy tbl_tp_schools data. Run AFTER 038_master_schools_data.sql.
 --
--- institution_id mapping (from production institutions table):
---   FUK (Federal University Kashere) = 7
---   GSU (Gombe State University) = 8
---   FCET Gombe (Federal College of Education Technical Gombe) = 6
+-- institution_id mapping:
+--   FCETG (FCE Technical Gombe) = 1
+--   GSU (Gombe State University) = 2
+--   FUK (Federal University Kashere) = 3
 
 `;
 
   // Group links by institution for clarity
-  const linksByInstitution = { 7: [], 8: [], 6: [] }; // FUK, GSU, FCET_GOMBE
-  const institutionNames = { 7: 'FUK', 8: 'GSU', 6: 'FCET_GOMBE' };
+  const linksByInstitution = { 1: [], 2: [], 3: [] }; // FCETG, GSU, FUK
+  const institutionNames = { 1: 'FCETG', 2: 'GSU', 3: 'FUK' };
+
+  // Track seen (institutionId, officialCode) pairs to avoid duplicate unique key violations
+  const seenLinks = new Set();
+  let dupeLinkCount = 0;
 
   for (let i = 0; i < masterSchools.length; i++) {
     const s = masterSchools[i];
     const code = s.officialCode;
 
     for (const src of s.sources) {
+      const linkKey = `${src.institutionId}::${code}`;
+      if (seenLinks.has(linkKey)) {
+        dupeLinkCount++;
+        continue; // Skip duplicate (institution_id, master_school_id) pair
+      }
+      seenLinks.add(linkKey);
+
       const locCategory = src.school_category.trim().toLowerCase() === 'inside' ? 'inside' : 'outside';
       const instStatus = src.status === 1 ? 'active' : 'inactive';
 
@@ -577,6 +593,10 @@ INSERT INTO master_schools (
         `(${src.institutionId}, (SELECT id FROM master_schools WHERE official_code = '${escapeSql(code)}'), '${locCategory}', ${src.kilometers}, ${src.students_limit}, '${instStatus}', 'Legacy ID: ${src.legacy_id}', NOW(), NOW())`
       );
     }
+  }
+
+  if (dupeLinkCount > 0) {
+    console.log(`\nSkipped ${dupeLinkCount} duplicate institution-school links`);
   }
 
   // Write each institution's links as a separate INSERT for clarity and easier debugging

@@ -3,7 +3,7 @@
  * 
  * Platform-wide user management for super_admin only.
  * Full CRUD: Create, Read, Update, Delete users across all institutions.
- * Accessible from admin.digitaltipi.com subdomain.
+ * Accessible from admin.sitpms.com subdomain.
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';

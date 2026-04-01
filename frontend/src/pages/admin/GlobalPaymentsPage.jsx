@@ -3,7 +3,7 @@
  * 
  * Platform-wide payment management for super_admin only.
  * Shows all payments across institutions with stats and filters.
- * Accessible from admin.digitaltipi.com subdomain.
+ * Accessible from admin.sitpms.com subdomain.
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';

@@ -117,7 +117,7 @@ const token = generateToken({
 });
 
 // Redirect student to DigitalTP
-redirect(`https://fukashere.digitaltipi.com/sso/student?token=${token}`);
+redirect(`https://fukashere.sitpms.com/sso/student?token=${token}`);
 ```
 
 #### For Staff:
@@ -133,7 +133,7 @@ const token = generateToken({
 });
 
 // Redirect staff to DigitalTP
-redirect(`https://fukashere.digitaltipi.com/sso/staff?token=${token}`);
+redirect(`https://fukashere.sitpms.com/sso/staff?token=${token}`);
 ```
 
 > **Note:** Role is NOT included in the token. DigitalTP looks up the staff member and determines their role from the database before granting access.
@@ -192,7 +192,7 @@ const staffToken = generateDigitalTPToken(
 );
 
 // Redirect URL
-const redirectUrl = `https://fukashere.digitaltipi.com/sso/${userType}?token=${token}`;
+const redirectUrl = `https://fukashere.sitpms.com/sso/${userType}?token=${token}`;
 ```
 
 #### Option B: PHP
@@ -224,7 +224,7 @@ $token = generateDigitalTPToken(
 );
 
 // Redirect
-header("Location: https://fukashere.digitaltipi.com/sso/student?token=" . $token);
+header("Location: https://fukashere.sitpms.com/sso/student?token=" . $token);
 ?>
 ```
 
@@ -268,7 +268,7 @@ token = generate_digitaltp_token(
 )
 
 # Redirect URL
-redirect_url = f"https://fukashere.digitaltipi.com/sso/student?token={token}"
+redirect_url = f"https://fukashere.sitpms.com/sso/student?token={token}"
 ```
 
 #### Option D: C# / .NET
@@ -411,7 +411,7 @@ console.log(payload);
 ### Step 2: Test Redirect
 Use the DigitalTP sandbox environment:
 ```
-https://sandbox.digitaltipi.com/sso/student?token=YOUR_TOKEN
+https://sandbox.sitpms.com/sso/student?token=YOUR_TOKEN
 ```
 
 ### Step 3: Verify User Session
@@ -488,7 +488,7 @@ app.post('/api/sso/digitaltp-token', authenticate, (req, res) => {
   );
   
   res.json({
-    redirectUrl: `https://${process.env.DIGITALTP_SUBDOMAIN}.digitaltipi.com/sso/${userType}?token=${token}`
+    redirectUrl: `https://${process.env.DIGITALTP_SUBDOMAIN}.sitpms.com/sso/${userType}?token=${token}`
   });
 });
 ```
@@ -531,7 +531,7 @@ API Keys are managed from the **Institution Settings** in DigitalTP.
 | **View SSO Logs** | See recent SSO login attempts and errors |
 | **API Documentation** | Link to full integration guide with code samples |
 
-> 📚 **Full Documentation:** Access the complete API documentation at `https://digitaltipi.com/docs` or click the "View Documentation" link in the API Keys tab.
+> 📚 **Full Documentation:** Access the complete API documentation at `https://sitpms.com/docs` or click the "View Documentation" link in the API Keys tab.
 
 ### API Keys UI
 
@@ -559,7 +559,7 @@ API Keys are managed from the **Institution Settings** in DigitalTP.
 │                                                             │
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │  SSO Endpoint                                       │    │
-│  │  https://fukashere.digitaltipi.com/sso  [📋 Copy]   │    │
+│  │  https://fukashere.sitpms.com/sso  [📋 Copy]   │    │
 │  └─────────────────────────────────────────────────────┘    │
 │                                                             │
 │  [🔄 Regenerate Secret Key]    [📊 View SSO Logs]           │
@@ -591,8 +591,8 @@ SSO is optional. Users can always log in directly to DigitalTP:
 
 | User Type | Login URL | Credentials |
 |-----------|-----------|-------------|
-| Students | `https://fukashere.digitaltipi.com/student/login` | Registration Number + PIN |
-| Staff | `https://fukashere.digitaltipi.com/login` | Email + Password |
+| Students | `https://fukashere.sitpms.com/student/login` | Registration Number + PIN |
+| Staff | `https://fukashere.sitpms.com/login` | Email + Password |
 
 ---
 
@@ -600,9 +600,9 @@ SSO is optional. Users can always log in directly to DigitalTP:
 
 | Need Help? | Contact |
 |------------|---------|
-| Technical Integration | integration@digitaltipi.com |
-| Partner Registration | partners@digitaltipi.com |
-| General Support | support@digitaltipi.com |
+| Technical Integration | integration@sitpms.com |
+| Partner Registration | partners@sitpms.com |
+| General Support | support@sitpms.com |
 
 ---
 
