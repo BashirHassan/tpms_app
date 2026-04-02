@@ -535,6 +535,7 @@ function GlobalPaymentsPage() {
                 limit: pagination.limit,
                 total: pagination.total,
                 onPageChange: handlePageChange,
+                onLimitChange: (limit) => setPagination((prev) => ({ ...prev, limit, page: 1 })),
               }}
             />
           )}

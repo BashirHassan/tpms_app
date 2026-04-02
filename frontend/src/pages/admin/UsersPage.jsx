@@ -575,6 +575,7 @@ function UsersPage() {
           limit: pagination.limit,
           total: pagination.total,
           onPageChange: (page) => setPagination((p) => ({ ...p, page })),
+          onLimitChange: (limit) => setPagination((p) => ({ ...p, limit, page: 1 })),
         }}
       />
 

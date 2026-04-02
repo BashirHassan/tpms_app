@@ -384,7 +384,8 @@ const DataTable = forwardRef(function DataTable(
     isRowSelectable, // (row) => boolean - optional function to disable selection for specific rows
     
     // Pagination
-    pagination = null, // { page, limit, total, onPageChange }
+    pagination = null, // { page, limit, total, onPageChange, onLimitChange? }
+    pageSizeOptions = [20, 50, 100, 200],
     
     // Callbacks
     onRowClick,
@@ -705,16 +706,35 @@ const DataTable = forwardRef(function DataTable(
   const renderPagination = () => {
     if (!pagination) return null;
 
-    const { page, limit, total, onPageChange } = pagination;
+    const { page, limit, total, onPageChange, onLimitChange } = pagination;
     const totalPages = Math.ceil(total / limit);
     const startItem = (page - 1) * limit + 1;
     const endItem = Math.min(page * limit, total);
 
     return (
       <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-4 px-3 sm:px-4 py-2 sm:py-3 border-t bg-gray-50">
-        <p className="text-xs sm:text-sm text-gray-500 order-2 sm:order-1">
-          Showing {startItem}-{endItem} of {total}
-        </p>
+        <div className="flex items-center gap-2 sm:gap-3 order-2 sm:order-1">
+          <p className="text-xs sm:text-sm text-gray-500">
+            Showing {startItem}-{endItem} of {total}
+          </p>
+          {onLimitChange && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs sm:text-sm text-gray-400">|</span>
+              <select
+                value={limit}
+                onChange={(e) => onLimitChange(Number(e.target.value))}
+                className="text-xs sm:text-sm border border-gray-300 rounded-md px-1.5 py-0.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+              >
+                {pageSizeOptions.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs sm:text-sm text-gray-500">per page</span>
+            </div>
+          )}
+        </div>
         <div className="flex items-center gap-1 order-1 sm:order-2">
           <Button
             variant="outline"

@@ -523,6 +523,7 @@ function PaymentsPage() {
               limit: pagination.limit,
               total: pagination.total,
               onPageChange: (page) => setPagination((prev) => ({ ...prev, page })),
+              onLimitChange: (limit) => setPagination((prev) => ({ ...prev, limit, page: 1 })),
             }}
           />
         </CardContent>
