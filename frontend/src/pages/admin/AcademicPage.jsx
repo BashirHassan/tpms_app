@@ -51,6 +51,9 @@ function AcademicPage() {
   const [formData, setFormData] = useState({});
   const [saving, setSaving] = useState(false);
 
+  // Tab singular name mapping
+  const singularTab = { faculties: 'faculty', departments: 'department', programs: 'program' };
+
   // Delete confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState({ type: null, id: null });
@@ -198,11 +201,11 @@ function AcademicPage() {
 
   // Handlers wrapped in useCallback
   const handleEdit = useCallback((item) => {
-    openEditModal(activeTab.slice(0, -1), item);
+    openEditModal(singularTab[activeTab], item);
   }, [activeTab]);
 
   const handleDeleteItem = useCallback((id) => {
-    handleDelete(activeTab.slice(0, -1), id);
+    handleDelete(singularTab[activeTab], id);
   }, [activeTab]);
 
   // Table columns definition
@@ -310,9 +313,9 @@ function AcademicPage() {
         </Select>
       )}
       {canEdit && (
-        <Button size="sm" onClick={() => openCreateModal(activeTab.slice(0, -1))}>
+        <Button size="sm" onClick={() => openCreateModal(singularTab[activeTab])}>
           <IconPlus className="w-4 h-4 mr-2" />
-          Add {activeTab.slice(0, -1)}
+          Add {singularTab[activeTab]}
         </Button>
       )}
     </div>
@@ -411,9 +414,9 @@ function AcademicPage() {
         )}
         
         {canEdit && (
-          <Button onClick={() => openCreateModal(activeTab.slice(0, -1))} className="active:scale-95 flex-shrink-0">
+          <Button onClick={() => openCreateModal(singularTab[activeTab])} className="active:scale-95 flex-shrink-0">
             <IconPlus className="w-4 h-4 sm:mr-2" />
-            Add {activeTab.slice(0, -1)}
+            Add {singularTab[activeTab]}
           </Button>
         )}
       </div>
@@ -431,7 +434,7 @@ function AcademicPage() {
         exportFilename={`${activeTab}_export`}
         emptyIcon={activeTab === 'faculties' ? IconBuilding : activeTab === 'departments' ? IconBook : IconGraduationCap}
         emptyTitle={`No ${activeTab} found`}
-        emptyDescription={`Add your first ${activeTab.slice(0, -1)} to get started`}
+        emptyDescription={`Add your first ${singularTab[activeTab]} to get started`}
       />
 
       {/* Modal */}
