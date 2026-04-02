@@ -512,15 +512,13 @@ const merge = async (req, res, next) => {
  */
 const findDuplicates = async (req, res, next) => {
   try {
-    const { state, lga, limit = 50 } = req.query;
+    const { state, lga, limit = 100 } = req.query;
 
-    let sql = `
-      SELECT 
-        ms1.id as school1_id, ms1.name as school1_name,
-        ms2.id as school2_id, ms2.name as school2_name,
-        ms1.state, ms1.lga, ms1.ward,
-        (SELECT COUNT(*) FROM institution_schools WHERE master_school_id = ms1.id) as school1_links,
-        (SELECT COUNT(*) FROM institution_schools WHERE master_school_id = ms2.id) as school2_links
+    // First find pairs of potential duplicates
+    let pairsSql = `
+      SELECT DISTINCT
+        ms1.id as school1_id,
+        ms2.id as school2_id
       FROM master_schools ms1
       JOIN master_schools ms2 ON ms1.state = ms2.state 
         AND ms1.lga = ms2.lga 
@@ -533,27 +531,53 @@ const findDuplicates = async (req, res, next) => {
         )
       WHERE ms1.status = 'active' AND ms2.status = 'active'
     `;
-    const params = [];
+    const pairsParams = [];
 
     if (state) {
-      sql += ' AND ms1.state = ?';
-      params.push(state);
+      pairsSql += ' AND ms1.state = ?';
+      pairsParams.push(state);
     }
     if (lga) {
-      sql += ' AND ms1.lga = ?';
-      params.push(lga);
+      pairsSql += ' AND ms1.lga = ?';
+      pairsParams.push(lga);
     }
 
-    sql += ' ORDER BY ms1.state, ms1.lga, ms1.name LIMIT ?';
-    params.push(parseInt(limit));
+    pairsSql += ' LIMIT ?';
+    pairsParams.push(parseInt(limit));
 
-    const duplicates = await query(sql, params);
+    const pairs = await query(pairsSql, pairsParams);
+
+    // Collect unique school IDs from all pairs
+    const schoolIds = new Set();
+    for (const pair of pairs) {
+      schoolIds.add(pair.school1_id);
+      schoolIds.add(pair.school2_id);
+    }
+
+    if (schoolIds.size === 0) {
+      return res.json({ success: true, data: [], meta: { count: 0 } });
+    }
+
+    // Fetch full school details with linked institution counts
+    const idList = Array.from(schoolIds);
+    const placeholders = idList.map(() => '?').join(',');
+    const schools = await query(
+      `SELECT 
+        ms.id, ms.name, ms.official_code, ms.school_type, ms.category,
+        ms.state, ms.lga, ms.ward, ms.address,
+        ms.is_verified,
+        (SELECT COUNT(*) FROM institution_schools WHERE master_school_id = ms.id) as linked_institutions_count
+      FROM master_schools ms
+      WHERE ms.id IN (${placeholders})
+      ORDER BY ms.state, ms.lga, ms.name`,
+      idList
+    );
 
     res.json({
       success: true,
-      data: duplicates,
+      data: schools,
       meta: {
-        count: duplicates.length,
+        count: schools.length,
       },
     });
   } catch (error) {

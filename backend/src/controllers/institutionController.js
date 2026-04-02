@@ -38,21 +38,40 @@ const schemas = {
       name: z.string().min(3).max(200).optional(),
       code: z.string().min(2).max(20).toUpperCase().optional(),
       subdomain: z.string().min(2).max(50).toLowerCase().regex(/^[a-z0-9-]+$/).optional(),
-      email: z.string().email().optional(),
-      phone: z.string().min(10).max(20).optional().nullable(),
-      address: z.string().max(500).optional().nullable(),
+      email: z.string().email().optional().or(z.literal('')).transform(v => v === '' ? null : v),
+      phone: z.string().min(10).max(20).optional().nullable().or(z.literal('')).transform(v => v === '' ? null : v),
+      address: z.string().max(500).optional().nullable().transform(v => v === '' ? null : v),
       state: z.string().max(100).optional().nullable(),
       lga: z.string().max(100).optional().nullable(),
-      institution_type: z.enum(['university', 'polytechnic', 'college', 'college_of_education']).optional(),
-      logo_url: z.string().url().optional().nullable(),
+      institution_type: z.enum(['university', 'polytechnic', 'college', 'college_of_education', 'other']).optional(),
+      logo_url: z.string().url().optional().nullable().or(z.literal('')).transform(v => v === '' ? null : v),
       primary_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().nullable(),
       secondary_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().nullable(),
       status: z.enum(['active', 'inactive', 'suspended']).optional(),
+      // TP Unit Name
+      tp_unit_name: z.string().max(255).optional().nullable(),
+      // GPS Location (stored as POINT in DB)
+      latitude: z.coerce.number().min(-90).max(90).optional().nullable(),
+      longitude: z.coerce.number().min(-180).max(180).optional().nullable(),
+      // General settings
+      maintenance_mode: z.coerce.boolean().optional(),
+      maintenance_message: z.string().max(1000).optional().nullable().transform(v => v === '' ? null : v),
+      allow_student_portal: z.coerce.boolean().optional(),
+      require_pin_change: z.coerce.boolean().optional(),
+      session_timeout_minutes: z.coerce.number().int().min(1).max(43200).optional(),
+      // SMTP settings
+      smtp_host: z.string().max(255).optional().nullable().transform(v => v === '' ? null : v),
+      smtp_port: z.coerce.number().int().min(1).max(65535).optional(),
+      smtp_secure: z.coerce.boolean().optional(),
+      smtp_user: z.string().max(255).optional().nullable().transform(v => v === '' ? null : v),
+      smtp_password: z.string().max(500).optional().nullable().transform(v => v === '' ? null : v),
+      smtp_from_name: z.string().max(100).optional().nullable().transform(v => v === '' ? null : v),
+      smtp_from_email: z.string().email().optional().nullable().or(z.literal('')).transform(v => v === '' ? null : v),
       // Payment settings
       payment_type: z.enum(['per_student', 'per_session']).optional(),
       payment_base_amount: z.coerce.number().min(0).optional(),
       payment_currency: z.string().max(3).optional(),
-      payment_allow_partial: z.boolean().optional(),
+      payment_allow_partial: z.coerce.boolean().optional(),
       payment_minimum_percentage: z.coerce.number().min(0).max(100).optional(),
       payment_program_pricing: z.record(z.coerce.number()).optional(),
       paystack_public_key: z.string().max(100).optional().nullable(),
@@ -163,6 +182,7 @@ const getById = async (req, res, next) => {
 
     const [institution] = await query(
       `SELECT i.*,
+              ST_X(i.location) as longitude, ST_Y(i.location) as latitude,
               (SELECT COUNT(*) FROM users u WHERE u.institution_id = i.id) as user_count,
               (SELECT COUNT(*) FROM students s WHERE s.institution_id = i.id) as student_count,
               (SELECT COUNT(*) FROM institution_schools isv WHERE isv.institution_id = i.id) as school_count,
@@ -186,8 +206,9 @@ const getById = async (req, res, next) => {
 
     institution.current_session = currentSession || null;
 
-    // Don't expose SMTP credentials
+    // Don't expose SMTP credentials or raw location binary
     delete institution.smtp_password;
+    delete institution.location;
 
     res.json({
       success: true,
@@ -317,18 +338,41 @@ const update = async (req, res, next) => {
 
     // Fields that need encryption
     const sensitiveFields = ['paystack_secret_key', 'paystack_public_key', 'smtp_password'];
+    // Fields that should not be set directly as columns
+    const skipFields = ['latitude', 'longitude'];
+    // Fields that need JSON serialization
+    const jsonFields = ['payment_program_pricing'];
 
     for (const [key, value] of Object.entries(data)) {
+      // Skip fields handled separately
+      if (skipFields.includes(key)) continue;
+      
       // Encrypt sensitive fields if value is provided and not masked
-      if (sensitiveFields.includes(key) && value && !value.includes('••••')) {
+      if (sensitiveFields.includes(key) && value && !String(value).includes('••••')) {
         updates.push(`${key} = ?`);
         params.push(encrypt(value));
-      } else if (!sensitiveFields.includes(key) || (value && !value.includes('••••'))) {
-        // For non-sensitive fields, or if sensitive field has actual new value
+      } else if (sensitiveFields.includes(key)) {
+        // Skip masked values (don't update if user didn't change the sensitive field)
+        continue;
+      } else if (jsonFields.includes(key)) {
+        updates.push(`${key} = ?`);
+        params.push(typeof value === 'string' ? value : JSON.stringify(value));
+      } else {
         updates.push(`${key} = ?`);
         params.push(value);
       }
-      // Skip masked values (don't update if user didn't change the sensitive field)
+    }
+
+    // Handle latitude/longitude → location POINT column
+    if (data.latitude !== undefined || data.longitude !== undefined) {
+      const lat = data.latitude;
+      const lng = data.longitude;
+      if (lat != null && lng != null) {
+        updates.push(`location = ST_PointFromText(?, 4326)`);
+        params.push(`POINT(${parseFloat(lng)} ${parseFloat(lat)})`);
+      } else {
+        updates.push(`location = NULL`);
+      }
     }
 
     // Update payment_enabled based on Paystack key presence

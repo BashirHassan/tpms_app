@@ -74,6 +74,9 @@ export default function EditInstitutionPage() {
     phone: '',
     address: '',
     state: '',
+    tp_unit_name: '',
+    latitude: null,
+    longitude: null,
   });
 
   // Branding tab state
@@ -147,6 +150,9 @@ export default function EditInstitutionPage() {
           phone: inst.phone || '',
           address: inst.address || '',
           state: inst.state || '',
+          tp_unit_name: inst.tp_unit_name || '',
+          latitude: inst.latitude ?? null,
+          longitude: inst.longitude ?? null,
         });
 
         setBrandingData({
@@ -287,11 +293,11 @@ export default function EditInstitutionPage() {
       setSavingSmtp(true);
       // Don't send masked password
       const payload = { ...smtpData };
-      const isMasked = !payload.smtp_password || 
+      const isMaskedPassword = !payload.smtp_password || 
                        payload.smtp_password === '••••••••' || 
                        payload.smtp_password === '********' ||
                        (payload.smtp_password && payload.smtp_password.endsWith('••••••••'));
-      if (isMasked) {
+      if (isMaskedPassword) {
         delete payload.smtp_password;
       }
       await institutionsApi.update(id, payload);

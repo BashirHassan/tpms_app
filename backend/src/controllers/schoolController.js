@@ -483,10 +483,12 @@ const searchMasterSchools = async (req, res, next) => {
         ms.principal_name, ms.principal_phone,
         ms.is_verified,
         ST_X(ms.location) as latitude, ST_Y(ms.location) as longitude,
-        CASE WHEN isv.id IS NOT NULL THEN 1 ELSE 0 END as is_linked
+        (SELECT COUNT(*) FROM institution_schools isv2 WHERE isv2.master_school_id = ms.id) as linked_institutions_count
       FROM master_schools ms
-      LEFT JOIN institution_schools isv ON ms.id = isv.master_school_id AND isv.institution_id = ?
       WHERE ms.status = 'active'
+        AND ms.id NOT IN (
+          SELECT isv.master_school_id FROM institution_schools isv WHERE isv.institution_id = ?
+        )
     `;
     const params = [parseInt(institutionId)];
 

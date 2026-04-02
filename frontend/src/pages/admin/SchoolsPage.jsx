@@ -1456,7 +1456,7 @@ function SchoolsPage() {
                     <div>
                       <div className="font-medium text-gray-900 flex items-center gap-1.5">
                         {school.name}
-                        {school.is_verified && (
+                        {school.is_verified > 0 && (
                           <IconShieldCheck className="w-4 h-4 text-green-600" title="Verified" />
                         )}
                       </div>
