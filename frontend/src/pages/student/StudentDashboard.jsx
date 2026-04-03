@@ -236,29 +236,33 @@ function StudentDashboard() {
           <CardContent className="p-4 sm:p-6 pt-2 sm:pt-3">
             <div className="space-y-2 sm:space-y-3">
               {/* Payment Action */}
-              {payment.required && payment.status !== 'completed' && (
+              {payment.required && payment.status !== 'completed' && (() => {
+                const canPay = payment.can_pay && windows.acceptance?.is_open;
+                return (
                 <button
                   onClick={() => navigate('/student/payment')}
-                  disabled={!payment.can_pay}
+                  disabled={!canPay}
                   className={`w-full flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-lg border transition-colors text-left active:scale-[0.99] ${
-                    payment.can_pay
+                    canPay
                       ? 'border-green-200 bg-green-50 hover:bg-green-100 active:bg-green-100'
                       : 'border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed'
                   }`}
                 >
-                  <IconCreditCard className={`w-5 h-5 flex-shrink-0 ${payment.can_pay ? 'text-green-600' : 'text-gray-400'}`} />
+                  <IconCreditCard className={`w-5 h-5 flex-shrink-0 ${canPay ? 'text-green-600' : 'text-gray-400'}`} />
                   <div className="flex-1 min-w-0">
-                    <p className={`font-medium text-sm sm:text-base ${payment.can_pay ? 'text-green-900' : 'text-gray-500'}`}>
+                    <p className={`font-medium text-sm sm:text-base ${canPay ? 'text-green-900' : 'text-gray-500'}`}>
                       Make Payment
                     </p>
-                    <p className={`text-xs sm:text-sm truncate ${payment.can_pay ? 'text-green-700' : 'text-gray-400'}`}>
-                      {payment.can_pay 
+                    <p className={`text-xs sm:text-sm truncate ${canPay ? 'text-green-700' : 'text-gray-400'}`}>
+                      {canPay 
                         ? `Pay ${formatCurrency(payment.remaining)} TP fee`
                         : windows.acceptance?.message || 'Acceptance period closed'}
                     </p>
                   </div>
-                  {payment.can_pay && <IconChevronRight className="w-5 h-5 text-green-600 flex-shrink-0" />}
+                  {canPay && <IconChevronRight className="w-5 h-5 text-green-600 flex-shrink-0" />}
                 </button>
+                );
+              })()}
               )}
 
               {/* Payment Completed Badge */}
@@ -414,7 +418,9 @@ function StudentDashboard() {
               {/* Teaching Practice Period */}
               <div className="flex items-center gap-2 sm:gap-4">
                 <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
-                  <IconCalendar className="w-4 h-4 sm:w-5 sm:h-5 text-primary-600" />
+                  <IconCalendar className={`w-4 h-4 sm:w-5 sm:h-5 ${
+                    windows.acceptance?.is_open ? 'text-green-600' : 'text-gray-400'
+                  }`} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs sm:text-sm text-gray-500">Teaching Practice Period</p>
