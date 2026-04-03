@@ -6,7 +6,7 @@ import { ToastProvider } from './context/ToastContext';
 import { InstitutionProvider, useInstitution } from './context/InstitutionContext';
 import { AlertProvider } from './components/ui/AlertDialog';
 import { useLandingPage } from './hooks/useSubdomain';
-import RouteProgressBar from './components/ui/RouteProgressBar';
+// import RouteProgressBar from './components/ui/RouteProgressBar';
 import ContentLoader from './components/ui/ContentLoader';
 import ProtectedRoute, { 
   StaffRoute, 
@@ -153,7 +153,7 @@ function AppRoutes() {
   // so sidebar/navbar persist during page transitions — true SPA feel
   return (
     <>
-    <RouteProgressBar />
+    {/* <RouteProgressBar /> */}
     <Routes>
                 {/* Auth Routes - wrapped individually since they have no persistent layout */}
                 <Route path="/login" element={<SuspensePage><LoginPage /></SuspensePage>} />
