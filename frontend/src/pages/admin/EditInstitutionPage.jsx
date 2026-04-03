@@ -4,7 +4,7 @@
  * Uses the same form components as CreateInstitutionPage
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -39,6 +39,8 @@ export default function EditInstitutionPage() {
   const navigate = useNavigate();
   const { isSuperAdmin } = useAuth();
   const { toast } = useToast();
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('institution');
   const [testingSmtp, setTestingSmtp] = useState(false);
@@ -174,8 +176,8 @@ export default function EditInstitutionPage() {
         setGeneralData({
           maintenance_mode: inst.maintenance_mode || false,
           maintenance_message: inst.maintenance_message || '',
-          allow_student_portal: inst.allow_student_portal !== false,
-          require_pin_change: inst.require_pin_change !== false,
+          allow_student_portal: inst.allow_student_portal == null ? true : !!inst.allow_student_portal,
+          require_pin_change: inst.require_pin_change == null ? true : !!inst.require_pin_change,
           session_timeout_minutes: inst.session_timeout_minutes || 1440,
         });
 
@@ -211,11 +213,11 @@ export default function EditInstitutionPage() {
       });
     } catch (error) {
       console.error('Failed to fetch institution:', error);
-      toast.error('Failed to load institution settings');
+      toastRef.current.error('Failed to load institution settings');
     } finally {
       setIsLoading(false);
     }
-  }, [id, toast]);
+  }, [id]);
 
   useEffect(() => {
     fetchSettings();
@@ -376,9 +378,10 @@ export default function EditInstitutionPage() {
     
     try {
       const response = await institutionsApi.testSmtp(id, testEmail);
-      setSmtpTestResult(response.message || 'Test email sent successfully!');
+      const message = response.data?.message || 'Test email sent successfully!';
+      setSmtpTestResult(message);
       setSmtpTestResultType('success');
-      toast.success('Test email sent successfully!');
+      toast.success(message);
     } catch (error) {
       const errorMessage = error.response?.data?.message || 'Failed to send test email';
       setSmtpTestResult(errorMessage);

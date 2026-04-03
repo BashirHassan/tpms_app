@@ -1151,7 +1151,7 @@ async function testSmtpConnection(institutionId, testRecipient = null) {
     if (testRecipient) {
       const branding = await getInstitutionBranding(institutionId);
 
-      await sendEmail(institutionId, {
+      const emailResult = await sendEmail(institutionId, {
         to: testRecipient,
         template: 'testEmail',
         data: {
@@ -1160,6 +1160,14 @@ async function testSmtpConnection(institutionId, testRecipient = null) {
           smtpSecure: config.secure,
         },
       });
+
+      if (!emailResult.success) {
+        return {
+          success: false,
+          message: `SMTP connection verified but failed to send test email: ${emailResult.error}`,
+          warnings: warnings.length > 0 ? warnings : undefined,
+        };
+      }
 
       return {
         success: true,
