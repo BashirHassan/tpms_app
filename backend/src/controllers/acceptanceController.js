@@ -654,12 +654,23 @@ const getStudentStatus = async (req, res, next) => {
     const requiredAmount = parseFloat(institution?.payment_base_amount) || 0;
     const paymentRequired = institution?.payment_enabled && requiredAmount > 0;
 
-    // Use student's payment_status from students table (source of truth)
+    // Dual verification: check students table AND actual payment records
     const [student] = await query(
       'SELECT payment_status, total_paid FROM students WHERE id = ? AND institution_id = ?',
       [studentId, institutionId]
     );
-    const paymentMade = !paymentRequired || student?.payment_status === 'paid' || parseFloat(student?.total_paid || 0) >= requiredAmount;
+    const [paymentRecord] = await query(
+      `SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total_paid
+       FROM student_payments
+       WHERE student_id = ? AND session_id = ? AND institution_id = ? AND status = 'success'`,
+      [studentId, session.id, institutionId]
+    );
+    const hasPaymentRecords = paymentRecord.count > 0;
+    const verifiedTotal = parseFloat(paymentRecord.total_paid || 0);
+    const paymentMade = !paymentRequired || (
+      (student?.payment_status === 'paid' || student?.payment_status === 'partial') &&
+      hasPaymentRecords && verifiedTotal >= requiredAmount
+    );
 
     // Build response
     const canSubmit = windowOpen && !acceptance && paymentMade;
@@ -897,12 +908,23 @@ const submitAcceptance = async (req, res, next) => {
     const requiredAmount = parseFloat(institution?.payment_base_amount) || 0;
     const paymentRequired = institution?.payment_enabled && requiredAmount > 0;
 
-    // Check payment status from students table (source of truth)
+    // Dual verification: check students table AND actual payment records
     const [studentRecord] = await query(
       'SELECT payment_status, total_paid FROM students WHERE id = ? AND institution_id = ?',
       [studentId, institutionId]
     );
-    const paymentMade = !paymentRequired || studentRecord?.payment_status === 'paid' || parseFloat(studentRecord?.total_paid || 0) >= requiredAmount;
+    const [paymentRecord] = await query(
+      `SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total_paid
+       FROM student_payments
+       WHERE student_id = ? AND session_id = ? AND institution_id = ? AND status = 'success'`,
+      [studentId, session.id, institutionId]
+    );
+    const hasPaymentRecords = paymentRecord.count > 0;
+    const verifiedTotal = parseFloat(paymentRecord.total_paid || 0);
+    const paymentMade = !paymentRequired || (
+      (studentRecord?.payment_status === 'paid' || studentRecord?.payment_status === 'partial') &&
+      hasPaymentRecords && verifiedTotal >= requiredAmount
+    );
 
     if (!paymentMade) {
       throw new ValidationError('Payment requirements not met. Please complete payment first.');

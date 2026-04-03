@@ -132,7 +132,7 @@ function AdminResultsPage() {
     if (selectedSession) {
       fetchStudentsWithResults();
     }
-  }, [selectedSchool, pagination.page, searchTerm]);
+  }, [selectedSchool, pagination.page, pagination.limit, searchTerm]);
 
   // Clear pending changes when session changes
   useEffect(() => {

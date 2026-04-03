@@ -75,7 +75,7 @@ function AdminLocationLogsPage() {
   useEffect(() => {
     fetchLogs();
     fetchStats();
-  }, [selectedSession, selectedSupervisor, selectedStatus, suspiciousOnly, pagination.page]);
+  }, [selectedSession, selectedSupervisor, selectedStatus, suspiciousOnly, pagination.page, pagination.limit]);
 
   const fetchSessions = async () => {
     try {

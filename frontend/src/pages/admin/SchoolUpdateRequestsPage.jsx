@@ -107,7 +107,7 @@ export default function SchoolUpdateRequestsPage() {
   useEffect(() => {
     loadRequests();
     loadStatistics();
-  }, [activeTab, filters.session_id, filters.status, pagination.page]);
+  }, [activeTab, filters.session_id, filters.status, pagination.page, pagination.limit]);
 
   const loadSessions = async () => {
     try {

@@ -577,7 +577,7 @@ function MasterSchoolsPage() {
 
   useEffect(() => {
     fetchSchools();
-  }, [pagination.page, search, stateFilter, lgaFilter, verifiedFilter]);
+  }, [pagination.page, pagination.limit, search, stateFilter, lgaFilter, verifiedFilter]);
 
   useEffect(() => {
     fetchLgas(stateFilter);

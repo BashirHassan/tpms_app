@@ -99,7 +99,7 @@ function StudentDashboard() {
         <div className="bg-gradient-to-r from-primary-600 to-primary-700 rounded-xl p-4 sm:p-6 text-white">
           <h1 className="text-xl sm:text-2xl font-bold">Welcome, {formatGreetingName(user?.name)}!</h1>
           <p className="text-primary-100 mt-1 text-sm sm:text-base">{user?.registration_number}</p>
-          <p className="text-primary-200 text-xs sm:text-sm mt-2">{institution?.name}</p>
+          {/* <p className="text-primary-200 text-xs sm:text-sm mt-2">{institution?.name}</p> */}
         </div>
 
         <Card className="bg-yellow-50 border-yellow-200">

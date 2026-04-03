@@ -179,7 +179,7 @@ function UsersPage() {
   // Fetch users when pagination or filters change
   useEffect(() => {
     fetchUsers();
-  }, [pagination.page, search, roleFilter, statusFilter]);
+  }, [pagination.page, pagination.limit, search, roleFilter, statusFilter]);
 
   // Modal handlers
   const openCreateModal = () => {

@@ -546,17 +546,7 @@ const getPortalStatus = async (req, res, next) => {
     
     const remaining = Math.max(0, requiredAmount - totalPaid);
 
-    // Map student.payment_status ('pending','partial','paid') to portal status format
-    let paymentStatus = 'pending';
-    if (!institution?.payment_enabled || requiredAmount === 0) {
-      paymentStatus = 'not_required';
-    } else if (student.payment_status === 'paid' || totalPaid >= requiredAmount) {
-      paymentStatus = 'completed';
-    } else if (student.payment_status === 'partial' || totalPaid > 0) {
-      paymentStatus = 'partial';
-    }
-
-    // Get payment history for display
+    // Get payment records for this session (dual verification: students table + actual records)
     const allPayments = await query(
       `SELECT id, reference, amount, status, created_at
        FROM student_payments 
@@ -564,6 +554,25 @@ const getPortalStatus = async (req, res, next) => {
        ORDER BY created_at DESC`,
       [parseInt(studentId), parseInt(session.id), parseInt(institutionId)]
     );
+    const successfulPayments = allPayments.filter(p => p.status === 'success');
+    const verifiedTotalPaid = successfulPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+
+    // Dual verification: student.payment_status must match AND actual payment records must exist
+    // This protects against orphaned payment_status or orphaned payment records
+    let paymentStatus = 'pending';
+    if (!institution?.payment_enabled || requiredAmount === 0) {
+      paymentStatus = 'not_required';
+    } else if (
+      (student.payment_status === 'paid' || totalPaid >= requiredAmount) &&
+      successfulPayments.length > 0 && verifiedTotalPaid >= requiredAmount
+    ) {
+      paymentStatus = 'completed';
+    } else if (
+      (student.payment_status === 'partial' || student.payment_status === 'paid' || totalPaid > 0) &&
+      successfulPayments.length > 0 && verifiedTotalPaid > 0
+    ) {
+      paymentStatus = 'partial';
+    };
 
     const payment = {
       required: institution?.payment_enabled && requiredAmount > 0,

@@ -69,7 +69,7 @@ function PostingsPage() {
       fetchSummaryStats();
       fetchTabData();
     }
-  }, [selectedSession, activeTab, pagination.page, allPostingsSearch]);
+  }, [selectedSession, activeTab, pagination.page, pagination.limit, allPostingsSearch]);
 
   const fetchSessions = async () => {
     try {

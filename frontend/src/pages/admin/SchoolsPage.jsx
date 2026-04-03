@@ -273,7 +273,7 @@ function SchoolsPage() {
 
   useEffect(() => {
     fetchSchools();
-  }, [pagination.page, search, routeFilter, typeFilter, categoryFilter, locationCategoryFilter, stateFilter]);
+  }, [pagination.page, pagination.limit, search, routeFilter, typeFilter, categoryFilter, locationCategoryFilter, stateFilter]);
 
   // Modal handlers
   const getDefaultFormData = () => ({

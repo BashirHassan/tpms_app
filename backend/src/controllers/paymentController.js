@@ -973,18 +973,6 @@ const getStudentPaymentStatus = async (req, res, next) => {
     // Get payment amount from institution settings
     const amount = parseFloat(institution.payment_base_amount) || 0;
 
-    // Use student's total_paid from students table (source of truth)
-    const totalPaid = parseFloat(student.total_paid || 0);
-    const remaining = Math.max(0, amount - totalPaid);
-
-    // Map student.payment_status to portal status format
-    let status = 'pending';
-    if (student.payment_status === 'paid' || totalPaid >= amount) {
-      status = 'completed';
-    } else if (student.payment_status === 'partial' || totalPaid > 0) {
-      status = 'partial';
-    }
-
     // Get ALL payments for history display (not just successful ones)
     const allPayments = await query(
       `SELECT * FROM student_payments 
@@ -992,6 +980,25 @@ const getStudentPaymentStatus = async (req, res, next) => {
        ORDER BY created_at DESC`,
       [parseInt(studentId), parseInt(session.id), parseInt(institutionId)]
     );
+
+    // Dual verification: students table + actual payment records
+    const successfulPayments = allPayments.filter(p => p.status === 'success');
+    const verifiedTotalPaid = successfulPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    const totalPaid = parseFloat(student.total_paid || 0);
+    const remaining = Math.max(0, amount - Math.max(totalPaid, verifiedTotalPaid));
+
+    let status = 'pending';
+    if (
+      (student.payment_status === 'paid' || totalPaid >= amount) &&
+      successfulPayments.length > 0 && verifiedTotalPaid >= amount
+    ) {
+      status = 'completed';
+    } else if (
+      (student.payment_status === 'partial' || student.payment_status === 'paid' || totalPaid > 0) &&
+      successfulPayments.length > 0 && verifiedTotalPaid > 0
+    ) {
+      status = 'partial';
+    };
 
     res.json({
       success: true,
@@ -1092,13 +1099,22 @@ const initializeStudentPayment = async (req, res, next) => {
       throw new ValidationError('No payment amount configured');
     }
 
-    // Check if student already fully paid using students table
+    // Dual verification: check students table AND actual payment records
     const studentTotalPaid = parseFloat(student.total_paid || 0);
-    if (student.payment_status === 'paid' || studentTotalPaid >= amount) {
+    const [paymentSum] = await query(
+      `SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total_paid
+       FROM student_payments
+       WHERE student_id = ? AND session_id = ? AND institution_id = ? AND status = 'success'`,
+      [studentId, session.id, institutionId]
+    );
+    const verifiedTotal = parseFloat(paymentSum.total_paid || 0);
+    const effectivePaid = Math.max(studentTotalPaid, verifiedTotal);
+
+    if ((student.payment_status === 'paid' && paymentSum.count > 0 && verifiedTotal >= amount) || effectivePaid >= amount) {
       throw new ValidationError('Payment already completed');
     }
 
-    const remaining = Math.max(0, amount - studentTotalPaid);
+    const remaining = Math.max(0, amount - effectivePaid);
 
     // Generate reference
     const reference = `TP${institution.code || institutionId}-${studentId}-${Date.now()}`;
@@ -1135,6 +1151,29 @@ const initializeStudentPayment = async (req, res, next) => {
         session_name: session.name,
         institution_name: institution.name,
         institution_code: institution.code,
+        // Custom fields shown on Paystack dashboard and receipts
+        custom_fields: [
+          {
+            display_name: 'Student Name',
+            variable_name: 'student_name',
+            value: student.full_name || 'N/A',
+          },
+          {
+            display_name: 'Registration Number',
+            variable_name: 'registration_number',
+            value: student.registration_number || 'N/A',
+          },
+          {
+            display_name: 'Phone',
+            variable_name: 'phone',
+            value: student.phone || 'N/A',
+          },
+          {
+            display_name: 'Session',
+            variable_name: 'session',
+            value: session.name || 'N/A',
+          },
+        ],
       },
       splitCode: institution.paystack_split_code, // Institution-specific split configuration
     });

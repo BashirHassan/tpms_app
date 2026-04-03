@@ -73,7 +73,7 @@ function AcceptancesPage() {
       fetchAcceptances();
       fetchStatistics();
     }
-  }, [selectedSession, selectedSchool, search, pagination.page]);
+  }, [selectedSession, selectedSchool, search, pagination.page, pagination.limit]);
 
   const fetchSessions = async () => {
     try {

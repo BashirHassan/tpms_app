@@ -166,7 +166,7 @@ function GlobalUsersPage() {
     try {
       const params = new URLSearchParams({
         page: page.toString(),
-        limit: '50',
+        limit: pagination.limit.toString(),
       });
       if (search) params.set('search', search);
       if (role) params.set('role', role);
@@ -184,7 +184,7 @@ function GlobalUsersPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, role, institutionId]);
+  }, [search, role, institutionId, pagination.limit]);
 
   useEffect(() => {
     fetchUsers(1);
@@ -196,7 +196,7 @@ function GlobalUsersPage() {
       fetchUsers(1);
     }, 300);
     return () => clearTimeout(timer);
-  }, [search, role, institutionId]);
+  }, [search, role, institutionId, pagination.limit]);
 
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= pagination.pages) {
