@@ -890,137 +890,23 @@ function GlobalPaymentsPage() {
                       <p className="font-mono text-xs text-gray-700 mt-1 break-all">{viewModal.payment.user_agent}</p>
                     </div>
                   )}
-                  {viewModal.payment.metadata && (() => {
-                    const meta = typeof viewModal.payment.metadata === 'string'
-                      ? (() => { try { return JSON.parse(viewModal.payment.metadata); } catch { return null; } })()
-                      : viewModal.payment.metadata;
-                    if (!meta) return null;
-                    return (
-                      <div className="space-y-3 mt-2">
-                        {/* Gateway Info */}
-                        {(meta.gateway_response || meta.paid_at || meta.customer_email) && (
-                          <div className="p-2 bg-gray-50 rounded">
-                            <p className="text-xs font-medium text-gray-600 mb-1.5">Gateway Info</p>
-                            {meta.gateway_response && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Response:</span>
-                                <span className="text-gray-900">{meta.gateway_response}</span>
-                              </div>
-                            )}
-                            {meta.paid_at && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Paid At:</span>
-                                <span className="text-gray-900">{new Date(meta.paid_at).toLocaleString()}</span>
-                              </div>
-                            )}
-                            {meta.customer_email && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Customer Email:</span>
-                                <span className="text-gray-900">{meta.customer_email}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {/* Authorization Details */}
-                        {meta.authorization_details && (
-                          <div className="p-2 bg-gray-50 rounded">
-                            <p className="text-xs font-medium text-gray-600 mb-1.5">Authorization</p>
-                            {meta.authorization_details.brand && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Brand:</span>
-                                <span className="text-gray-900">{meta.authorization_details.brand}</span>
-                              </div>
-                            )}
-                            {meta.authorization_details.card_type && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Card Type:</span>
-                                <span className="text-gray-900">{meta.authorization_details.card_type}</span>
-                              </div>
-                            )}
-                            {meta.authorization_details.last4 && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Last 4:</span>
-                                <span className="font-mono text-gray-900">****{meta.authorization_details.last4}</span>
-                              </div>
-                            )}
-                            {meta.authorization_details.bank && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Bank:</span>
-                                <span className="text-gray-900">{meta.authorization_details.bank}</span>
-                              </div>
-                            )}
-                            {meta.authorization_details.account_name && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Account:</span>
-                                <span className="text-gray-900">{meta.authorization_details.account_name}</span>
-                              </div>
-                            )}
-                            {meta.authorization_details.exp_month && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Expiry:</span>
-                                <span className="text-gray-900">{meta.authorization_details.exp_month}/{meta.authorization_details.exp_year}</span>
-                              </div>
-                            )}
-                            {meta.authorization_details.country_code && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Country:</span>
-                                <span className="text-gray-900">{meta.authorization_details.country_code}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {/* Context Metadata */}
-                        {(meta.student_name || meta.session_name || meta.institution_name || meta.program_name) && (
-                          <div className="p-2 bg-gray-50 rounded">
-                            <p className="text-xs font-medium text-gray-600 mb-1.5">Context</p>
-                            {meta.student_name && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Student:</span>
-                                <span className="text-gray-900">{meta.student_name}</span>
-                              </div>
-                            )}
-                            {meta.registration_number && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Reg No:</span>
-                                <span className="font-mono text-gray-900">{meta.registration_number}</span>
-                              </div>
-                            )}
-                            {meta.program_name && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Program:</span>
-                                <span className="text-gray-900">{meta.program_name}</span>
-                              </div>
-                            )}
-                            {meta.session_name && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Session:</span>
-                                <span className="text-gray-900">{meta.session_name}</span>
-                              </div>
-                            )}
-                            {meta.institution_name && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Institution:</span>
-                                <span className="text-gray-900">{meta.institution_name}</span>
-                              </div>
-                            )}
-                            {meta.institution_code && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-500">Code:</span>
-                                <span className="font-mono text-gray-900">{meta.institution_code}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {/* Raw JSON fallback */}
-                        <details className="text-xs">
-                          <summary className="text-gray-400 cursor-pointer">Raw JSON</summary>
-                          <pre className="mt-1 p-2 bg-gray-100 rounded overflow-x-auto">
-                            {JSON.stringify(meta, null, 2)}
-                          </pre>
-                        </details>
-                      </div>
-                    );
-                  })()}
+                  {viewModal.payment.metadata && (
+                    <div>
+                      <span className="text-gray-500">Metadata:</span>
+                      <pre className="mt-1 p-2 bg-gray-100 rounded text-xs overflow-x-auto">
+                        {(() => {
+                          try {
+                            const parsed = typeof viewModal.payment.metadata === 'string' 
+                              ? JSON.parse(viewModal.payment.metadata) 
+                              : viewModal.payment.metadata;
+                            return JSON.stringify(parsed, null, 2);
+                          } catch {
+                            return viewModal.payment.metadata;
+                          }
+                        })()}
+                      </pre>
+                    </div>
+                  )}
                 </div>
               </details>
             )}

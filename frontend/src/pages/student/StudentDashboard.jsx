@@ -255,7 +255,7 @@ function StudentDashboard() {
                     </p>
                     <p className={`text-xs sm:text-sm truncate ${canPay ? 'text-green-700' : 'text-gray-400'}`}>
                       {canPay 
-                        ? `Pay ${formatCurrency(payment.remaining)} TP fee`
+                        ? `Pay ${formatCurrency(payment.remaining)} TP platfom fee`
                         : windows.acceptance?.message || 'Acceptance period closed'}
                     </p>
                   </div>
