@@ -106,7 +106,7 @@ const getInstitutionBySubdomain = async (req, res, next) => {
     const [institution] = await query(
       `SELECT id, name, code, subdomain, email, phone, address, state,
               logo_url, primary_color, secondary_color, status, institution_type,
-              tp_unit_name
+              tp_unit_name, maintenance_mode, maintenance_message
        FROM institutions 
        WHERE (subdomain = ? OR code = ?) AND status = 'active'`,
       [subdomain.toLowerCase(), subdomain.toUpperCase()]

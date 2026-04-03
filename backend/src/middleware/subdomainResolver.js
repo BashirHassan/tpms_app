@@ -178,8 +178,9 @@ const resolveSubdomain = async (req, res, next) => {
       const institution = await getInstitutionBySubdomain(subdomain);
       
       if (institution) {
-        // Check maintenance mode
-        if (institution.maintenance_mode) {
+        // Check maintenance mode (skip for public routes so frontend can fetch branding)
+        const isPublicRoute = req.originalUrl?.startsWith('/api/public/');
+        if (institution.maintenance_mode && !isPublicRoute) {
           return res.status(503).json({
             success: false,
             message: institution.maintenance_message || 'System is under maintenance',

@@ -29,6 +29,7 @@ export function InstitutionProvider({ children }) {
   const [branding, setBranding] = useState(DEFAULT_BRANDING);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [maintenance, setMaintenance] = useState(null); // { message, institution } when in maintenance mode
 
   // Fetch institution branding
   const fetchBranding = useCallback(async () => {
@@ -46,6 +47,31 @@ export function InstitutionProvider({ children }) {
       const response = await apiClient.get(`/public/institution/${subdomain}`);
       const data = response.data.data || response.data || {};
       
+      // Check if institution is in maintenance mode
+      if (data.maintenance_mode) {
+        setMaintenance({
+          message: data.maintenance_message,
+          institution: { name: data.name, logo_url: data.logo_url },
+        });
+        // Still set branding so the page can look nice
+        setBranding({
+          name: data.name,
+          code: data.code,
+          logo_url: data.logo_url,
+          primary_color: data.primary_color || DEFAULT_BRANDING.primary_color,
+          secondary_color: data.secondary_color || DEFAULT_BRANDING.secondary_color,
+          tagline: DEFAULT_BRANDING.tagline,
+          tp_unit_name: data.tp_unit_name || DEFAULT_BRANDING.tp_unit_name,
+        });
+        applyBrandingColors(
+          data.primary_color || DEFAULT_BRANDING.primary_color,
+          data.secondary_color || DEFAULT_BRANDING.secondary_color
+        );
+        setLoading(false);
+        return;
+      }
+
+      setMaintenance(null);
       setInstitution(data);
       
       // Cache institution in localStorage for publicApi access
@@ -142,6 +168,7 @@ export function InstitutionProvider({ children }) {
     branding,
     loading,
     error,
+    maintenance,
     isSuperAdminPortal: isSuperAdmin,
     updateBranding,
     resetBranding,

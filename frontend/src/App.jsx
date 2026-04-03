@@ -3,7 +3,7 @@ import { lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { InstitutionSelectionProvider } from './context/InstitutionSelectionContext';
 import { ToastProvider } from './context/ToastContext';
-import { InstitutionProvider } from './context/InstitutionContext';
+import { InstitutionProvider, useInstitution } from './context/InstitutionContext';
 import { AlertProvider } from './components/ui/AlertDialog';
 import { useLandingPage } from './hooks/useSubdomain';
 import ProtectedRoute, { 
@@ -99,6 +99,7 @@ const AcceptanceDocumentPage = lazy(() => import('./pages/student/AcceptanceDocu
 const PrincipalUpdatePage = lazy(() => import('./pages/public/PrincipalUpdatePage'));
 const LocationUpdatePage = lazy(() => import('./pages/public/LocationUpdatePage'));
 const DocsPage = lazy(() => import('./pages/public/DocsPage'));
+const MaintenancePage = lazy(() => import('./pages/errors/MaintenancePage'));
 
 /**
  * InstitutionSelectionWrapper - Provides InstitutionSelectionContext with access to the authenticated user
@@ -114,6 +115,19 @@ function InstitutionSelectionWrapper({ children }) {
  */
 function AppRoutes() {
   const isLanding = useLandingPage();
+  const { maintenance, loading: institutionLoading, isSuperAdminPortal: isSuperAdmin } = useInstitution();
+
+  // Show maintenance page for institution subdomains (not super admin portal)
+  if (!isLanding && !isSuperAdmin && !institutionLoading && maintenance) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <MaintenancePage
+          institution={maintenance.institution}
+          message={maintenance.message}
+        />
+      </Suspense>
+    );
+  }
 
   // Primary domain (no subdomain) shows landing page
   if (isLanding) {

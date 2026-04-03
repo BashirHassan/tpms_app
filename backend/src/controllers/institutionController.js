@@ -9,6 +9,7 @@ const { z } = require('zod');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 const { encrypt, decrypt } = require('../services/encryptionService');
+const { clearInstitutionCache } = require('../middleware/subdomainResolver');
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -399,6 +400,14 @@ const update = async (req, res, next) => {
       `UPDATE institutions SET ${updates.join(', ')} WHERE id = ?`,
       params
     );
+
+    // Clear subdomain cache so changes (especially maintenance_mode) take effect immediately
+    const [updated] = await query('SELECT subdomain FROM institutions WHERE id = ?', [parseInt(id)]);
+    if (updated?.subdomain) {
+      clearInstitutionCache(updated.subdomain);
+    } else {
+      clearInstitutionCache(); // Clear all if no subdomain found
+    }
 
     res.json({
       success: true,

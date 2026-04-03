@@ -113,6 +113,11 @@ apiClient.interceptors.response.use(
       const isStudentRoute = window.location.pathname.startsWith('/student');
       window.location.href = isStudentRoute ? '/student/login' : '/login';
     }
+
+    // Maintenance mode - reload to show maintenance page
+    if (error.response?.status === 503 && error.response?.data?.errorCode === 'MAINTENANCE_MODE') {
+      window.location.reload();
+    }
     
     return Promise.reject(error);
   }
