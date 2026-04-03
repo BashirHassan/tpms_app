@@ -2,13 +2,15 @@
  * Profile Page - User profile and account settings
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { useInstitutionApi } from '../../hooks/useInstitutionApi';
 import { authApi } from '../../api/auth';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { Select } from '../../components/ui/Select';
 import { 
   IconUser, 
   IconLock, 
@@ -17,16 +19,23 @@ import {
   IconBuilding, 
   IconFileText,
   IconShieldCheck,
-  IconBuildingBank
+  IconBuildingBank,
+  IconStairs,
+  IconSchool
 } from '@tabler/icons-react';
 
 function ProfilePage() {
-  const { user, institution } = useAuth();
+  const { user, institution, refreshProfile } = useAuth();
   const { toast } = useToast();
+  const { get } = useInstitutionApi();
 
   const [profileData, setProfileData] = useState({
     name: user?.name || '',
+    email: user?.email || '',
     phone: user?.phone || '',
+    file_number: user?.file_number || '',
+    rank_id: user?.rank_id || '',
+    faculty_id: user?.faculty_id || '',
   });
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
@@ -35,13 +44,58 @@ function ProfilePage() {
   });
   const [profileLoading, setProfileLoading] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
+  const [ranks, setRanks] = useState([]);
+  const [faculties, setFaculties] = useState([]);
+
+  // Load ranks and faculties for dropdowns
+  useEffect(() => {
+    const loadOptions = async () => {
+      try {
+        const [ranksRes, facultiesRes] = await Promise.all([
+          get('/ranks').catch(() => ({ data: [] })),
+          get('/academic/faculties').catch(() => ({ data: [] })),
+        ]);
+        setRanks(ranksRes.data || ranksRes || []);
+        setFaculties(facultiesRes.data || facultiesRes || []);
+      } catch (err) {
+        // Silently fail - dropdowns will just be empty
+      }
+    };
+    if (institution?.id) {
+      loadOptions();
+    }
+  }, [get, institution?.id]);
+
+  // Sync form when user data changes
+  useEffect(() => {
+    if (user) {
+      setProfileData({
+        name: user.name || '',
+        email: user.email || '',
+        phone: user.phone || '',
+        file_number: user.file_number || '',
+        rank_id: user.rank_id || '',
+        faculty_id: user.faculty_id || '',
+      });
+    }
+  }, [user]);
 
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
     setProfileLoading(true);
 
     try {
-      await authApi.updateProfile(profileData);
+      const payload = { ...profileData };
+      // Convert empty strings to null for optional fields
+      if (!payload.phone) payload.phone = null;
+      if (!payload.file_number) payload.file_number = null;
+      if (!payload.rank_id) payload.rank_id = null;
+      else payload.rank_id = parseInt(payload.rank_id);
+      if (!payload.faculty_id) payload.faculty_id = null;
+      else payload.faculty_id = parseInt(payload.faculty_id);
+
+      await authApi.updateProfile(payload);
+      await refreshProfile();
       toast.success('Profile updated successfully');
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update profile');
@@ -130,7 +184,7 @@ function ProfilePage() {
         </div>
 
         {/* Quick Info Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-gray-100 bg-gray-50">
+        <div className="grid grid-cols-2 sm:grid-cols-5 divide-x divide-y sm:divide-y-0 divide-gray-100 bg-gray-50">
           <div className="p-4 text-center">
             <div className="flex items-center justify-center w-10 h-10 mx-auto rounded-full bg-blue-100 text-blue-600 mb-2">
               <IconMail className="w-5 h-5" />
@@ -159,8 +213,17 @@ function ProfilePage() {
             </p>
           </div>
           <div className="p-4 text-center">
+            <div className="flex items-center justify-center w-10 h-10 mx-auto rounded-full bg-indigo-100 text-indigo-600 mb-2">
+              <IconStairs className="w-5 h-5" />
+            </div>
+            <p className="text-xs text-gray-500">Rank</p>
+            <p className="text-sm font-medium text-gray-900">
+              {user?.rank || 'Not set'}
+            </p>
+          </div>
+          <div className="p-4 text-center">
             <div className="flex items-center justify-center w-10 h-10 mx-auto rounded-full bg-orange-100 text-orange-600 mb-2">
-              <IconBuildingBank className="w-5 h-5" />
+              <IconSchool className="w-5 h-5" />
             </div>
             <p className="text-xs text-gray-500">Faculty</p>
             <p className="text-sm font-medium text-gray-900">
@@ -195,10 +258,11 @@ function ProfilePage() {
               />
               <Input
                 label="Email Address"
-                value={user?.email}
-                disabled
-                className="bg-gray-50"
-                helperText="Email cannot be changed"
+                type="email"
+                value={profileData.email}
+                onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
+                required
+                placeholder="Enter your email address"
               />
               <Input
                 label="Phone Number"
@@ -206,6 +270,40 @@ function ProfilePage() {
                 onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
                 placeholder="Enter your phone number"
               />
+              <Input
+                label="File Number"
+                value={profileData.file_number}
+                onChange={(e) => setProfileData({ ...profileData, file_number: e.target.value })}
+                placeholder="Enter your file number"
+              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Rank</label>
+                <Select
+                  value={profileData.rank_id}
+                  onChange={(e) => setProfileData({ ...profileData, rank_id: e.target.value })}
+                >
+                  <option value="">Select rank</option>
+                  {ranks.map((rank) => (
+                    <option key={rank.id} value={rank.id}>
+                      {rank.name} ({rank.code})
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Faculty / Department</label>
+                <Select
+                  value={profileData.faculty_id}
+                  onChange={(e) => setProfileData({ ...profileData, faculty_id: e.target.value })}
+                >
+                  <option value="">Select faculty</option>
+                  {faculties.map((faculty) => (
+                    <option key={faculty.id} value={faculty.id}>
+                      {faculty.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
               <div className="flex justify-end">
                 <Button 
                   type="submit" 

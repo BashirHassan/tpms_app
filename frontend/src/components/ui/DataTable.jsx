@@ -12,6 +12,7 @@
 
 import { useState, useMemo, useCallback, forwardRef, useImperativeHandle, useEffect } from 'react';
 import { cva } from 'class-variance-authority';
+import { Skeleton } from './Skeleton';
 import { cn, formatCurrency } from '../../utils/helpers';
 import { Button } from './Button';
 import { Badge } from './Badge';
@@ -789,12 +790,28 @@ const DataTable = forwardRef(function DataTable(
     </div>
   );
 
-  // Render loading state
-  const renderLoadingState = () => (
-    <div className="flex items-center justify-center py-12">
-      <IconLoader2 className="w-8 h-8 animate-spin text-primary-600" />
-    </div>
-  );
+  // Render loading state with skeleton rows
+  const renderLoadingState = () => {
+    const colCount = columns.length + (selectable ? 1 : 0);
+    return Array.from({ length: 5 }).map((_, rowIndex) => (
+      <tr key={`skeleton-${rowIndex}`} className="border-b border-gray-100">
+        {selectable && (
+          <td className="px-4 py-3 w-10">
+            <Skeleton className="w-4 h-4 rounded" />
+          </td>
+        )}
+        {columns.map((col, colIndex) => (
+          <td key={colIndex} className="px-4 py-2">
+            <Skeleton
+              className={`h-4 ${
+                colIndex === 0 ? 'w-32' : colIndex === columns.length - 1 ? 'w-20' : 'w-24'
+              }`}
+            />
+          </td>
+        ))}
+      </tr>
+    ));
+  };
 
   return (
     <div className={cn('bg-white rounded-lg shadow-sm', className)}>
@@ -840,9 +857,7 @@ const DataTable = forwardRef(function DataTable(
           </thead>
           <tbody className="divide-y divide-gray-200 bg-white">
             {loading ? (
-              <tr>
-                <td colSpan={columns.length + (selectable ? 1 : 0)}>{renderLoadingState()}</td>
-              </tr>
+              renderLoadingState()
             ) : sortedData.length === 0 ? (
               <tr>
                 <td colSpan={columns.length + (selectable ? 1 : 0)}>{renderEmptyState()}</td>

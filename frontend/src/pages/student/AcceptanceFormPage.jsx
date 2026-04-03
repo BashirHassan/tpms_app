@@ -21,6 +21,7 @@ import {
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
+import { Skeleton } from '../../components/ui/Skeleton';
 import { Stepper, Step, StepContent, StepActions } from '../../components/ui/Stepper';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -255,10 +256,34 @@ function AcceptanceFormPage() {
   // Loading state
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-200 border-t-primary-600"></div>
-          <p className="text-gray-500">Loading acceptance form...</p>
+      <div className="space-y-4 animate-pulse">
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm p-6">
+          <div className="space-y-4">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-72" />
+          </div>
+          <div className="mt-6 space-y-3">
+            <div className="flex items-center gap-3">
+              <Skeleton className="w-8 h-8 rounded-full" />
+              <Skeleton className="h-4 w-40" />
+            </div>
+            <div className="flex items-center gap-3">
+              <Skeleton className="w-8 h-8 rounded-full" />
+              <Skeleton className="h-4 w-36" />
+            </div>
+            <div className="flex items-center gap-3">
+              <Skeleton className="w-8 h-8 rounded-full" />
+              <Skeleton className="h-4 w-44" />
+            </div>
+          </div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm p-6">
+          <Skeleton className="h-5 w-32 mb-4" />
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full rounded-lg" />
+            <Skeleton className="h-10 w-full rounded-lg" />
+            <Skeleton className="h-10 w-full rounded-lg" />
+          </div>
         </div>
       </div>
     );

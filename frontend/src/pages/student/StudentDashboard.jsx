@@ -11,6 +11,7 @@ import { useToast } from '../../context/ToastContext';
 import { formatCurrency, formatDate, formatGreetingName } from '../../utils/helpers';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
+import { StudentDashboardSkeleton } from '../../components/ui/Skeleton';
 import {
   IconSchool,
   IconCreditCard,
@@ -85,11 +86,7 @@ function StudentDashboard() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-      </div>
-    );
+    return <StudentDashboardSkeleton />;
   }
 
   // No active session
@@ -122,6 +119,9 @@ function StudentDashboard() {
 
   const { session, windows, payment, acceptance, posting_letter } = portalStatus;
 
+  // Per-session institutions don't require student payment
+  const isPaymentRequired = payment.required && payment.status !== 'not_required';
+
   return (
     <div className="space-y-3 sm:space-y-4 px-1">
       {/* Welcome Banner */}
@@ -150,7 +150,7 @@ function StudentDashboard() {
       </div>
 
       {/* Status Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${isPaymentRequired ? 'lg:grid-cols-3' : ''} gap-3 sm:gap-4`}>
         {/* Program */}
         <Card>
           <CardContent className="p-4 sm:p-6">
@@ -171,7 +171,8 @@ function StudentDashboard() {
           </CardContent>
         </Card>
 
-        {/* Payment Status */}
+        {/* Payment Status - only shown when payment is required */}
+        {isPaymentRequired && (
         <Card>
           <CardContent className="p-4 sm:p-6">
             <div className="flex items-center gap-3 sm:gap-4">
@@ -188,10 +189,9 @@ function StudentDashboard() {
                 <p className="text-xs sm:text-sm text-gray-500">Payment Status</p>
                 <span className={`inline-block px-2 py-0.5 sm:py-1 text-xs sm:text-sm rounded-full ${getPaymentStatusColor(payment.status)}`}>
                   {payment.status === 'completed' ? 'Paid' : 
-                   payment.status === 'partial' ? 'Partial' : 
-                   payment.status === 'not_required' ? 'Not Required' : 'Pending'}
+                   payment.status === 'partial' ? 'Partial' : 'Pending'}
                 </span>
-                {payment.required && payment.remaining > 0 && (
+                {payment.remaining > 0 && (
                   <p className="text-xs text-gray-500 mt-1">
                     Balance: {formatCurrency(payment.remaining)}
                   </p>
@@ -200,6 +200,7 @@ function StudentDashboard() {
             </div>
           </CardContent>
         </Card>
+        )}
 
         {/* Acceptance Status */}
         <Card>
@@ -235,8 +236,8 @@ function StudentDashboard() {
           </CardHeader>
           <CardContent className="p-4 sm:p-6 pt-2 sm:pt-3">
             <div className="space-y-2 sm:space-y-3">
-              {/* Payment Action */}
-              {payment.required && payment.status !== 'completed' && (() => {
+              {/* Payment Action - only shown when payment is required */}
+              {isPaymentRequired && payment.status !== 'completed' && (() => {
                 const canPay = payment.can_pay && windows.acceptance?.is_open;
                 return (
                 <button
@@ -264,8 +265,8 @@ function StudentDashboard() {
                 );
               })()}
 
-              {/* Payment Completed Badge */}
-              {payment.status === 'completed' && (
+              {/* Payment Completed Badge - only shown when payment is required */}
+              {isPaymentRequired && payment.status === 'completed' && (
                 <div className="flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-lg border border-green-200 bg-green-50">
                   <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
                     <IconCheck className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
@@ -312,7 +313,7 @@ function StudentDashboard() {
                       ? 'Choose your preferred school'
                       : !windows.acceptance?.is_open 
                       ? windows.acceptance?.message || 'Window closed'
-                      : payment.status === 'pending' 
+                      : isPaymentRequired && payment.status === 'pending' 
                       ? 'Complete payment first' 
                       : 'Not available'}
                   </p>
@@ -373,7 +374,7 @@ function StudentDashboard() {
                   }`} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs sm:text-sm text-gray-500">Acceptance & Payment Period</p>
+                  <p className="text-xs sm:text-sm text-gray-500">{isPaymentRequired ? 'Acceptance & Payment Period' : 'Acceptance Period'}</p>
                   {windows.acceptance?.starts_at || windows.acceptance?.ends_at ? (
                     <p className="font-medium text-gray-900 text-xs sm:text-sm md:text-base">
                       {formatDate(windows.acceptance.starts_at)} - {formatDate(windows.acceptance.ends_at)}

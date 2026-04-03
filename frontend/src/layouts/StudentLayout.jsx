@@ -4,13 +4,14 @@
  * Features bottom navigation on mobile, top navigation on desktop
  */
 
-import { Suspense } from 'react';
+import { Suspense, useState, useEffect, useMemo } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import ContentLoader from '../components/ui/ContentLoader';
 import { useAuth } from '../context/AuthContext';
 import { useInstitution } from '../context/InstitutionContext';
 import { cn, getInitials } from '../utils/helpers';
 import { Button } from '../components/ui/Button';
+import { portalApi } from '../api';
 import {
   IconLayoutDashboard,
   IconLogout,
@@ -21,11 +22,10 @@ import {
   IconMenu2,
   IconX,
 } from '@tabler/icons-react';
-import { useState } from 'react';
 
-const navigation = [
+const ALL_NAVIGATION = [
   { name: 'Dashboard', shortName: 'Home', href: '/student/dashboard', icon: IconLayoutDashboard },
-  { name: 'Payment', shortName: 'Pay', href: '/student/payment', icon: IconCreditCard },
+  { name: 'Payment', shortName: 'Pay', href: '/student/payment', icon: IconCreditCard, requiresPayment: true },
   { name: 'Acceptance', shortName: 'Accept', href: '/student/acceptance', icon: IconFileCheck },
   { name: 'Posting Letter', shortName: 'Letter', href: '/student/posting-letter', icon: IconSignature },
 ];
@@ -35,6 +35,29 @@ function StudentLayout() {
   const { branding } = useInstitution();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [paymentRequired, setPaymentRequired] = useState(true); // default to show until we know
+
+  // Fetch portal status to check if payment is required
+  useEffect(() => {
+    const checkPaymentRequired = async () => {
+      try {
+        const response = await portalApi.getStatus();
+        const portal = response.data.data || response.data;
+        if (portal?.payment) {
+          setPaymentRequired(portal.payment.required === true);
+        }
+      } catch {
+        // If fetch fails, keep payment visible (safe default)
+      }
+    };
+    checkPaymentRequired();
+  }, []);
+
+  // Filter navigation based on payment requirement
+  const navigation = useMemo(
+    () => ALL_NAVIGATION.filter((item) => !item.requiresPayment || paymentRequired),
+    [paymentRequired]
+  );
 
   const handleLogout = () => {
     logout();

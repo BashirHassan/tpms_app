@@ -14,6 +14,7 @@ import { getInstitutionUrl } from '../../../hooks/useSubdomain';
 import { formatCurrency, formatNumber } from '../../../utils/helpers';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/Card';
 import { Button } from '../../../components/ui/Button';
+import { GlobalDashboardSkeleton } from '../../../components/ui/Skeleton';
 import {
   IconBuilding,
   IconUsers,
@@ -132,11 +133,7 @@ function GlobalAdminDashboard() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-      </div>
-    );
+    return <GlobalDashboardSkeleton />;
   }
 
   if (error) {

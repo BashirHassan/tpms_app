@@ -140,7 +140,11 @@ const schemas = {
   updateProfile: z.object({
     body: z.object({
       name: z.string().min(2).max(200).optional(),
+      email: z.string().email().max(255).optional(),
       phone: z.string().max(20).optional().nullable(),
+      file_number: z.string().max(50).optional().nullable(),
+      rank_id: z.coerce.number().int().positive().optional().nullable(),
+      faculty_id: z.coerce.number().int().positive().optional().nullable(),
     }),
   }),
 };
@@ -729,7 +733,9 @@ const getProfile = async (req, res, next) => {
         email: staffUser.email,
         phone: staffUser.phone,
         role: staffUser.role,
+        rank_id: staffUser.rank_id,
         rank: staffUser.rank_name,
+        faculty_id: staffUser.faculty_id,
         faculty: staffUser.faculty_name,
         file_number: staffUser.file_number,
         is_dean: staffUser.is_dean === 1,
@@ -796,7 +802,7 @@ const updateProfile = async (req, res, next) => {
       throw new ValidationError('Validation failed', validation.error.flatten().fieldErrors);
     }
 
-    const { name, phone } = validation.data.body;
+    const { name, email, phone, file_number, rank_id, faculty_id } = validation.data.body;
     const user = req.user;
     const authType = req.authType;
 
@@ -819,6 +825,17 @@ const updateProfile = async (req, res, next) => {
         await query(`UPDATE students SET ${updates.join(', ')} WHERE id = ?`, params);
       }
     } else {
+      // Check email uniqueness if changing email
+      if (email && email !== user.email) {
+        const [existing] = await query(
+          'SELECT id FROM users WHERE email = ? AND id != ?',
+          [email, user.id]
+        );
+        if (existing) {
+          throw new ValidationError('Email already in use by another account');
+        }
+      }
+
       const updates = [];
       const params = [];
 
@@ -826,9 +843,25 @@ const updateProfile = async (req, res, next) => {
         updates.push('name = ?');
         params.push(name);
       }
+      if (email) {
+        updates.push('email = ?');
+        params.push(email);
+      }
       if (phone !== undefined) {
         updates.push('phone = ?');
         params.push(phone);
+      }
+      if (file_number !== undefined) {
+        updates.push('file_number = ?');
+        params.push(file_number);
+      }
+      if (rank_id !== undefined) {
+        updates.push('rank_id = ?');
+        params.push(rank_id);
+      }
+      if (faculty_id !== undefined) {
+        updates.push('faculty_id = ?');
+        params.push(faculty_id);
       }
 
       if (updates.length > 0) {
@@ -843,7 +876,7 @@ const updateProfile = async (req, res, next) => {
       user_id: user.id,
       user_type: authType,
       action: 'profile_updated',
-      details: { name, phone },
+      details: { name, email, phone, file_number, rank_id, faculty_id },
       ip_address: req.ip,
       user_agent: req.headers['user-agent'],
     });

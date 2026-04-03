@@ -13,6 +13,7 @@ import { dashboardApi } from '../../../api/dashboard';
 import { formatCurrency, formatDate, formatGreetingName } from '../../../utils/helpers';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/Card';
 import { Button } from '../../../components/ui/Button';
+import { DashboardSkeleton } from '../../../components/ui/Skeleton';
 import {
   IconUsers,
   IconSchool,
@@ -81,11 +82,7 @@ function InstitutionDashboard() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-      </div>
-    );
+    return <DashboardSkeleton statCards={5} />;
   }
 
   if (error) {

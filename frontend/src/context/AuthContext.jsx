@@ -327,6 +327,19 @@ export function AuthProvider({ children }) {
     }
   }, [institution]);
 
+  // Refresh user profile from server
+  const refreshProfile = useCallback(async () => {
+    try {
+      const response = await authApi.getProfile();
+      const profileData = response.data.data || response.data;
+      storeUser(profileData);
+      setUserState(profileData);
+      setInstitution(profileData.institution);
+    } catch (err) {
+      console.error('Failed to refresh profile:', err);
+    }
+  }, []);
+
   const value = {
     user,
     institution,
@@ -346,6 +359,7 @@ export function AuthProvider({ children }) {
     hasRole,
     hasFeature,
     refreshFeatures,
+    refreshProfile,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

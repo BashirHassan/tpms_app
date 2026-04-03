@@ -27,3 +27,14 @@ export {
   useDialog 
 } from './Dialog';
 export { AlertProvider, useAlert, AlertDialog } from './AlertDialog';
+export {
+  Skeleton,
+  SkeletonLine,
+  SkeletonCircle,
+  SkeletonStatCard,
+  SkeletonCard,
+  SkeletonTableRows,
+  DashboardSkeleton,
+  GlobalDashboardSkeleton,
+  StudentDashboardSkeleton,
+} from './Skeleton';

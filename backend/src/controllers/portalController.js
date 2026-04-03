@@ -373,9 +373,25 @@ const getStudentPayments = async (req, res, next) => {
 
     // Get institution payment settings
     const [institution] = await query(
-      'SELECT payment_base_amount, payment_program_pricing FROM institutions WHERE id = ?',
+      'SELECT payment_type, payment_base_amount, payment_program_pricing FROM institutions WHERE id = ?',
       [parseInt(institutionId)]
     );
+
+    // Per-session means institution pays in bulk - students don't pay
+    if (institution?.payment_type === 'per_session') {
+      return res.json({
+        success: true,
+        data: {
+          payments: [],
+          summary: {
+            total_paid: 0,
+            required_amount: 0,
+            balance: 0,
+            payment_status: 'not_required',
+          },
+        },
+      });
+    }
 
     // Get required amount - check program-specific pricing first
     let requiredAmount = parseFloat(institution?.payment_base_amount || 0);
@@ -517,9 +533,12 @@ const getPortalStatus = async (req, res, next) => {
 
     // Get payment status info
     const [institution] = await query(
-      'SELECT payment_enabled, payment_base_amount, payment_program_pricing FROM institutions WHERE id = ?',
+      'SELECT payment_enabled, payment_type, payment_base_amount, payment_program_pricing FROM institutions WHERE id = ?',
       [parseInt(institutionId)]
     );
+
+    // Per-session means institution pays in bulk - students don't pay
+    const isPerSession = institution?.payment_type === 'per_session';
 
     // Use student's payment_status and total_paid from students table (source of truth)
     const totalPaid = parseFloat(student.total_paid || 0);
@@ -560,7 +579,7 @@ const getPortalStatus = async (req, res, next) => {
     // Dual verification: student.payment_status must match AND actual payment records must exist
     // This protects against orphaned payment_status or orphaned payment records
     let paymentStatus = 'pending';
-    if (!institution?.payment_enabled || requiredAmount === 0) {
+    if (isPerSession || !institution?.payment_enabled || requiredAmount === 0) {
       paymentStatus = 'not_required';
     } else if (
       (student.payment_status === 'paid' || totalPaid >= requiredAmount) &&
@@ -575,12 +594,13 @@ const getPortalStatus = async (req, res, next) => {
     };
 
     const payment = {
-      required: institution?.payment_enabled && requiredAmount > 0,
+      required: !isPerSession && institution?.payment_enabled && requiredAmount > 0,
       status: paymentStatus,
-      amount: requiredAmount,
+      amount: isPerSession ? 0 : requiredAmount,
       paid: totalPaid,
-      remaining: remaining,
-      can_pay: (institution?.payment_enabled && requiredAmount > 0 && paymentStatus !== 'completed'),
+      remaining: isPerSession ? 0 : remaining,
+      can_pay: (!isPerSession && institution?.payment_enabled && requiredAmount > 0 && paymentStatus !== 'completed'),
+      payment_type: institution?.payment_type || 'per_student',
       currency: 'NGN',
       payments: allPayments.map(p => ({
         id: p.id,

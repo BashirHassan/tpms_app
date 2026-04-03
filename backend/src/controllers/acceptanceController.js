@@ -648,11 +648,14 @@ const getStudentStatus = async (req, res, next) => {
 
     // Get institution payment settings
     const [institution] = await query(
-      'SELECT payment_enabled, payment_base_amount FROM institutions WHERE id = ?',
+      'SELECT payment_enabled, payment_type, payment_base_amount FROM institutions WHERE id = ?',
       [institutionId]
     );
+
+    // Per-session means institution pays in bulk - students don't pay
+    const isPerSession = institution?.payment_type === 'per_session';
     const requiredAmount = parseFloat(institution?.payment_base_amount) || 0;
-    const paymentRequired = institution?.payment_enabled && requiredAmount > 0;
+    const paymentRequired = !isPerSession && institution?.payment_enabled && requiredAmount > 0;
 
     // Dual verification: check students table AND actual payment records
     const [student] = await query(
@@ -902,11 +905,14 @@ const submitAcceptance = async (req, res, next) => {
 
     // Get institution payment settings
     const [institution] = await query(
-      'SELECT code, payment_enabled, payment_base_amount FROM institutions WHERE id = ?',
+      'SELECT code, payment_enabled, payment_type, payment_base_amount FROM institutions WHERE id = ?',
       [institutionId]
     );
+
+    // Per-session means institution pays in bulk - students don't pay
+    const isPerSession = institution?.payment_type === 'per_session';
     const requiredAmount = parseFloat(institution?.payment_base_amount) || 0;
-    const paymentRequired = institution?.payment_enabled && requiredAmount > 0;
+    const paymentRequired = !isPerSession && institution?.payment_enabled && requiredAmount > 0;
 
     // Dual verification: check students table AND actual payment records
     const [studentRecord] = await query(
