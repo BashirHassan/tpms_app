@@ -654,15 +654,12 @@ const getStudentStatus = async (req, res, next) => {
     const requiredAmount = parseFloat(institution?.payment_base_amount) || 0;
     const paymentRequired = institution?.payment_enabled && requiredAmount > 0;
 
-    // Get payment status
-    const [paymentInfo] = await query(
-      `SELECT SUM(amount) as total_paid 
-       FROM student_payments 
-       WHERE student_id = ? AND session_id = ? AND institution_id = ? AND status = 'success'`,
-      [studentId, session.id, institutionId]
+    // Use student's payment_status from students table (source of truth)
+    const [student] = await query(
+      'SELECT payment_status, total_paid FROM students WHERE id = ? AND institution_id = ?',
+      [studentId, institutionId]
     );
-    const totalPaid = parseFloat(paymentInfo?.total_paid) || 0;
-    const paymentMade = !paymentRequired || totalPaid >= requiredAmount;
+    const paymentMade = !paymentRequired || student?.payment_status === 'paid' || parseFloat(student?.total_paid || 0) >= requiredAmount;
 
     // Build response
     const canSubmit = windowOpen && !acceptance && paymentMade;
@@ -900,15 +897,12 @@ const submitAcceptance = async (req, res, next) => {
     const requiredAmount = parseFloat(institution?.payment_base_amount) || 0;
     const paymentRequired = institution?.payment_enabled && requiredAmount > 0;
 
-    // Check payment status
-    const [paymentInfo] = await query(
-      `SELECT SUM(amount) as total_paid 
-       FROM student_payments 
-       WHERE student_id = ? AND session_id = ? AND institution_id = ? AND status = 'success'`,
-      [studentId, session.id, institutionId]
+    // Check payment status from students table (source of truth)
+    const [studentRecord] = await query(
+      'SELECT payment_status, total_paid FROM students WHERE id = ? AND institution_id = ?',
+      [studentId, institutionId]
     );
-    const totalPaid = parseFloat(paymentInfo?.total_paid) || 0;
-    const paymentMade = !paymentRequired || totalPaid >= requiredAmount;
+    const paymentMade = !paymentRequired || studentRecord?.payment_status === 'paid' || parseFloat(studentRecord?.total_paid || 0) >= requiredAmount;
 
     if (!paymentMade) {
       throw new ValidationError('Payment requirements not met. Please complete payment first.');

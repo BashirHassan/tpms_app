@@ -416,7 +416,9 @@ function StudentDashboard() {
 
               {/* Teaching Practice Period */}
               <div className="flex items-center gap-2 sm:gap-4">
-                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
+                <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  windows.acceptance?.is_open ? 'bg-green-100' : 'bg-gray-100'
+                }`}>
                   <IconCalendar className={`w-4 h-4 sm:w-5 sm:h-5 ${
                     windows.acceptance?.is_open ? 'text-green-600' : 'text-gray-400'
                   }`} />

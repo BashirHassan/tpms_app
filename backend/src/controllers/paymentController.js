@@ -943,9 +943,9 @@ const getStudentPaymentStatus = async (req, res, next) => {
       throw new NotFoundError('Session not found');
     }
 
-    // Get student info
+    // Get student info (includes payment_status and total_paid)
     const [student] = await query(
-      'SELECT program_id FROM students WHERE id = ? AND institution_id = ?',
+      'SELECT program_id, payment_status, total_paid FROM students WHERE id = ? AND institution_id = ?',
       [parseInt(studentId), parseInt(institutionId)]
     );
 
@@ -973,6 +973,18 @@ const getStudentPaymentStatus = async (req, res, next) => {
     // Get payment amount from institution settings
     const amount = parseFloat(institution.payment_base_amount) || 0;
 
+    // Use student's total_paid from students table (source of truth)
+    const totalPaid = parseFloat(student.total_paid || 0);
+    const remaining = Math.max(0, amount - totalPaid);
+
+    // Map student.payment_status to portal status format
+    let status = 'pending';
+    if (student.payment_status === 'paid' || totalPaid >= amount) {
+      status = 'completed';
+    } else if (student.payment_status === 'partial' || totalPaid > 0) {
+      status = 'partial';
+    }
+
     // Get ALL payments for history display (not just successful ones)
     const allPayments = await query(
       `SELECT * FROM student_payments 
@@ -980,18 +992,6 @@ const getStudentPaymentStatus = async (req, res, next) => {
        ORDER BY created_at DESC`,
       [parseInt(studentId), parseInt(session.id), parseInt(institutionId)]
     );
-
-    // Calculate total from SUCCESSFUL payments only
-    const successfulPayments = allPayments.filter(p => p.status === 'success');
-    const totalPaid = successfulPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-    const remaining = Math.max(0, amount - totalPaid);
-
-    let status = 'pending';
-    if (totalPaid >= amount) {
-      status = 'completed';
-    } else if (totalPaid > 0) {
-      status = 'partial';
-    }
 
     res.json({
       success: true,
@@ -1092,19 +1092,13 @@ const initializeStudentPayment = async (req, res, next) => {
       throw new ValidationError('No payment amount configured');
     }
 
-    // Get existing payments
-    const payments = await query(
-      `SELECT SUM(amount) as total FROM student_payments 
-       WHERE student_id = ? AND session_id = ? AND institution_id = ? AND status = 'success'`,
-      [studentId, session.id, institutionId]
-    );
-
-    const totalPaid = parseFloat(payments[0]?.total || 0);
-    const remaining = Math.max(0, amount - totalPaid);
-
-    if (remaining <= 0) {
+    // Check if student already fully paid using students table
+    const studentTotalPaid = parseFloat(student.total_paid || 0);
+    if (student.payment_status === 'paid' || studentTotalPaid >= amount) {
       throw new ValidationError('Payment already completed');
     }
+
+    const remaining = Math.max(0, amount - studentTotalPaid);
 
     // Generate reference
     const reference = `TP${institution.code || institutionId}-${studentId}-${Date.now()}`;
@@ -1332,18 +1326,55 @@ const verifyStudentPayment = async (req, res, next) => {
       );
     }
 
+    // Update student payment_status and total_paid in students table
+    const sessionIdForPayment = paystackData.metadata.session_id;
+    const [totalResult] = await query(
+      `SELECT COALESCE(SUM(amount), 0) as total_paid 
+       FROM student_payments 
+       WHERE student_id = ? AND session_id = ? AND institution_id = ? AND status = 'success'`,
+      [studentId, sessionIdForPayment, institutionId]
+    );
+    const newTotalPaid = parseFloat(totalResult?.total_paid || 0);
+
+    // Get required amount to determine status
+    const [instPayment] = await query(
+      'SELECT payment_enabled, payment_base_amount, payment_program_pricing FROM institutions WHERE id = ?',
+      [institutionId]
+    );
+    let requiredAmount = parseFloat(instPayment?.payment_base_amount || 0);
+    
+    // Check program-specific pricing
+    const [studentInfo] = await query(
+      'SELECT program_id FROM students WHERE id = ? AND institution_id = ?',
+      [studentId, institutionId]
+    );
+    if (studentInfo?.program_id && instPayment?.payment_program_pricing) {
+      let programPricing = instPayment.payment_program_pricing;
+      if (typeof programPricing === 'string') {
+        try { programPricing = JSON.parse(programPricing); } catch (e) { programPricing = {}; }
+      }
+      const programAmount = parseFloat(programPricing[studentInfo.program_id]);
+      if (programAmount > 0) requiredAmount = programAmount;
+    }
+
+    const newPaymentStatus = newTotalPaid >= requiredAmount ? 'paid' : newTotalPaid > 0 ? 'partial' : 'pending';
+    await query(
+      'UPDATE students SET payment_status = ?, total_paid = ? WHERE id = ? AND institution_id = ?',
+      [newPaymentStatus, newTotalPaid, studentId, institutionId]
+    );
+
     // Audit log
     await query(
       `INSERT INTO audit_logs (institution_id, user_id, user_type, action, resource_type, resource_id, details, ip_address)
-       VALUES (?, ?, 'student', 'payment_completed', 'student_payment', ?, ?, ?)`,
-      [institutionId, studentId, reference, 
-       JSON.stringify({ reference, amount: amountInNaira }), req.ip]
+       VALUES (?, ?, 'student', 'payment_completed', 'student_payment', NULL, ?, ?)`,
+      [institutionId, studentId, 
+       JSON.stringify({ reference, amount: amountInNaira, total_paid: newTotalPaid, payment_status: newPaymentStatus }), req.ip]
     );
 
     res.json({
       success: true,
       message: 'Payment verified successfully',
-      data: { status: 'success', reference, amount: amountInNaira },
+      data: { status: 'success', reference, amount: amountInNaira, payment_status: newPaymentStatus },
     });
   } catch (error) {
     next(error);
