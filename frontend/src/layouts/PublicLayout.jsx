@@ -3,8 +3,10 @@
  * Clean layout for public (unauthenticated) pages
  */
 
+import { Suspense } from 'react';
 import { Outlet, Link } from 'react-router-dom';
 import { IconSchool } from '@tabler/icons-react';
+import ContentLoader from '../components/ui/ContentLoader';
 
 export default function PublicLayout() {
   return (
@@ -12,7 +14,9 @@ export default function PublicLayout() {
       {/* Main Content */}
       <main className="flex-1 py-8">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <Outlet />
+          <Suspense fallback={<ContentLoader />}>
+            <Outlet />
+          </Suspense>
         </div>
       </main>
     </div>

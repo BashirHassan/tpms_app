@@ -7,8 +7,9 @@
  * Uses centralized role constants from utils/roles.js
  */
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { Outlet, Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
+import ContentLoader from '../components/ui/ContentLoader';
 import { useAuth } from '../context/AuthContext';
 import { useInstitution } from '../context/InstitutionContext';
 import { useInstitutionSelection } from '../context/InstitutionSelectionContext';
@@ -473,7 +474,9 @@ function AdminLayout() {
 
         {/* Page content */}
         <main className="p-4 lg:p-8">
-          <Outlet />
+          <Suspense fallback={<ContentLoader />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

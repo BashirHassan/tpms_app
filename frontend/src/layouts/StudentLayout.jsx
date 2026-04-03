@@ -4,7 +4,9 @@
  * Features bottom navigation on mobile, top navigation on desktop
  */
 
+import { Suspense } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import ContentLoader from '../components/ui/ContentLoader';
 import { useAuth } from '../context/AuthContext';
 import { useInstitution } from '../context/InstitutionContext';
 import { cn, getInitials } from '../utils/helpers';
@@ -144,7 +146,9 @@ function StudentLayout() {
 
       {/* Main content - with bottom padding on mobile for bottom nav */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-8">
-        <Outlet />
+        <Suspense fallback={<ContentLoader />}>
+          <Outlet />
+        </Suspense>
       </main>
 
       {/* Mobile Bottom Navigation */}

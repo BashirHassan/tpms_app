@@ -6,6 +6,8 @@ import { ToastProvider } from './context/ToastContext';
 import { InstitutionProvider, useInstitution } from './context/InstitutionContext';
 import { AlertProvider } from './components/ui/AlertDialog';
 import { useLandingPage } from './hooks/useSubdomain';
+import RouteProgressBar from './components/ui/RouteProgressBar';
+import ContentLoader from './components/ui/ContentLoader';
 import ProtectedRoute, { 
   StaffRoute, 
   AdminRoute, 
@@ -23,13 +25,18 @@ import AdminLayout from './layouts/AdminLayout';
 import StudentLayout from './layouts/StudentLayout';
 import PublicLayout from './layouts/PublicLayout';
 
-// Loading fallback for lazy-loaded pages
+// Inline fallback for non-layout routes (auth pages, landing)
 function PageLoader() {
   return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600" />
     </div>
   );
+}
+
+// Suspense wrapper for individual lazy route elements
+function SuspensePage({ children }) {
+  return <Suspense fallback={<PageLoader />}>{children}</Suspense>;
 }
 
 // Error Pages
@@ -142,14 +149,17 @@ function AppRoutes() {
   }
 
   // Institution subdomain shows main app
+  // Suspense boundaries are inside each layout (AdminLayout, StudentLayout, PublicLayout)
+  // so sidebar/navbar persist during page transitions — true SPA feel
   return (
-    <Suspense fallback={<PageLoader />}>
+    <>
+    <RouteProgressBar />
     <Routes>
-                {/* Auth Routes */}
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/student/login" element={<StudentLoginPage />} />
-                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-                <Route path="/reset-password" element={<ResetPasswordPage />} />
+                {/* Auth Routes - wrapped individually since they have no persistent layout */}
+                <Route path="/login" element={<SuspensePage><LoginPage /></SuspensePage>} />
+                <Route path="/student/login" element={<SuspensePage><StudentLoginPage /></SuspensePage>} />
+                <Route path="/forgot-password" element={<SuspensePage><ForgotPasswordPage /></SuspensePage>} />
+                <Route path="/reset-password" element={<SuspensePage><ResetPasswordPage /></SuspensePage>} />
 
             {/* Admin Routes */}
             <Route
@@ -466,9 +476,9 @@ function AppRoutes() {
             <Route path="/" element={<Navigate to="/login" replace />} />
             
             {/* 404 Not Found - Must be last */}
-            <Route path="*" element={<NotFoundPage />} />
+            <Route path="*" element={<SuspensePage><NotFoundPage /></SuspensePage>} />
           </Routes>
-    </Suspense>
+    </>
   );
 }
 
