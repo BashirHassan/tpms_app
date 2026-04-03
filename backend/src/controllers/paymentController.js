@@ -1164,11 +1164,6 @@ const initializeStudentPayment = async (req, res, next) => {
             value: student.registration_number || 'N/A',
           },
           {
-            display_name: 'Phone',
-            variable_name: 'phone',
-            value: student.phone || 'N/A',
-          },
-          {
             display_name: 'Session',
             variable_name: 'session',
             value: session.name || 'N/A',
