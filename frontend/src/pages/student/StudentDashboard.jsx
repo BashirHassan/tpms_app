@@ -263,7 +263,6 @@ function StudentDashboard() {
                 </button>
                 );
               })()}
-              )}
 
               {/* Payment Completed Badge */}
               {payment.status === 'completed' && (
