@@ -1077,7 +1077,7 @@ function MasterSchoolsPage() {
               <option value="primary">Primary</option>
               <option value="junior">Junior</option>
               <option value="senior">Senior</option>
-              <option value="both">Both</option>
+              <option value="both">Junior & Senior</option>
             </Select>
           </div>
 

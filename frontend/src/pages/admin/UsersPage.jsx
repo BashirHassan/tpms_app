@@ -6,9 +6,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { usersApi } from '../../api/users';
 import { ranksApi } from '../../api/ranks';
-import { institutionsApi } from '../../api/institutions';
 import { facultiesApi } from '../../api/academic';
 import { useAuth } from '../../context/AuthContext';
+import { useInstitutionSelection } from '../../context/InstitutionSelectionContext';
 import { useToast } from '../../context/ToastContext';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
@@ -23,7 +23,6 @@ import {
   IconTrash, 
   IconUserPlus,
   IconCrown,
-  IconBuilding,
   IconRefresh,
   IconCircleCheck,
   IconCopy,
@@ -47,7 +46,6 @@ const initialFormState = {
   email: '',
   phone: '',
   role: 'supervisor',
-  institution_id: '',
   rank_id: '',
   faculty_id: '',
   file_number: '',
@@ -58,6 +56,7 @@ const initialFormState = {
 function UsersPage() {
   const { user: currentUser, hasRole } = useAuth();
   const { toast } = useToast();
+  const { institutionId } = useInstitutionSelection();
   const canEdit = hasRole(['super_admin', 'head_of_teaching_practice']);
   const isSuperAdmin = currentUser?.role === 'super_admin';
   
@@ -70,7 +69,6 @@ function UsersPage() {
   const [users, setUsers] = useState([]);
   const [ranks, setRanks] = useState([]);
   const [faculties, setFaculties] = useState([]);
-  const [institutions, setInstitutions] = useState([]);
   const [loading, setLoading] = useState(true);
   
   // Pagination & filters state
@@ -156,25 +154,11 @@ function UsersPage() {
     }
   };
 
-  // Fetch institutions for dropdown (super_admin only)
-  const fetchInstitutions = async () => {
-    if (!isSuperAdmin) return;
-    try {
-      const response = await institutionsApi.getSwitchList();
-      setInstitutions(response.data?.data || []);
-    } catch (err) {
-      console.error('Failed to load institutions:', err);
-    }
-  };
-
-  // Initial load for ranks, faculties and institutions
+  // Initial load for ranks and faculties
   useEffect(() => {
     fetchRanks();
     fetchFaculties();
-    if (isSuperAdmin) {
-      fetchInstitutions();
-    }
-  }, [isSuperAdmin]);
+  }, []);
 
   // Fetch users when pagination or filters change
   useEffect(() => {
@@ -196,7 +180,6 @@ function UsersPage() {
       email: user.email || '',
       phone: user.phone || '',
       role: user.role || 'supervisor',
-      institution_id: user.institution_id ? String(user.institution_id) : '',
       rank_id: user.rank_id ? String(user.rank_id) : '',
       faculty_id: user.faculty_id ? String(user.faculty_id) : '',
       file_number: user.file_number || '',
@@ -243,11 +226,7 @@ function UsersPage() {
       errors.role = 'Role is required';
     }
 
-    // Super admin creating non-super_admin users must select an institution
-    // But if creating a super_admin, institution is not required
-    if (isSuperAdmin && !editUser && formData.role !== 'super_admin' && !formData.institution_id) {
-      errors.institution_id = 'Institution is required';
-    }
+
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -276,9 +255,9 @@ function UsersPage() {
         payload.file_number = formData.file_number || null;
         payload.is_dean = formData.is_dean;
         
-        // Super admin can specify institution for non-super_admin users
-        if (isSuperAdmin && formData.institution_id) {
-          payload.institution_id = parseInt(formData.institution_id);
+        // Auto-set institution from context
+        if (isSuperAdmin && institutionId) {
+          payload.institution_id = parseInt(institutionId);
         }
       }
 
@@ -663,40 +642,6 @@ function UsersPage() {
               </p>
             )}
           </div>
-
-          {/* Institution (super_admin only, hidden when creating super_admin) */}
-          {isSuperAdmin && !isCreatingSuperAdmin && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                <span className="flex items-center gap-1">
-                  <IconBuilding className="w-4 h-4" />
-                  Institution {!editUser && <span className="text-red-500">*</span>}
-                </span>
-              </label>
-              <Select
-                name="institution_id"
-                value={formData.institution_id}
-                onChange={handleChange}
-                error={formErrors.institution_id}
-                disabled={editUser} // Cannot change institution after creation
-              >
-                <option value="">Select an institution</option>
-                {institutions.map((inst) => (
-                  <option key={inst.id} value={inst.id}>
-                    {inst.name} ({inst.code})
-                  </option>
-                ))}
-              </Select>
-              {formErrors.institution_id && (
-                <p className="mt-1 text-sm text-red-500">{formErrors.institution_id}</p>
-              )}
-              {editUser && (
-                <p className="mt-1 text-xs text-gray-500">
-                  Institution cannot be changed after user creation
-                </p>
-              )}
-            </div>
-          )}
 
           {/* Institution-specific fields - hidden for super_admin role */}
           {!isCreatingSuperAdmin && (

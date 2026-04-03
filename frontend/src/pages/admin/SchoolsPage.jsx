@@ -10,7 +10,7 @@
  * Master data (name, state, lga, principal, GPS) is managed via Master Schools page
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { schoolsApi, routesApi } from '../../api';
 import { nigeriaGeoData } from '../../data/nigeria';
 import { useAuth } from '../../context/AuthContext';
@@ -71,6 +71,7 @@ function SchoolsPage() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [locationCategoryFilter, setLocationCategoryFilter] = useState('');
   const [stateFilter, setStateFilter] = useState('');
+  const [lgaFilter, setLgaFilter] = useState('');
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
@@ -100,6 +101,10 @@ function SchoolsPage() {
   });
   const [linking, setLinking] = useState(false);
 
+  // All schools data for filter options (fetched once on mount)
+  const [allSchoolsData, setAllSchoolsData] = useState([]);
+  const filterOptionsFetched = useRef(false);
+
   // Fetch data
   const fetchSchools = async () => {
     setLoading(true);
@@ -114,6 +119,7 @@ function SchoolsPage() {
       if (categoryFilter) params.category = categoryFilter;
       if (locationCategoryFilter) params.location_category = locationCategoryFilter;
       if (stateFilter) params.state = stateFilter;
+      if (lgaFilter) params.lga = lgaFilter;
 
       const response = await schoolsApi.getAll(params);
       setSchools(response.data.data || response.data || []);
@@ -145,6 +151,36 @@ function SchoolsPage() {
       console.error('Failed to load states:', err);
     }
   };
+
+  // Fetch all schools once for filter dropdown options
+  const fetchFilterOptions = async () => {
+    if (filterOptionsFetched.current) return;
+    filterOptionsFetched.current = true;
+    try {
+      const response = await schoolsApi.getAll({ limit: 9999 });
+      setAllSchoolsData(response.data.data || response.data || []);
+    } catch (err) {
+      console.error('Failed to load filter options:', err);
+    }
+  };
+
+  // Derive unique states from actual school data
+  const filterStates = useMemo(() => {
+    const unique = [...new Set(allSchoolsData.map(s => s.state).filter(Boolean))];
+    return unique.sort();
+  }, [allSchoolsData]);
+
+  // Derive unique LGAs based on selected state filter
+  const filterLgas = useMemo(() => {
+    if (!stateFilter) return [];
+    const unique = [...new Set(
+      allSchoolsData
+        .filter(s => s.state === stateFilter)
+        .map(s => s.lga)
+        .filter(Boolean)
+    )];
+    return unique.sort();
+  }, [allSchoolsData, stateFilter]);
 
   // Fetch LGAs when state changes (dependent dropdown)
   const fetchLGAs = (state) => {
@@ -269,11 +305,12 @@ function SchoolsPage() {
   useEffect(() => {
     fetchRoutes();
     fetchStates();
+    fetchFilterOptions();
   }, []);
 
   useEffect(() => {
     fetchSchools();
-  }, [pagination.page, pagination.limit, search, routeFilter, typeFilter, categoryFilter, locationCategoryFilter, stateFilter]);
+  }, [pagination.page, pagination.limit, search, routeFilter, typeFilter, categoryFilter, locationCategoryFilter, stateFilter, lgaFilter]);
 
   // Modal handlers
   const getDefaultFormData = () => ({
@@ -447,10 +484,11 @@ function SchoolsPage() {
     setCategoryFilter('');
     setLocationCategoryFilter('');
     setStateFilter('');
+    setLgaFilter('');
   };
 
   // Check if any filter is active
-  const hasActiveFilters = routeFilter || typeFilter || categoryFilter || locationCategoryFilter || stateFilter;
+  const hasActiveFilters = routeFilter || typeFilter || categoryFilter || locationCategoryFilter || stateFilter || lgaFilter;
 
   // Handle status toggle
   const handleToggleStatus = async (school) => {
@@ -698,7 +736,7 @@ function SchoolsPage() {
           <div className="space-y-3">
             {/* Search Bar */}
             <div className="flex gap-2">
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
                 <div className="flex-1 relative col-span-2">
                   <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
@@ -730,7 +768,7 @@ function SchoolsPage() {
                   <option value="primary">Primary</option>
                   <option value="junior">Junior</option>
                   <option value="senior">Senior</option>
-                  <option value="both">Both</option>
+                  <option value="both">Junior & Senior</option>
                 </Select>
                 <Select
                   value={categoryFilter}
@@ -753,13 +791,29 @@ function SchoolsPage() {
                 </Select>
                 <Select
                   value={stateFilter}
-                  onChange={(e) => setStateFilter(e.target.value)}
-                  className="text-sm col-span-2 sm:col-span-1"
+                  onChange={(e) => {
+                    setStateFilter(e.target.value);
+                    setLgaFilter('');
+                  }}
+                  className="text-sm"
                 >
                   <option value="">All States</option>
-                  {states.map((s) => (
+                  {filterStates.map((s) => (
                     <option key={s} value={s}>
                       {s}
+                    </option>
+                  ))}
+                </Select>
+                <Select
+                  value={lgaFilter}
+                  onChange={(e) => setLgaFilter(e.target.value)}
+                  disabled={!stateFilter}
+                  className="text-sm"
+                >
+                  <option value="">All LGAs</option>
+                  {filterLgas.map((l) => (
+                    <option key={l} value={l}>
+                      {l}
                     </option>
                   ))}
                 </Select>
@@ -979,7 +1033,7 @@ function SchoolsPage() {
                 <option value="primary">Primary</option>
                 <option value="junior">Junior</option>
                 <option value="senior">Senior</option>
-                <option value="both">Both</option>
+                <option value="both">Junior & Senior</option>
               </Select>
             </div>
 
