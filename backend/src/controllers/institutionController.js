@@ -1122,18 +1122,16 @@ const uploadLogo = async (req, res, next) => {
 
     // Upload to Cloudinary
     const result = await cloudinaryService.uploadImage(req.file, {
-      folder: `digitaltp/logos/${institutionCode}`,
-      transformation: [
-        { width: 400, height: 400, crop: 'limit' },
-        { quality: 'auto' },
-      ],
+      institutionCode,
+      type: 'logos',
+      originalFilename: req.file.originalname,
     });
 
     res.json({
       success: true,
       data: {
-        url: result.secure_url,
-        public_id: result.public_id,
+        url: result.url,
+        public_id: result.publicId,
       },
     });
   } catch (error) {
