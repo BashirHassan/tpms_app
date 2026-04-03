@@ -130,7 +130,7 @@ function StudentDashboard() {
           <div className="min-w-0 flex-1">
             <h2 className="text-xl font-bold truncate">Welcome, {formatGreetingName(portalStatus.student?.name || user?.name)}!</h2>
             <p className="text-gray-50 text-xs sm:text-sm truncate">{portalStatus.student?.registration_number || user?.registration_number}</p>
-            <p className="text-gray-50 text-xs sm:text-sm truncate">{institution?.name}</p>
+            {/* <p className="text-gray-50 text-xs sm:text-sm truncate">{institution?.name}</p> */}
           </div>
           <Button
             onClick={handleRefresh}
