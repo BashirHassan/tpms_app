@@ -1123,8 +1123,17 @@ const initializeStudentPayment = async (req, res, next) => {
     // Use Paystack service - REQUIRED for payment initialization
     const paystackService = require('../services/paystackService');
     
-    if (!institution.paystack_secret_key) {
+    // Resolve Paystack secret key: institution-level → system-level fallback
+    const paystackSecretKey = institution.paystack_secret_key || process.env.PAYSTACK_SECRET_KEY;
+    
+    if (!paystackSecretKey) {
       throw new ValidationError('Payment gateway not configured. Please contact administration.');
+    }
+
+    // Validate key format - Paystack secret keys must start with sk_
+    if (!paystackSecretKey.startsWith('sk_')) {
+      console.error(`[PAYMENT] Invalid Paystack key format for institution ${institutionId} - key does not start with sk_`);
+      throw new ValidationError('Payment gateway configuration error. Please contact administration.');
     }
 
     // Get program info for metadata
@@ -1136,7 +1145,7 @@ const initializeStudentPayment = async (req, res, next) => {
     // Initialize with Paystack - NO database record yet (only save on successful verification)
     // Include split_code if configured for this institution (revenue sharing with platform)
     const paystackResult = await paystackService.initializeTransaction({
-      secretKey: institution.paystack_secret_key,
+      secretKey: paystackSecretKey,
       email,
       amount: remaining * 100, // Convert to kobo
       reference,
@@ -1238,13 +1247,21 @@ const verifyStudentPayment = async (req, res, next) => {
     const Institution = require('../models/Institution');
     const institution = await Institution.findById(institutionId, true);
 
-    if (!institution?.paystack_secret_key) {
+    // Resolve Paystack secret key: institution-level → system-level fallback
+    const paystackSecretKey = institution?.paystack_secret_key || process.env.PAYSTACK_SECRET_KEY;
+
+    if (!paystackSecretKey) {
       throw new ValidationError('Payment gateway not configured');
+    }
+
+    if (!paystackSecretKey.startsWith('sk_')) {
+      console.error(`[PAYMENT] Invalid Paystack key format for institution ${institutionId} - key does not start with sk_`);
+      throw new ValidationError('Payment gateway configuration error. Please contact administration.');
     }
 
     const paystackService = require('../services/paystackService');
     const verification = await paystackService.verifyTransaction(
-      institution.paystack_secret_key,
+      paystackSecretKey,
       reference
     );
 
