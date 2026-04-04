@@ -892,7 +892,27 @@ export function PaymentForm({
   onTest,
   testing = false,
   formatCurrency = (amount) => `₦${amount?.toLocaleString() || 0}`,
+  institutionId,
 }) {
+  const [revealedKeys, setRevealedKeys] = useState(null);
+  const [revealingKeys, setRevealingKeys] = useState(false);
+
+  const handleRevealKeys = async () => {
+    if (revealedKeys) {
+      setRevealedKeys(null);
+      return;
+    }
+    if (!institutionId) return;
+    setRevealingKeys(true);
+    try {
+      const res = await institutionsApi.revealKeys(institutionId);
+      setRevealedKeys(res.data.data);
+    } catch {
+      setRevealedKeys(null);
+    } finally {
+      setRevealingKeys(false);
+    }
+  };
   return (
     <div className="space-y-4">
       {/* Payment Type Selection */}
@@ -1053,15 +1073,53 @@ export function PaymentForm({
       {data.payment_type === 'per_student' && (
         <Card>
           <CardHeader>
-            <CardTitle>Paystack Integration</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>Paystack Integration</CardTitle>
+              {institutionId && (data.paystack_public_key === '••••••••' || data.paystack_secret_key === '••••••••') && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRevealKeys}
+                  disabled={revealingKeys}
+                  className="text-xs"
+                >
+                  {revealingKeys ? (
+                    <><IconLoader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Revealing...</>
+                  ) : revealedKeys ? (
+                    <><IconEyeOff className="w-3.5 h-3.5 mr-1.5" />Hide Keys</>
+                  ) : (
+                    <><IconEye className="w-3.5 h-3.5 mr-1.5" />View Saved Keys</>
+                  )}
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
               <p className="text-sm text-amber-800">
-                <strong>Security:</strong> API keys are encrypted and partially displayed. Leave
+                <strong>Security:</strong> API keys are encrypted and stored securely. Leave
                 empty to keep existing keys, or enter new values to replace them.
               </p>
             </div>
+
+            {revealedKeys && (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Currently Saved Keys</p>
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Public Key</p>
+                  <code className="block text-sm bg-white border rounded px-3 py-2 text-gray-800 font-mono break-all select-all">
+                    {revealedKeys.paystack_public_key || <span className="text-gray-400 italic">Not configured</span>}
+                  </code>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Secret Key</p>
+                  <code className="block text-sm bg-white border rounded px-3 py-2 text-gray-800 font-mono break-all select-all">
+                    {revealedKeys.paystack_secret_key || <span className="text-gray-400 italic">Not configured</span>}
+                  </code>
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Public Key</label>

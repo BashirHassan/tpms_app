@@ -207,8 +207,13 @@ const getById = async (req, res, next) => {
 
     institution.current_session = currentSession || null;
 
-    // Don't expose SMTP credentials or raw location binary
-    delete institution.smtp_password;
+    // Mask sensitive fields - never expose raw encrypted values to the frontend
+    const sensitiveFieldsToMask = ['smtp_password', 'paystack_secret_key', 'paystack_public_key'];
+    for (const field of sensitiveFieldsToMask) {
+      if (institution[field]) {
+        institution[field] = '••••••••';
+      }
+    }
     delete institution.location;
 
     res.json({
@@ -344,16 +349,23 @@ const update = async (req, res, next) => {
     // Fields that need JSON serialization
     const jsonFields = ['payment_program_pricing'];
 
+    // Helper: detect if a value is already encrypted (iv:authTag:ciphertext format)
+    const isAlreadyEncrypted = (val) => {
+      if (!val || typeof val !== 'string') return false;
+      const parts = val.split(':');
+      return parts.length === 3 && parts.every(p => p.length > 0);
+    };
+
     for (const [key, value] of Object.entries(data)) {
       // Skip fields handled separately
       if (skipFields.includes(key)) continue;
       
-      // Encrypt sensitive fields if value is provided and not masked
-      if (sensitiveFields.includes(key) && value && !String(value).includes('••••')) {
+      // Encrypt sensitive fields if value is provided and not masked/already-encrypted
+      if (sensitiveFields.includes(key) && value && !String(value).includes('••••') && !isAlreadyEncrypted(value)) {
         updates.push(`${key} = ?`);
         params.push(encrypt(value));
       } else if (sensitiveFields.includes(key)) {
-        // Skip masked values (don't update if user didn't change the sensitive field)
+        // Skip masked or already-encrypted values (don't update if user didn't change the field)
         continue;
       } else if (jsonFields.includes(key)) {
         updates.push(`${key} = ?`);
@@ -383,8 +395,9 @@ const update = async (req, res, next) => {
         'SELECT paystack_public_key, paystack_secret_key FROM institutions WHERE id = ?',
         [parseInt(id)]
       );
-      const hasPublic = (data.paystack_public_key && !data.paystack_public_key.includes('••••')) || current?.paystack_public_key;
-      const hasSecret = (data.paystack_secret_key && !data.paystack_secret_key.includes('••••')) || current?.paystack_secret_key;
+      const isNewKey = (val) => val && !String(val).includes('••••') && !isAlreadyEncrypted(val);
+      const hasPublic = isNewKey(data.paystack_public_key) || current?.paystack_public_key;
+      const hasSecret = isNewKey(data.paystack_secret_key) || current?.paystack_secret_key;
       updates.push('payment_enabled = ?');
       params.push(!!(hasPublic && hasSecret));
     }
@@ -786,6 +799,58 @@ const getAllStats = async (req, res, next) => {
 };
 
 /**
+ * Reveal decrypted API keys for an institution
+ * GET /global/institutions/:id/reveal-keys
+ * Super admin only - returns decrypted Paystack keys
+ */
+const revealKeys = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const [institution] = await query(
+      'SELECT paystack_public_key, paystack_secret_key FROM institutions WHERE id = ?',
+      [parseInt(id)]
+    );
+
+    if (!institution) {
+      throw new NotFoundError('Institution not found');
+    }
+
+    const result = {
+      paystack_public_key: null,
+      paystack_secret_key: null,
+    };
+
+    // Decrypt each key if present
+    for (const field of ['paystack_public_key', 'paystack_secret_key']) {
+      const value = institution[field];
+      if (!value) continue;
+
+      // Check if value is encrypted (iv:authTag:ciphertext format)
+      const parts = value.split(':');
+      if (parts.length === 3 && parts.every(p => p.length > 0)) {
+        try {
+          result[field] = decrypt(value);
+        } catch (err) {
+          console.error(`Failed to decrypt ${field} for institution ${id}:`, err.message);
+          result[field] = null;
+        }
+      } else {
+        // Not encrypted (legacy plaintext), return as-is
+        result[field] = value;
+      }
+    }
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Update institution status
  * PATCH /global/institutions/:id/status
  */
@@ -1159,6 +1224,7 @@ module.exports = {
   create,
   update,
   updateStatus,
+  revealKeys,
   remove,
   provision,
   uploadLogo,

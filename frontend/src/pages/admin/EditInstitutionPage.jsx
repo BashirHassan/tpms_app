@@ -499,6 +499,7 @@ export default function EditInstitutionPage() {
         programs={programs}
         onTestPaystack={handleTestPaystack}
         testingPaystack={testingPaystack}
+        institutionId={id}
       />
 
       <div className="flex justify-end">

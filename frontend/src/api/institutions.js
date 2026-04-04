@@ -86,6 +86,13 @@ export const institutionsApi = {
    */
   testSmtp: (institutionId, testEmail = null) => 
     apiClient.post(`/global/institutions/${institutionId}/smtp/test`, { test_email: testEmail }),
+
+  /**
+   * Reveal decrypted API keys for an institution (super_admin only)
+   * @param {number} institutionId - Institution ID
+   */
+  revealKeys: (institutionId) =>
+    apiClient.get(`/global/institutions/${institutionId}/reveal-keys`),
 };
 
 export default institutionsApi;

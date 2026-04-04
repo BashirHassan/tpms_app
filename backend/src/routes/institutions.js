@@ -27,6 +27,7 @@ router.post('/global/institutions/provision', authenticate, isSuperAdmin, instit
 router.post('/global/institutions/upload-logo', authenticate, isSuperAdmin, upload.single('logo'), institutionController.uploadLogo);
 router.get('/global/institutions', authenticate, isSuperAdmin, institutionController.getAll);
 router.get('/global/institutions/:id', authenticate, isSuperAdmin, institutionController.getById);
+router.get('/global/institutions/:id/reveal-keys', authenticate, isSuperAdmin, institutionController.revealKeys);
 router.post('/global/institutions', authenticate, isSuperAdmin, upload.single('logo'), institutionController.create);
 router.put('/global/institutions/:id', authenticate, isSuperAdmin, upload.single('logo'), institutionController.update);
 router.patch('/global/institutions/:id/status', authenticate, isSuperAdmin, institutionController.updateStatus);
