@@ -292,16 +292,42 @@ function PaymentPage() {
     fetchData();
   };
 
-  // Loading state with skeleton
+  // Loading state with modern skeleton + spinner
   if (loading) {
     return (
-      <div className="min-h-[500px] flex items-center justify-center">
-        <div className="text-center">
-          <div className="relative">
-            <div className="w-16 h-16 border-4 border-primary-100 rounded-full animate-pulse"></div>
-            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className="min-h-[500px] flex items-center justify-center bg-white">
+        <div className="flex flex-col items-center gap-6 w-full max-w-sm">
+
+          {/* Spinner */}
+          <div className="relative flex items-center justify-center">
+            {/* Outer Glow */}
+            <div className="absolute w-20 h-20 rounded-full bg-primary-100 blur-xl opacity-60"></div>
+
+            {/* Animated Ring */}
+            <div className="w-16 h-16 rounded-full border-4 border-primary-200"></div>
+            <div className="absolute w-16 h-16 rounded-full border-4 border-primary-500 border-t-transparent animate-spin"></div>
+
+            {/* Inner Pulse */}
+            <div className="absolute w-6 h-6 bg-primary-500 rounded-full animate-ping opacity-75"></div>
           </div>
-          <p className="mt-4 text-gray-500 font-medium">Loading payment details...</p>
+
+          {/* Text */}
+          <div className="text-center space-y-1">
+            <p className="text-gray-700 font-semibold text-sm">
+              Loading payment details
+            </p>
+            <p className="text-gray-400 text-xs">
+              Please wait while we fetch your data...
+            </p>
+          </div>
+
+          {/* Skeleton Content */}
+          <div className="w-full space-y-3 mt-4">
+            <div className="h-4 bg-gray-200 rounded-md animate-pulse"></div>
+            <div className="h-4 bg-gray-200 rounded-md w-5/6 animate-pulse"></div>
+            <div className="h-4 bg-gray-200 rounded-md w-4/6 animate-pulse"></div>
+          </div>
+
         </div>
       </div>
     );
