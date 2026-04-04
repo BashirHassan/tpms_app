@@ -973,15 +973,20 @@ const renderDocument = async (req, res, next) => {
     // Check access based on document type
     if (documentType === 'posting_letter') {
       // Check if posting letter window is open
-      if (session.posting_letter_available_date) {
-        const availableDate = new Date(session.posting_letter_available_date);
-        if (new Date() < availableDate) {
-          return res.status(403).json({
-            success: false,
-            message: 'Posting letter is not yet available',
-            data: { available_from: session.posting_letter_available_date }
-          });
-        }
+      if (!session.posting_letter_available_date) {
+        // No availability date set - posting letters are not available
+        return res.status(403).json({
+          success: false,
+          message: 'Posting letter is not yet available',
+        });
+      }
+      const availableDate = new Date(session.posting_letter_available_date);
+      if (new Date() < availableDate) {
+        return res.status(403).json({
+          success: false,
+          message: 'Posting letter is not yet available',
+          data: { available_from: session.posting_letter_available_date }
+        });
       }
       
       // Check if student has submitted acceptance form

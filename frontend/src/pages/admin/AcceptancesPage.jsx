@@ -11,6 +11,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Ca
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
+import { SearchableSelect } from '../../components/ui/SearchableSelect';
 import { Badge } from '../../components/ui/Badge';
 import { DataTable } from '../../components/ui/DataTable';
 import { Dialog } from '../../components/ui/Dialog';
@@ -173,11 +174,16 @@ function AcceptancesPage() {
 
   const openEditModal = useCallback((acceptance) => {
     setEditingAcceptance(acceptance);
-    setEditSchool(acceptance.school_id.toString());
+    setEditSchool(acceptance.school_id);
     setEditGroup(acceptance.group_number.toString());
-    // Fetch groups for the current school
-    fetchSchoolGroups(acceptance.school_id);
-  }, [fetchSchoolGroups]);
+  }, []);
+
+  // Reactively fetch groups when edit dialog opens or school changes
+  useEffect(() => {
+    if (editingAcceptance && editSchool && selectedSession) {
+      fetchSchoolGroups(editSchool);
+    }
+  }, [editingAcceptance, editSchool, selectedSession, fetchSchoolGroups]);
 
   // Table columns definition
   const columns = useMemo(() => [
@@ -259,7 +265,6 @@ function AcceptancesPage() {
   const handleSchoolChange = (schoolId) => {
     setEditSchool(schoolId);
     setEditGroup('1'); // Reset to group 1 when school changes
-    fetchSchoolGroups(schoolId);
   };
 
   const handleUpdate = async () => {
@@ -370,18 +375,17 @@ function AcceptancesPage() {
             </div>
             <div className="sm:col-span-1 lg:col-span-2">
               <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">School</label>
-              <Select
-                value={selectedSchool}
-                onChange={(e) => setSelectedSchool(e.target.value)}
+              <SearchableSelect
+                options={schools}
+                value={selectedSchool || null}
+                onChange={(val) => setSelectedSchool(val || '')}
+                placeholder="All Schools"
+                searchPlaceholder="Search schools..."
+                getOptionValue={(s) => s.id}
+                getOptionLabel={(s) => s.name}
+                clearable={true}
                 className="text-sm"
-              >
-                <option value="">All Schools</option>
-                {schools.map((school) => (
-                  <option key={school.id} value={school.id}>
-                    {school.name}
-                  </option>
-                ))}
-              </Select>
+              />
             </div>
             <div>
               <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Session</label>
@@ -478,14 +482,6 @@ function AcceptancesPage() {
                 </Button>
               </div>
             )}
-
-            {/* Status indicator */}
-            <div className="pt-3 sm:pt-4 border-t">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"></div>
-                <span className="text-xs sm:text-sm text-green-700 font-medium">Auto-approved on submission</span>
-              </div>
-            </div>
           </div>
         )}
       </Dialog>
@@ -524,16 +520,16 @@ function AcceptancesPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">School</label>
-              <Select
+              <SearchableSelect
+                options={schools}
                 value={editSchool}
-                onChange={(e) => handleSchoolChange(e.target.value)}
-              >
-                {schools.map((school) => (
-                  <option key={school.id} value={school.id}>
-                    {school.name}
-                  </option>
-                ))}
-              </Select>
+                onChange={(val) => handleSchoolChange(val)}
+                placeholder="Select a school..."
+                searchPlaceholder="Search schools..."
+                getOptionValue={(s) => s.id}
+                getOptionLabel={(s) => s.name}
+                clearable={false}
+              />
             </div>
 
             <div>

@@ -16,6 +16,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import { Dialog } from '../../components/ui/Dialog';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
+import { SearchableSelect } from '../../components/ui/SearchableSelect';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { formatDate } from '../../utils/helpers';
 import {
@@ -480,19 +481,27 @@ function DeanPostingAllocationPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Select Dean <span className="text-red-500">*</span>
               </label>
-              <Select
-                name="dean_user_id"
-                value={formData.dean_user_id}
-                onChange={handleChange}
+              <SearchableSelect
+                options={availableDeans}
+                value={formData.dean_user_id || null}
+                onChange={(val) => handleChange({ target: { name: 'dean_user_id', value: val || '' } })}
+                placeholder="Select a dean..."
+                searchPlaceholder="Search deans..."
+                getOptionValue={(d) => d.id}
+                getOptionLabel={(d) => `${d.name}${d.faculty_name ? ` (${d.faculty_name})` : ''}`}
                 error={formErrors.dean_user_id}
-              >
-                <option value="">Select a dean...</option>
-                {availableDeans.map((dean) => (
-                  <option key={dean.id} value={dean.id}>
-                    {dean.name} {dean.faculty_name ? `(${dean.faculty_name})` : ''}
-                  </option>
-                ))}
-              </Select>
+                clearable={true}
+                renderOption={(dean, { isSelected }) => (
+                  <div>
+                    <div className={`font-medium ${isSelected ? 'text-primary-700' : 'text-gray-900'}`}>
+                      {dean.name}
+                    </div>
+                    {dean.faculty_name && (
+                      <div className="text-xs text-gray-500">{dean.faculty_name}</div>
+                    )}
+                  </div>
+                )}
+              />
               {formErrors.dean_user_id && (
                 <p className="mt-1 text-sm text-red-500">{formErrors.dean_user_id}</p>
               )}
