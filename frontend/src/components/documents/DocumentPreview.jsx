@@ -315,7 +315,7 @@ export function DocumentLetterhead({
           )}
           {effectiveUnit && (
             <p 
-              className="text-xs font-semibold mt-[-0.5rem]"
+              className="text-xs font-semibold mt-[-0.2rem]"
               style={{ color: secondaryColor }}
             >
               {effectiveUnit}
