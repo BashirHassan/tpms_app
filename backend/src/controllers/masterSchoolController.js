@@ -322,8 +322,12 @@ const update = async (req, res, next) => {
     }
 
     if (updates.latitude !== undefined && updates.longitude !== undefined) {
-      updateFields.push('location = ST_GeomFromText(?)');
-      updateParams.push(`POINT(${parseFloat(updates.latitude)} ${parseFloat(updates.longitude)})`);
+      if (updates.latitude !== null && updates.longitude !== null) {
+        updateFields.push('location = ST_GeomFromText(?)');
+        updateParams.push(`POINT(${parseFloat(updates.latitude)} ${parseFloat(updates.longitude)})`);
+      } else {
+        updateFields.push('location = NULL');
+      }
     }
 
     if (updateFields.length === 0) {
