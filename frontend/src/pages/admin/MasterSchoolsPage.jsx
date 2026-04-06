@@ -1922,7 +1922,7 @@ function MasterSchoolsPage() {
         onConfirm={confirmForceDelete}
         title="Force Delete School & All Links"
         message={schoolToForceDelete
-          ? `WARNING: This will permanently delete "${schoolToForceDelete.name}" and remove all ${schoolToForceDelete.linked_institutions_count || 0} institution link(s). Student postings referencing this school will be unlinked. This action cannot be undone.`
+          ? `WARNING: This will permanently delete "${schoolToForceDelete.name}" along with all ${schoolToForceDelete.linked_institutions_count || 0} institution school record(s). All associated data (postings, routes, capacity allocations) linked to these institution schools will also be deleted. This action cannot be undone.`
           : ''}
         confirmText="Force Delete Everything"
         variant="danger"
