@@ -1234,6 +1234,7 @@ router.get('/global/master-schools/:id', authenticate, isSuperAdmin, masterSchoo
 router.post('/global/master-schools', authenticate, isSuperAdmin, validate(masterSchoolController.schemas.create), masterSchoolController.create);
 router.put('/global/master-schools/:id', authenticate, isSuperAdmin, validate(masterSchoolController.schemas.update), masterSchoolController.update);
 router.delete('/global/master-schools/:id', authenticate, isSuperAdmin, masterSchoolController.remove);
+router.delete('/global/master-schools/:id/force', authenticate, isSuperAdmin, masterSchoolController.forceRemove);
 
 // Actions
 router.post('/global/master-schools/:id/verify', authenticate, isSuperAdmin, masterSchoolController.verify);

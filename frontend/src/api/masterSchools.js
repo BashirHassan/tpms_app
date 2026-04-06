@@ -28,6 +28,9 @@ export const masterSchoolsApi = {
   delete: (id) => 
     apiClient.delete(`${basePath}/${id}`),
   
+  forceDelete: (id) => 
+    apiClient.delete(`${basePath}/${id}/force`),
+  
   // Actions
   verify: (id) => 
     apiClient.post(`${basePath}/${id}/verify`),

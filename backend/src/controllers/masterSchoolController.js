@@ -392,6 +392,56 @@ const remove = async (req, res, next) => {
 };
 
 /**
+ * Force delete a master school along with all its institution links
+ * Used for cleaning up duplicate/legacy school data
+ * DELETE /api/global/master-schools/:id/force
+ */
+const forceRemove = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const existing = await query(
+      'SELECT id, name FROM master_schools WHERE id = ?',
+      [parseInt(id)]
+    );
+
+    if (existing.length === 0) {
+      throw new NotFoundError('Master school not found');
+    }
+
+    // Get linked institution count for response
+    const linked = await query(
+      'SELECT COUNT(*) as count FROM institution_schools WHERE master_school_id = ?',
+      [parseInt(id)]
+    );
+
+    const linkedCount = linked[0].count;
+
+    await transaction(async (conn) => {
+      // Delete institution links first (FK is RESTRICT, so must delete explicitly)
+      await conn.query(
+        'DELETE FROM institution_schools WHERE master_school_id = ?',
+        [parseInt(id)]
+      );
+
+      // Now delete the master school
+      await conn.query(
+        'DELETE FROM master_schools WHERE id = ?',
+        [parseInt(id)]
+      );
+    });
+
+    res.json({
+      success: true,
+      message: `Master school "${existing[0].name}" and ${linkedCount} institution link(s) deleted successfully`,
+      data: { deleted_links: linkedCount },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Verify a master school
  * POST /api/global/master-schools/:id/verify
  */
@@ -647,6 +697,7 @@ module.exports = {
   create,
   update,
   remove,
+  forceRemove,
   verify,
   merge,
   findDuplicates,

@@ -49,6 +49,7 @@ import {
   IconCircleX,
   IconLoader2,
   IconCheck,
+  IconTrashX,
 } from '@tabler/icons-react';
 
 function MasterSchoolsPage() {
@@ -101,6 +102,11 @@ function MasterSchoolsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [schoolToDelete, setSchoolToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Force delete (with linked institutions)
+  const [showForceDeleteConfirm, setShowForceDeleteConfirm] = useState(false);
+  const [schoolToForceDelete, setSchoolToForceDelete] = useState(null);
+  const [forceDeleting, setForceDeleting] = useState(false);
 
   // Merge modal
   const [showMergeModal, setShowMergeModal] = useState(false);
@@ -701,6 +707,30 @@ function MasterSchoolsPage() {
     }
   };
 
+  const handleForceDelete = (school) => {
+    setSchoolToForceDelete(school);
+    setShowForceDeleteConfirm(true);
+  };
+
+  const confirmForceDelete = async () => {
+    if (!schoolToForceDelete) return;
+
+    setForceDeleting(true);
+    try {
+      const response = await masterSchoolsApi.forceDelete(schoolToForceDelete.id);
+      const deletedLinks = response.data?.data?.deleted_links || 0;
+      toast.success(`School and ${deletedLinks} institution link(s) deleted successfully`);
+      fetchSchools();
+      fetchStats();
+      setShowForceDeleteConfirm(false);
+      setSchoolToForceDelete(null);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to force delete school');
+    } finally {
+      setForceDeleting(false);
+    }
+  };
+
   const handleVerify = async (school) => {
     try {
       await masterSchoolsApi.verify(school.id);
@@ -871,10 +901,21 @@ function MasterSchoolsPage() {
             size="sm"
             onClick={(e) => { e.stopPropagation(); handleDelete(row.id); }}
             className="hover:text-red-600 hover:bg-red-50"
-            title="Delete"
+            title="Delete (only if unlinked)"
           >
             <IconTrash className="w-4 h-4" />
           </Button>
+          {(row.linked_institutions_count > 0) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => { e.stopPropagation(); handleForceDelete(row); }}
+              className="hover:text-red-700 hover:bg-red-100"
+              title="Force delete with all institution links"
+            >
+              <IconTrashX className="w-4 h-4" />
+            </Button>
+          )}
         </div>
       ),
     },
@@ -1868,10 +1909,24 @@ function MasterSchoolsPage() {
         onClose={() => { setShowDeleteConfirm(false); setSchoolToDelete(null); }}
         onConfirm={confirmDelete}
         title="Delete School"
-        message="Are you sure you want to delete this school from the central registry? This will affect all institutions that have linked to this school."
+        message="Are you sure you want to delete this school from the central registry? This only works if the school has no institution links."
         confirmText="Delete"
         variant="danger"
         loading={deleting}
+      />
+
+      {/* Force Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showForceDeleteConfirm}
+        onClose={() => { setShowForceDeleteConfirm(false); setSchoolToForceDelete(null); }}
+        onConfirm={confirmForceDelete}
+        title="Force Delete School & All Links"
+        message={schoolToForceDelete
+          ? `WARNING: This will permanently delete "${schoolToForceDelete.name}" and remove all ${schoolToForceDelete.linked_institutions_count || 0} institution link(s). Student postings referencing this school will be unlinked. This action cannot be undone.`
+          : ''}
+        confirmText="Force Delete Everything"
+        variant="danger"
+        loading={forceDeleting}
       />
     </div>
   );
