@@ -46,7 +46,6 @@ import {
   IconRefresh,
   IconX,
 } from '@tabler/icons-react';
-import { cn } from '../../utils/helpers';
 
 // Form steps configuration
 const STEPS = [
@@ -59,8 +58,22 @@ const STEPS = [
 // Nigerian phone regex - supports formats: 08012345678, +2348012345678
 const PHONE_REGEX = /^(\+?234|0)?[789][01]\d{8}$/;
 
+const SCHOOL_TYPE_LABELS = {
+  primary: 'Primary School',
+  junior: 'Junior Secondary',
+  senior: 'Senior Secondary',
+  both: 'Junior & Senior Secondary',
+};
+
+const getSchoolTypeLabel = (schoolType) => SCHOOL_TYPE_LABELS[schoolType] || schoolType;
+
+const getSchoolDisplayName = (school) => {
+  if (!school) return '';
+  return school.school_code ? `${school.school_code} | ${school.name}` : school.name;
+};
+
 function AcceptanceFormPage() {
-  const { user, institution } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
@@ -594,7 +607,14 @@ function ContactAndSchoolStep({
                   <IconBuilding className="w-4 h-4 sm:w-5 sm:h-5 text-primary-600" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-primary-900 text-sm sm:text-base truncate">{selectedSchool.school_code} | {selectedSchool.name}</p>
+                  <p className="font-semibold text-primary-900 text-sm sm:text-base truncate">
+                    {getSchoolDisplayName(selectedSchool)}
+                  </p>
+                  {selectedSchool.school_type && (
+                    <Badge variant="info" className="mt-1">
+                      {getSchoolTypeLabel(selectedSchool.school_type)}
+                    </Badge>
+                  )}
                   <p className="text-xs sm:text-sm text-gray-700 flex items-center gap-1">
                     <IconMapPin className="w-3 h-3 flex-shrink-0" />
                     <span className="truncate">
@@ -639,10 +659,17 @@ function ContactAndSchoolStep({
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-gray-900 truncate text-sm sm:text-base">{school.name}</p>
-                    <p className="text-xs sm:text-sm text-gray-700 flex items-center gap-1">
-                      {school.school_code && (
-                        <span className="font-medium text-primary-800">({school.school_code}) | </span>
-                      )}
+                    {(school.school_code || school.school_type) && (
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        {school.school_code && (
+                          <span className="text-xs sm:text-sm font-medium text-primary-800">({school.school_code})</span>
+                        )}
+                        {school.school_type && (
+                          <Badge variant="info">{getSchoolTypeLabel(school.school_type)}</Badge>
+                        )}
+                      </div>
+                    )}
+                    <p className="text-xs sm:text-sm text-gray-700 flex items-center gap-1 mt-1">
                       <IconMapPin className="w-3 h-3 flex-shrink-0" />
                       <span className="truncate">
                         {school.ward}, {school.lga}, {school.state}
@@ -836,7 +863,14 @@ function ReviewStep({ formData, selectedSchool, signedForm, imagePreview, user }
               <IconBuilding className="w-5 h-5 sm:w-6 sm:h-6 text-primary-600" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="font-semibold text-primary-900 text-sm sm:text-base truncate">{selectedSchool.school_code} | {selectedSchool.name}</p>
+              <p className="font-semibold text-primary-900 text-sm sm:text-base truncate">
+                {getSchoolDisplayName(selectedSchool)}
+              </p>
+              {selectedSchool.school_type && (
+                <Badge variant="info" className="mt-1">
+                  {getSchoolTypeLabel(selectedSchool.school_type)}
+                </Badge>
+              )}
               <p className="text-xs sm:text-sm text-primary-700 flex items-center gap-1 mt-1">
                 <IconMapPin className="w-3 h-3 flex-shrink-0" />
                 <span className="truncate">{selectedSchool.ward}, {selectedSchool.lga}, {selectedSchool.state}</span>

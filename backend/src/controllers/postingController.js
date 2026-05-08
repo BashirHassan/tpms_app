@@ -2402,7 +2402,7 @@ const getSchoolsWithGroups = async (req, res, next) => {
              ELSE NULL 
            END 
            ORDER BY sa.group_number ASC
-         ) as groups,
+         ) as group_numbers,
          COUNT(DISTINCT CASE WHEN mg.id IS NULL THEN sa.student_id ELSE NULL END) as total_students
        FROM institution_schools isv
        JOIN master_schools ms ON isv.master_school_id = ms.id
@@ -2417,7 +2417,7 @@ const getSchoolsWithGroups = async (req, res, next) => {
        WHERE isv.institution_id = ?
        GROUP BY isv.id, ms.name, ms.category, isv.location_category, isv.distance_km, 
                 ms.address, ms.state, ms.lga, ms.ward, r.id, r.name
-       HAVING groups IS NOT NULL AND groups != ''
+       HAVING group_numbers IS NOT NULL AND group_numbers != ''
        ORDER BY ms.name ASC`,
       [parseInt(session_id), parseInt(institutionId)]
     );
@@ -2453,7 +2453,8 @@ const getSchoolsWithGroups = async (req, res, next) => {
 
     // Transform groups from comma-separated string to array with per-group visit info
     const schoolsWithGroups = schools.map(school => {
-      const groupNumbers = school.groups ? school.groups.split(',').map(g => parseInt(g)) : [];
+      const { group_numbers: groupNumbersCsv, ...schoolData } = school;
+      const groupNumbers = groupNumbersCsv ? groupNumbersCsv.split(',').map(g => parseInt(g)) : [];
       const schoolAssignments = assignedVisitsMap[school.school_id] || {};
       
       // Build group details with available visits per group
@@ -2476,7 +2477,7 @@ const getSchoolsWithGroups = async (req, res, next) => {
       const totalAvailableSlots = groupDetails.reduce((sum, g) => sum + g.available_visits.length, 0);
       
       return {
-        ...school,
+        ...schoolData,
         groups: groupNumbers,
         group_details: groupDetails,
         total_available_slots: totalAvailableSlots,
