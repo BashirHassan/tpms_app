@@ -199,17 +199,19 @@ class InstitutionProvisioningService {
     const encryptedPaystackPublicKey = paystack_public_key ? encrypt(paystack_public_key) : null;
     const encryptedPaystackSecretKey = paystack_secret_key ? encrypt(paystack_secret_key) : null;
 
+    const institutionPublicId = crypto.randomBytes(16).toString('hex');
     const [result] = await connection.query(
-      `INSERT INTO institutions 
-       (name, code, subdomain, institution_type, email, phone, address, state, 
+      `INSERT INTO institutions
+       (public_id, name, code, subdomain, institution_type, email, phone, address, state,
         logo_url, primary_color, secondary_color,
         smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password, smtp_from_name, smtp_from_email,
         payment_type, payment_base_amount, payment_currency, payment_allow_partial, payment_minimum_percentage,
         paystack_public_key, paystack_secret_key, paystack_split_code,
         maintenance_mode, maintenance_message, allow_student_portal, require_pin_change, session_timeout_minutes,
-        status) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+        status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
       [
+        institutionPublicId,
         name,
         code,
         subdomain,

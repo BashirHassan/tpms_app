@@ -5,6 +5,7 @@
  * Most endpoints require super_admin role.
  */
 
+const crypto = require('crypto');
 const { z } = require('zod');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
@@ -255,12 +256,14 @@ const create = async (req, res, next) => {
     }
 
     // Insert institution
+    const publicId = crypto.randomBytes(16).toString('hex');
     const result = await query(
-      `INSERT INTO institutions 
-       (name, code, subdomain, email, phone, address, state, lga, institution_type,
+      `INSERT INTO institutions
+       (public_id, name, code, subdomain, email, phone, address, state, lga, institution_type,
         logo_url, primary_color, secondary_color, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
+        publicId,
         data.name,
         data.code,
         data.subdomain,

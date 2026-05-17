@@ -44,6 +44,76 @@ const ROLE_HIERARCHY = {
 const institutionCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 
+// Cache: public_id string → integer institution id
+const publicIdCache = new Map();
+
+/**
+ * Resolve a 32-char hex public_id to its integer database id.
+ * Returns null if not found or institution is inactive.
+ */
+async function resolvePublicIdToInt(publicId) {
+  const cached = publicIdCache.get(publicId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.data;
+
+  try {
+    const rows = await query(
+      "SELECT id FROM institutions WHERE public_id = ? AND status = 'active' LIMIT 1",
+      [publicId]
+    );
+    const intId = rows[0]?.id ?? null;
+    publicIdCache.set(publicId, { data: intId, timestamp: Date.now() });
+    return intId;
+  } catch (error) {
+    console.error('Failed to resolve institution public_id:', error);
+    return null;
+  }
+}
+
+/**
+ * Clear public_id cache entry (call after institution status changes).
+ */
+function clearPublicIdCache(publicId = null) {
+  if (publicId) {
+    publicIdCache.delete(publicId);
+  } else {
+    publicIdCache.clear();
+  }
+}
+
+/**
+ * Express router.param() handler — resolves public_id in :institutionId to an
+ * integer string so all downstream parseInt() calls work unchanged.
+ *
+ * Usage in a route file:
+ *   router.param('institutionId', resolveInstitutionIdParam);
+ */
+async function resolveInstitutionIdParam(req, res, next, value) {
+  // Plain integer string — pass through unchanged (backward compat / admin tools)
+  if (/^\d+$/.test(value)) return next();
+
+  // Must be a 32-char hex public_id
+  if (!/^[0-9a-f]{32}$/i.test(value)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid institution identifier',
+      errorCode: 'INVALID_INSTITUTION_ID',
+    });
+  }
+
+  const intId = await resolvePublicIdToInt(value).catch(() => null);
+  if (!intId) {
+    return res.status(404).json({
+      success: false,
+      message: 'Institution not found or inactive',
+      errorCode: 'INSTITUTION_NOT_FOUND',
+    });
+  }
+
+  req._resolvedPublicId = value;
+  req.params.institutionId = String(intId);
+  next();
+}
+
 /**
  * Get institution by ID with caching
  * @param {number} institutionId 
@@ -170,9 +240,33 @@ function requireInstitutionAccess() {
         });
       }
 
+      // Resolve public_id → integer before any downstream parseInt() calls.
+      // If the param is already a plain integer string (admin tooling / backward
+      // compat) it passes through unchanged.
+      const rawId = req.params.institutionId;
+      if (rawId && !/^\d+$/.test(rawId)) {
+        if (!/^[0-9a-f]{32}$/i.test(rawId)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid institution identifier',
+            errorCode: 'INVALID_INSTITUTION_ID',
+          });
+        }
+        const intId = await resolvePublicIdToInt(rawId).catch(() => null);
+        if (!intId) {
+          return res.status(404).json({
+            success: false,
+            message: 'Institution not found or inactive',
+            errorCode: 'INSTITUTION_NOT_FOUND',
+          });
+        }
+        req._resolvedPublicId = rawId;
+        req.params.institutionId = String(intId);
+      }
+
       // Get institution ID from route params
       const institutionId = parseInt(req.params.institutionId);
-      
+
       if (!institutionId || isNaN(institutionId)) {
         return res.status(400).json({
           success: false,
@@ -437,4 +531,9 @@ module.exports = {
   getInstitutionById,
   clearInstitutionCache,
   logSecurityEvent,
+
+  // public_id resolution
+  resolvePublicIdToInt,
+  resolveInstitutionIdParam,
+  clearPublicIdCache,
 };

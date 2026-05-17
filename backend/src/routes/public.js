@@ -6,10 +6,14 @@ const express = require('express');
 const router = express.Router();
 const publicController = require('../controllers/publicController');
 const validate = require('../middleware/validate');
+const { resolveInstitutionIdParam } = require('../middleware/rbac');
 
 // Institution lookup by subdomain (for tenant resolution)
 router.get('/public/institution', publicController.getInstitutionBySubdomain);
 router.get('/public/institution/:subdomain', publicController.getInstitutionBySubdomain);
+
+// Resolve public_id → integer for all /public/institutions/:institutionId/* routes
+router.param('institutionId', resolveInstitutionIdParam);
 
 // Institution-scoped public endpoints
 router.get('/public/institutions/:institutionId/schools', publicController.getSchools);

@@ -358,7 +358,7 @@ const staffLogin = async (req, res, next) => {
     // Find user with institution info
     const [user] = await query(
       `SELECT u.*, i.name as institution_name, i.status as institution_status,
-              i.subdomain as institution_subdomain
+              i.subdomain as institution_subdomain, i.public_id as institution_public_id
        FROM users u
        LEFT JOIN institutions i ON u.institution_id = i.id
        WHERE u.email = ?`,
@@ -483,13 +483,13 @@ const staffLogin = async (req, res, next) => {
           // Institution comes from subdomain for super_admin, otherwise from user record
           institution: subdomainInstitution
             ? {
-                id: subdomainInstitution.id,
+                id: subdomainInstitution.public_id,
                 name: subdomainInstitution.name,
                 subdomain: subdomainInstitution.subdomain,
               }
             : user.institution_id
             ? {
-                id: user.institution_id,
+                id: user.institution_public_id,
                 name: user.institution_name,
               }
             : null,
@@ -651,7 +651,7 @@ const studentLogin = async (req, res, next) => {
           program: student.program_name,
           payment_status: student.payment_status,
           institution: {
-            id: student.institution_id,
+            id: resolvedInstitution.public_id,
             name: student.institution_name,
           },
         },
@@ -676,6 +676,7 @@ const getProfile = async (req, res, next) => {
     if (authType === AUTH_TYPES.STUDENT) {
       const [student] = await query(
         `SELECT s.*, i.name as institution_name, i.code as institution_code,
+                i.public_id as institution_public_id,
                 i.subdomain, i.institution_type, i.email as institution_email,
                 i.phone as institution_phone, i.address as institution_address,
                 i.state as institution_state, i.logo_url, i.primary_color, i.secondary_color,
@@ -696,7 +697,7 @@ const getProfile = async (req, res, next) => {
         program: student.program_name,
         payment_status: student.payment_status,
         institution: {
-          id: student.institution_id,
+          id: student.institution_public_id,
           name: student.institution_name,
           code: student.institution_code,
           subdomain: student.subdomain,
@@ -714,6 +715,7 @@ const getProfile = async (req, res, next) => {
     } else {
       const [staffUser] = await query(
         `SELECT u.*, i.name as institution_name, i.code as institution_code,
+                i.public_id as institution_public_id,
                 i.subdomain, i.institution_type, i.email as institution_email,
                 i.phone as institution_phone, i.address as institution_address,
                 i.state as institution_state, i.logo_url, i.primary_color, i.secondary_color,
@@ -741,7 +743,7 @@ const getProfile = async (req, res, next) => {
         is_dean: staffUser.is_dean === 1,
         institution: staffUser.institution_id
           ? {
-              id: staffUser.institution_id,
+              id: staffUser.institution_public_id,
               name: staffUser.institution_name,
               code: staffUser.institution_code,
               subdomain: staffUser.subdomain,
@@ -761,7 +763,7 @@ const getProfile = async (req, res, next) => {
       // For super_admin, override institution with subdomain context if available
       if (staffUser.role === ROLES.SUPER_ADMIN && req.subdomainInstitution) {
         profileData.institution = {
-          id: req.subdomainInstitution.id,
+          id: req.subdomainInstitution.public_id,
           name: req.subdomainInstitution.name,
           code: req.subdomainInstitution.code,
           subdomain: req.subdomainInstitution.subdomain,
