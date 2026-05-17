@@ -11,13 +11,16 @@
 const crypto = require('crypto');
 const { query } = require('../src/db/database');
 
+async function randomPublicId() {
+  return crypto.randomBytes(16).toString('hex');
+}
+
 async function run() {
   console.log('Adding public_id column to institutions table...');
 
-  // Add column — silently skip if it already exists
   await query(`
     ALTER TABLE institutions
-    ADD COLUMN public_id VARCHAR(32) NOT NULL DEFAULT ''
+    ADD COLUMN public_id VARCHAR(32) NULL
   `).catch((err) => {
     if (err.code === 'ER_DUP_FIELDNAME') {
       console.log('  Column public_id already exists, skipping ALTER.');
@@ -26,7 +29,42 @@ async function run() {
     }
   });
 
-  // Add unique index — silently skip if already exists
+  const rows = await query(`
+    SELECT id FROM institutions
+    WHERE public_id IS NULL OR public_id = ''
+  `);
+
+  if (rows.length === 0) {
+    console.log('  All institutions already have a public_id.');
+  } else {
+    console.log(`  Backfilling ${rows.length} institution(s)...`);
+
+    for (const { id } of rows) {
+      let publicId;
+      let updated = false;
+
+      while (!updated) {
+        publicId = await randomPublicId();
+
+        try {
+          await query(
+            'UPDATE institutions SET public_id = ? WHERE id = ?',
+            [publicId, id]
+          );
+          updated = true;
+          console.log(`  institution ${id} → ${publicId}`);
+        } catch (err) {
+          if (err.code !== 'ER_DUP_ENTRY') throw err;
+        }
+      }
+    }
+  }
+
+  await query(`
+    ALTER TABLE institutions
+    MODIFY public_id VARCHAR(32) NOT NULL
+  `);
+
   await query(`
     ALTER TABLE institutions
     ADD UNIQUE KEY uq_institutions_public_id (public_id)
@@ -37,22 +75,6 @@ async function run() {
       throw err;
     }
   });
-
-  // Backfill existing rows that have no public_id yet
-  const rows = await query(
-    "SELECT id FROM institutions WHERE public_id = '' OR public_id IS NULL"
-  );
-
-  if (rows.length === 0) {
-    console.log('  All institutions already have a public_id.');
-  } else {
-    console.log(`  Backfilling ${rows.length} institution(s)...`);
-    for (const { id } of rows) {
-      const publicId = crypto.randomBytes(16).toString('hex');
-      await query('UPDATE institutions SET public_id = ? WHERE id = ?', [publicId, id]);
-      console.log(`  institution ${id} → ${publicId}`);
-    }
-  }
 
   console.log('Done.');
   process.exit(0);
