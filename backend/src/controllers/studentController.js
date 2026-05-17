@@ -110,7 +110,7 @@ const getAll = async (req, res, next) => {
     const total = countResult?.total || 0;
 
     // Add ordering and pagination
-    sql += ' ORDER BY s.created_at DESC LIMIT ? OFFSET ?';
+    sql += ' ORDER BY s.registration_number ASC LIMIT ? OFFSET ?';
     params.push(parseInt(limit), parseInt(offset));
 
     const students = await query(sql, params);
