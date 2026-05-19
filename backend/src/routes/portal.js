@@ -45,6 +45,7 @@ router.post('/portal/acceptance/submit', authenticate, studentOnly, upload.singl
 
 // Student payment endpoints
 router.get('/portal/payments/status', authenticate, studentOnly, paymentController.getStudentPaymentStatus);
+router.get('/portal/payments/pending', authenticate, studentOnly, paymentController.getStudentPendingTransactions);
 router.post('/portal/payments/initialize', authenticate, studentOnly, paymentController.initializeStudentPayment);
 router.post('/portal/payments/verify', authenticate, studentOnly, paymentController.verifyStudentPayment);
 

@@ -562,6 +562,13 @@ const verifyPaystack = async (req, res, next) => {
       // Sync students table so the portal reflects the verified payment
       await updateStudentPaymentStatus(payment.student_id, payment.session_id, parseInt(institutionId));
 
+      // Clean up pending_transactions if one exists
+      await query(
+        `UPDATE pending_transactions SET status = 'verified', verified_at = NOW()
+         WHERE (reference = ? OR paystack_reference = ?) AND institution_id = ?`,
+        [reference, reference, parseInt(institutionId)]
+      );
+
       return res.json({
         success: true,
         message: 'Payment verified successfully',
@@ -689,6 +696,13 @@ const verifyPaystack = async (req, res, next) => {
 
     // Sync students table so the portal reflects the recovered payment
     await updateStudentPaymentStatus(studentId, sessionId, parseInt(institutionId));
+
+    // Clean up pending_transactions if one exists
+    await query(
+      `UPDATE pending_transactions SET status = 'verified', verified_at = NOW()
+       WHERE (reference = ? OR paystack_reference = ?) AND institution_id = ?`,
+      [reference, reference, parseInt(institutionId)]
+    );
 
     res.json({
       success: true,
@@ -932,8 +946,8 @@ const handleWebhook = async (req, res, next) => {
         });
 
         await query(
-          `UPDATE student_payments 
-           SET paystack_reference = ?, authorization_code = ?, channel = ?, 
+          `UPDATE student_payments
+           SET paystack_reference = ?, authorization_code = ?, channel = ?,
                card_type = ?, bank = ?, status = 'success', verified_at = NOW(), updated_at = NOW(),
                metadata = ?
            WHERE id = ?`,
@@ -947,6 +961,56 @@ const handleWebhook = async (req, res, next) => {
             payments[0].id
           ]
         );
+
+        // Mark the pending_transactions record as verified if one exists
+        await query(
+          `UPDATE pending_transactions SET status = 'verified', verified_at = NOW()
+           WHERE (reference = ? OR paystack_reference = ?) AND institution_id = ?`,
+          [data.reference, data.reference, parseInt(institutionId)]
+        );
+      } else {
+        // No student_payments record yet — check pending_transactions (missed-callback recovery)
+        const [pendingTx] = await query(
+          `SELECT * FROM pending_transactions
+           WHERE (reference = ? OR paystack_reference = ?) AND institution_id = ? AND status = 'pending'`,
+          [data.reference, data.reference, parseInt(institutionId)]
+        );
+
+        if (pendingTx) {
+          const authCode = data.authorization?.authorization_code || null;
+          const cardType = data.authorization?.card_type || null;
+          const bankName = data.authorization?.bank || data.authorization?.bank_name || null;
+          const channel = data.channel || null;
+          const storedMetadata = JSON.stringify({
+            ...data.metadata,
+            gateway_response: data.gateway_response,
+            paid_at: data.paid_at,
+            customer_email: data.customer?.email,
+            webhook_received: true,
+          });
+
+          await query(
+            `INSERT INTO student_payments
+             (institution_id, session_id, student_id, amount, currency, reference,
+              paystack_reference, authorization_code, channel, card_type, bank,
+              status, verified_at, metadata)
+             VALUES (?, ?, ?, ?, 'NGN', ?, ?, ?, ?, ?, ?, 'success', NOW(), ?)`,
+            [
+              parseInt(institutionId), pendingTx.session_id, pendingTx.student_id,
+              pendingTx.amount, pendingTx.reference, data.reference,
+              authCode, channel, cardType, bankName, storedMetadata,
+            ]
+          );
+
+          await query(
+            `UPDATE pending_transactions SET status = 'verified', verified_at = NOW() WHERE id = ?`,
+            [pendingTx.id]
+          );
+
+          await updateStudentPaymentStatus(
+            pendingTx.student_id, pendingTx.session_id, parseInt(institutionId)
+          );
+        }
       }
     }
 
@@ -1238,6 +1302,19 @@ const initializeStudentPayment = async (req, res, next) => {
       throw new ValidationError(paystackResult.error || 'Failed to initialize payment gateway');
     }
 
+    // Record the attempt so student can verify without needing their email
+    await query(
+      `INSERT INTO pending_transactions
+       (institution_id, session_id, student_id, amount, reference, paystack_reference, access_code)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        institutionId, session.id, studentId, remaining,
+        reference,
+        paystackResult.data.reference,
+        paystackResult.data.access_code,
+      ]
+    );
+
     res.json({
       success: true,
       data: {
@@ -1432,6 +1509,13 @@ const verifyStudentPayment = async (req, res, next) => {
     const sessionIdForPayment = paystackData.metadata.session_id;
     await updateStudentPaymentStatus(studentId, sessionIdForPayment, institutionId);
 
+    // Remove from pending list now that it is verified
+    await query(
+      `UPDATE pending_transactions SET status = 'verified', verified_at = NOW()
+       WHERE reference = ? AND institution_id = ?`,
+      [reference, institutionId]
+    );
+
     // Audit log
     await query(
       `INSERT INTO audit_logs (institution_id, user_id, user_type, action, resource_type, resource_id, details, ip_address)
@@ -1445,6 +1529,47 @@ const verifyStudentPayment = async (req, res, next) => {
       message: 'Payment verified successfully',
       data: { status: 'success', reference, amount: amountInNaira },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get student's pending (unverified) payment attempts
+ * GET /portal/payments/pending
+ */
+const getStudentPendingTransactions = async (req, res, next) => {
+  try {
+    const studentId = req.student?.id;
+    const institutionId = req.student?.institution_id;
+    const { session_id } = req.query;
+
+    if (!studentId || !institutionId) {
+      throw new AuthorizationError('Student authentication required');
+    }
+
+    let sessionId = session_id ? parseInt(session_id) : null;
+    if (!sessionId) {
+      const [current] = await query(
+        'SELECT id FROM academic_sessions WHERE institution_id = ? AND is_current = 1',
+        [institutionId]
+      );
+      sessionId = current?.id;
+    }
+
+    if (!sessionId) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const rows = await query(
+      `SELECT id, reference, amount, currency, status, created_at
+       FROM pending_transactions
+       WHERE student_id = ? AND institution_id = ? AND session_id = ? AND status = 'pending'
+       ORDER BY created_at DESC`,
+      [studentId, institutionId, sessionId]
+    );
+
+    res.json({ success: true, data: rows });
   } catch (error) {
     next(error);
   }
@@ -1464,4 +1589,5 @@ module.exports = {
   getStudentPaymentStatus,
   initializeStudentPayment,
   verifyStudentPayment,
+  getStudentPendingTransactions,
 };

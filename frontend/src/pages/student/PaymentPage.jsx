@@ -35,9 +35,6 @@ import {
   IconBuildingBank,
   IconDownload,
   IconFileText,
-  IconSearch,
-  IconX,
-  IconAlertTriangle,
 } from '@tabler/icons-react';
 
 // Payment states following JEI pattern
@@ -146,11 +143,8 @@ function PaymentPage() {
   // Store payment info for retry/verification
   const [pendingPayment, setPendingPayment] = useState(null);
 
-  // Manual reference verify panel
-  const [showManualVerify, setShowManualVerify] = useState(false);
-  const [manualRef, setManualRef] = useState('');
-  const [manualVerifyState, setManualVerifyState] = useState('idle'); // 'idle' | 'loading' | 'success' | 'error'
-  const [manualVerifyResult, setManualVerifyResult] = useState(null);
+  // Unverified payment attempts from pending_transactions table
+  const [pendingTransactions, setPendingTransactions] = useState([]);
 
   // Animation on mount
   useEffect(() => {
@@ -201,6 +195,12 @@ function PaymentPage() {
             payments: [],
           });
         }
+
+        // Load unverified payment attempts (silent — supplementary)
+        try {
+          const pendingRes = await paymentsApi.getPendingTransactions(portal.session.id);
+          setPendingTransactions(pendingRes.data.data || []);
+        } catch (_) { /* silent */ }
       }
     } catch (err) {
       if (err.response?.status === 401) {
@@ -224,7 +224,6 @@ function PaymentPage() {
         setPaymentState(PAYMENT_STATES.SUCCESS);
         toast.success('Payment successful!');
         setPendingPayment(null);
-        // Refresh payment status after verification
         fetchData();
         return true;
       } else {
@@ -300,29 +299,6 @@ function PaymentPage() {
     setError(null);
     fetchData();
   };
-
-  // Manual reference verification
-  const handleManualVerify = useCallback(async () => {
-    if (!manualRef.trim()) return;
-    setManualVerifyState('loading');
-    setManualVerifyResult(null);
-    try {
-      const res = await paymentsApi.verifyPayment(manualRef.trim());
-      if (res.data.data?.status === 'success' || res.data.success) {
-        setManualVerifyState('success');
-        setManualVerifyResult(res.data);
-        toast.success('Payment verified! Your status has been updated.');
-        setManualRef('');
-        fetchData();
-      } else {
-        setManualVerifyState('error');
-        setManualVerifyResult({ message: res.data.message || 'Payment not confirmed by Paystack.' });
-      }
-    } catch (err) {
-      setManualVerifyState('error');
-      setManualVerifyResult({ message: err.response?.data?.message || 'Verification failed. Check the reference and try again.' });
-    }
-  }, [manualRef, toast]);
 
   // Loading state with modern skeleton + spinner
   if (loading) {
@@ -509,6 +485,69 @@ function PaymentPage() {
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Left Column - Payment Status & Actions */}
         <div className="lg:col-span-2 space-y-4">
+
+          {/* Unverified Payments Card — shown when pending_transactions exist */}
+          {pendingTransactions.length > 0 && (
+            <div className="rounded-2xl border border-amber-100 bg-amber-50/50 p-5 shadow-sm">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 bg-amber-100 rounded-lg">
+                  <IconAlertCircle className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900">Unverified Payments</h3>
+                  <p className="text-xs text-gray-500">
+                    These attempts were initiated but not confirmed. Click Verify to check each one.
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {pendingTransactions.map((tx) => (
+                  <div
+                    key={tx.id}
+                    className="flex items-center justify-between bg-white rounded-xl border border-amber-100 p-3 gap-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm">
+                        {formatCurrency(tx.amount, tx.currency)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {new Date(tx.created_at).toLocaleDateString('en-NG', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </p>
+                      <code className="text-[10px] font-mono text-gray-400 truncate block">
+                        {tx.reference}
+                      </code>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-shrink-0 text-xs"
+                      onClick={() => verifyPaymentOnServer(tx.reference)}
+                      disabled={paymentState === PAYMENT_STATES.VERIFYING}
+                    >
+                      {paymentState === PAYMENT_STATES.VERIFYING ? (
+                        <>
+                          <IconLoader2 className="w-3 h-3 mr-1 animate-spin" />
+                          Verifying...
+                        </>
+                      ) : (
+                        <>
+                          <IconShieldCheck className="w-3 h-3 mr-1" />
+                          Verify
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Payment Overview Card */}
           <div className="rounded-2xl p-6 border transition-all duration-300 bg-white border-gray-100 shadow-sm hover:shadow-lg" >
             <div className="flex items-center justify-between mb-6">
@@ -862,80 +901,6 @@ function PaymentPage() {
               )}
             </div>
 
-            {/* Manual Reference Verification */}
-            <div className="border-t border-gray-100">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowManualVerify(v => !v);
-                  setManualRef('');
-                  setManualVerifyState('idle');
-                  setManualVerifyResult(null);
-                }}
-                className="w-full flex items-center justify-between px-5 py-3 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                <span className="flex items-center gap-2">
-                  <IconSearch className="w-4 h-4" />
-                  Paid but not showing? Verify by reference
-                </span>
-                {showManualVerify
-                  ? <IconX className="w-4 h-4" />
-                  : <IconChevronRight className="w-4 h-4" />
-                }
-              </button>
-
-              {showManualVerify && (
-                <div className="px-5 pb-5 space-y-3">
-                  <p className="text-xs text-gray-500">
-                    If you were debited but your payment isn't showing, enter your Paystack reference below. You can find it in your bank SMS or email receipt.
-                  </p>
-
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={manualRef}
-                      onChange={(e) => {
-                        setManualRef(e.target.value);
-                        setManualVerifyState('idle');
-                        setManualVerifyResult(null);
-                      }}
-                      placeholder="e.g., DTP-M4ABCD-1234EFGH"
-                      disabled={manualVerifyState === 'loading'}
-                      className="flex-1 px-3 py-2 text-sm font-mono border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none disabled:opacity-50"
-                    />
-                    <Button
-                      onClick={handleManualVerify}
-                      disabled={!manualRef.trim() || manualVerifyState === 'loading'}
-                      loading={manualVerifyState === 'loading'}
-                      className="rounded-xl flex-shrink-0"
-                    >
-                      <IconShieldCheck className="w-4 h-4 mr-1.5" />
-                      Verify
-                    </Button>
-                  </div>
-
-                  {/* Result feedback */}
-                  {manualVerifyState === 'success' && (
-                    <div className="flex items-start gap-2.5 p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-sm">
-                      <IconCircleCheck className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                      <p className="text-emerald-800 font-medium">
-                        {manualVerifyResult?.message || 'Payment verified successfully! Your status has been updated.'}
-                      </p>
-                    </div>
-                  )}
-
-                  {manualVerifyState === 'error' && (
-                    <div className="flex items-start gap-2.5 p-3 bg-red-50 border border-red-100 rounded-xl text-sm">
-                      <IconAlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-red-800 font-medium">Verification failed</p>
-                        <p className="text-red-600 mt-0.5 text-xs">{manualVerifyResult?.message}</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </div>
