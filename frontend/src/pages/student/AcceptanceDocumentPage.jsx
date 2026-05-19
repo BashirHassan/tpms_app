@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { portalApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -25,9 +26,11 @@ import {
   IconRefresh,
   IconAlertCircle,
   IconClipboardCheck,
+  IconArrowLeft,
 } from '@tabler/icons-react';
 
 function AcceptanceDocumentPage() {
+  const navigate = useNavigate();
   const { institution } = useAuth();
   const { toast } = useToast();
 
@@ -200,6 +203,10 @@ function AcceptanceDocumentPage() {
           )}
         </div>
         <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+          <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="active:scale-95">
+            <IconArrowLeft className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Back</span>
+          </Button>
           <Button variant="outline" size="sm" onClick={fetchDocumentData} className="active:scale-95">
             <IconRefresh className="w-4 h-4 sm:mr-2" />
             <span className="hidden sm:inline">Refresh</span>
