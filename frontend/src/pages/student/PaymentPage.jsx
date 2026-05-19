@@ -35,6 +35,9 @@ import {
   IconBuildingBank,
   IconDownload,
   IconFileText,
+  IconSearch,
+  IconX,
+  IconAlertTriangle,
 } from '@tabler/icons-react';
 
 // Payment states following JEI pattern
@@ -142,6 +145,12 @@ function PaymentPage() {
   const [error, setError] = useState(null);
   // Store payment info for retry/verification
   const [pendingPayment, setPendingPayment] = useState(null);
+
+  // Manual reference verify panel
+  const [showManualVerify, setShowManualVerify] = useState(false);
+  const [manualRef, setManualRef] = useState('');
+  const [manualVerifyState, setManualVerifyState] = useState('idle'); // 'idle' | 'loading' | 'success' | 'error'
+  const [manualVerifyResult, setManualVerifyResult] = useState(null);
 
   // Animation on mount
   useEffect(() => {
@@ -291,6 +300,29 @@ function PaymentPage() {
     setError(null);
     fetchData();
   };
+
+  // Manual reference verification
+  const handleManualVerify = useCallback(async () => {
+    if (!manualRef.trim()) return;
+    setManualVerifyState('loading');
+    setManualVerifyResult(null);
+    try {
+      const res = await paymentsApi.verifyPayment(manualRef.trim());
+      if (res.data.data?.status === 'success' || res.data.success) {
+        setManualVerifyState('success');
+        setManualVerifyResult(res.data);
+        toast.success('Payment verified! Your status has been updated.');
+        setManualRef('');
+        fetchData();
+      } else {
+        setManualVerifyState('error');
+        setManualVerifyResult({ message: res.data.message || 'Payment not confirmed by Paystack.' });
+      }
+    } catch (err) {
+      setManualVerifyState('error');
+      setManualVerifyResult({ message: err.response?.data?.message || 'Verification failed. Check the reference and try again.' });
+    }
+  }, [manualRef, toast]);
 
   // Loading state with modern skeleton + spinner
   if (loading) {
@@ -826,6 +858,81 @@ function PaymentPage() {
                     <IconReceipt className="w-6 h-6 text-gray-400" />
                   </div>
                   <p className="text-sm text-gray-500">No payment records yet</p>
+                </div>
+              )}
+            </div>
+
+            {/* Manual Reference Verification */}
+            <div className="border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowManualVerify(v => !v);
+                  setManualRef('');
+                  setManualVerifyState('idle');
+                  setManualVerifyResult(null);
+                }}
+                className="w-full flex items-center justify-between px-5 py-3 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <IconSearch className="w-4 h-4" />
+                  Paid but not showing? Verify by reference
+                </span>
+                {showManualVerify
+                  ? <IconX className="w-4 h-4" />
+                  : <IconChevronRight className="w-4 h-4" />
+                }
+              </button>
+
+              {showManualVerify && (
+                <div className="px-5 pb-5 space-y-3">
+                  <p className="text-xs text-gray-500">
+                    If you were debited but your payment isn't showing, enter your Paystack reference below. You can find it in your bank SMS or email receipt.
+                  </p>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={manualRef}
+                      onChange={(e) => {
+                        setManualRef(e.target.value);
+                        setManualVerifyState('idle');
+                        setManualVerifyResult(null);
+                      }}
+                      placeholder="e.g., DTP-M4ABCD-1234EFGH"
+                      disabled={manualVerifyState === 'loading'}
+                      className="flex-1 px-3 py-2 text-sm font-mono border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none disabled:opacity-50"
+                    />
+                    <Button
+                      onClick={handleManualVerify}
+                      disabled={!manualRef.trim() || manualVerifyState === 'loading'}
+                      loading={manualVerifyState === 'loading'}
+                      className="rounded-xl flex-shrink-0"
+                    >
+                      <IconShieldCheck className="w-4 h-4 mr-1.5" />
+                      Verify
+                    </Button>
+                  </div>
+
+                  {/* Result feedback */}
+                  {manualVerifyState === 'success' && (
+                    <div className="flex items-start gap-2.5 p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-sm">
+                      <IconCircleCheck className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                      <p className="text-emerald-800 font-medium">
+                        {manualVerifyResult?.message || 'Payment verified successfully! Your status has been updated.'}
+                      </p>
+                    </div>
+                  )}
+
+                  {manualVerifyState === 'error' && (
+                    <div className="flex items-start gap-2.5 p-3 bg-red-50 border border-red-100 rounded-xl text-sm">
+                      <IconAlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-red-800 font-medium">Verification failed</p>
+                        <p className="text-red-600 mt-0.5 text-xs">{manualVerifyResult?.message}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
