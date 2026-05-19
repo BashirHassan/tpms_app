@@ -51,6 +51,51 @@ const generateReference = (institutionId, studentId) => {
 };
 
 /**
+ * Recalculates and syncs payment_status + total_paid on the students row.
+ * Must be called after any operation that marks a student_payment as 'success'.
+ */
+async function updateStudentPaymentStatus(studentId, sessionId, institutionId) {
+  const [totalResult] = await query(
+    `SELECT COALESCE(SUM(amount), 0) as total_paid
+     FROM student_payments
+     WHERE student_id = ? AND session_id = ? AND institution_id = ? AND status = 'success'`,
+    [studentId, sessionId, parseInt(institutionId)]
+  );
+  const newTotalPaid = parseFloat(totalResult?.total_paid || 0);
+
+  const [inst] = await query(
+    'SELECT payment_base_amount, payment_program_pricing FROM institutions WHERE id = ?',
+    [parseInt(institutionId)]
+  );
+  let requiredAmount = parseFloat(inst?.payment_base_amount || 0);
+
+  if (inst?.payment_program_pricing) {
+    try {
+      const pricing = typeof inst.payment_program_pricing === 'string'
+        ? JSON.parse(inst.payment_program_pricing)
+        : inst.payment_program_pricing;
+      const [studentRow] = await query(
+        'SELECT program_id FROM students WHERE id = ? AND institution_id = ?',
+        [studentId, parseInt(institutionId)]
+      );
+      if (studentRow?.program_id && pricing[studentRow.program_id]) {
+        const programAmount = parseFloat(pricing[studentRow.program_id]);
+        if (programAmount > 0) requiredAmount = programAmount;
+      }
+    } catch (_) { /* fall back to base amount */ }
+  }
+
+  const newPaymentStatus = newTotalPaid >= requiredAmount ? 'paid'
+    : newTotalPaid > 0 ? 'partial'
+    : 'pending';
+
+  await query(
+    'UPDATE students SET payment_status = ?, total_paid = ? WHERE id = ? AND institution_id = ?',
+    [newPaymentStatus, newTotalPaid, studentId, parseInt(institutionId)]
+  );
+}
+
+/**
  * Get all payments
  * GET /:institutionId/payments
  */
@@ -514,6 +559,9 @@ const verifyPaystack = async (req, res, next) => {
          JSON.stringify({ reference, amount: amountInNaira, previous_status: payment.status, verified_by: req.user?.email }), req.ip]
       );
 
+      // Sync students table so the portal reflects the verified payment
+      await updateStudentPaymentStatus(payment.student_id, payment.session_id, parseInt(institutionId));
+
       return res.json({
         success: true,
         message: 'Payment verified successfully',
@@ -630,14 +678,17 @@ const verifyPaystack = async (req, res, next) => {
       `INSERT INTO audit_logs (institution_id, user_id, user_type, action, resource_type, resource_id, details, ip_address)
        VALUES (?, ?, 'staff', 'admin_payment_recovered', 'student_payment', ?, ?, ?)`,
       [parseInt(institutionId), req.user?.id || null, result.insertId,
-       JSON.stringify({ 
-         reference, 
-         amount: amountInNaira, 
+       JSON.stringify({
+         reference,
+         amount: amountInNaira,
          student_name: student.full_name,
          verified_by: req.user?.email,
          note: 'Payment record created from Paystack verification (missed callback recovery)'
        }), req.ip]
     );
+
+    // Sync students table so the portal reflects the recovered payment
+    await updateStudentPaymentStatus(studentId, sessionId, parseInt(institutionId));
 
     res.json({
       success: true,
@@ -1377,55 +1428,22 @@ const verifyStudentPayment = async (req, res, next) => {
       );
     }
 
-    // Update student payment_status and total_paid in students table
+    // Sync students table so the portal reflects the verified payment
     const sessionIdForPayment = paystackData.metadata.session_id;
-    const [totalResult] = await query(
-      `SELECT COALESCE(SUM(amount), 0) as total_paid 
-       FROM student_payments 
-       WHERE student_id = ? AND session_id = ? AND institution_id = ? AND status = 'success'`,
-      [studentId, sessionIdForPayment, institutionId]
-    );
-    const newTotalPaid = parseFloat(totalResult?.total_paid || 0);
-
-    // Get required amount to determine status
-    const [instPayment] = await query(
-      'SELECT payment_enabled, payment_base_amount, payment_program_pricing FROM institutions WHERE id = ?',
-      [institutionId]
-    );
-    let requiredAmount = parseFloat(instPayment?.payment_base_amount || 0);
-    
-    // Check program-specific pricing
-    const [studentInfo] = await query(
-      'SELECT program_id FROM students WHERE id = ? AND institution_id = ?',
-      [studentId, institutionId]
-    );
-    if (studentInfo?.program_id && instPayment?.payment_program_pricing) {
-      let programPricing = instPayment.payment_program_pricing;
-      if (typeof programPricing === 'string') {
-        try { programPricing = JSON.parse(programPricing); } catch (e) { programPricing = {}; }
-      }
-      const programAmount = parseFloat(programPricing[studentInfo.program_id]);
-      if (programAmount > 0) requiredAmount = programAmount;
-    }
-
-    const newPaymentStatus = newTotalPaid >= requiredAmount ? 'paid' : newTotalPaid > 0 ? 'partial' : 'pending';
-    await query(
-      'UPDATE students SET payment_status = ?, total_paid = ? WHERE id = ? AND institution_id = ?',
-      [newPaymentStatus, newTotalPaid, studentId, institutionId]
-    );
+    await updateStudentPaymentStatus(studentId, sessionIdForPayment, institutionId);
 
     // Audit log
     await query(
       `INSERT INTO audit_logs (institution_id, user_id, user_type, action, resource_type, resource_id, details, ip_address)
        VALUES (?, ?, 'student', 'payment_completed', 'student_payment', NULL, ?, ?)`,
-      [institutionId, studentId, 
-       JSON.stringify({ reference, amount: amountInNaira, total_paid: newTotalPaid, payment_status: newPaymentStatus }), req.ip]
+      [institutionId, studentId,
+       JSON.stringify({ reference, amount: amountInNaira }), req.ip]
     );
 
     res.json({
       success: true,
       message: 'Payment verified successfully',
-      data: { status: 'success', reference, amount: amountInNaira, payment_status: newPaymentStatus },
+      data: { status: 'success', reference, amount: amountInNaira },
     });
   } catch (error) {
     next(error);
