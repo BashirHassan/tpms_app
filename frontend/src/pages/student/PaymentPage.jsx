@@ -404,6 +404,7 @@ function PaymentPage() {
   const canPay = paymentStatus.remaining > 0 && windowStatus?.is_open !== false;
   const progressPercentage =
     paymentStatus.amount > 0 ? (paymentStatus.paid / paymentStatus.amount) * 100 : 0;
+  const hasSuccessfulPayment = paymentStatus.payments?.some((p) => p.status === 'success');
 
   return (
     <div
@@ -486,8 +487,8 @@ function PaymentPage() {
         {/* Left Column - Payment Status & Actions */}
         <div className="lg:col-span-2 space-y-4">
 
-          {/* Unverified Payments Card — shown when pending_transactions exist */}
-          {pendingTransactions.length > 0 && (
+          {/* Unverified Payments Card — hidden once a successful transaction exists */}
+          {pendingTransactions.length > 0 && !hasSuccessfulPayment && (
             <div className="rounded-2xl border border-amber-100 bg-amber-50/50 p-5 shadow-sm">
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 bg-amber-100 rounded-lg">
@@ -821,7 +822,10 @@ function PaymentPage() {
             <div className="p-4">
               {paymentStatus.payments?.length > 0 ? (
                 <div className="space-y-3">
-                  {paymentStatus.payments.map((payment, index) => (
+                  {(hasSuccessfulPayment
+                    ? paymentStatus.payments.filter((p) => p.status === 'success')
+                    : paymentStatus.payments
+                  ).map((payment, index) => (
                     <div
                       key={payment.id}
                       className={cn(
