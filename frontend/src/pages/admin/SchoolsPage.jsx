@@ -47,6 +47,9 @@ import {
   IconShieldCheck,
 } from '@tabler/icons-react';
 
+const normalizeLocationValue = (value) => String(value || '').trim().toUpperCase();
+const capitalizeSchoolInput = (value) => String(value || '').toUpperCase();
+
 function SchoolsPage() {
   const { hasRole } = useAuth();
   const { toast } = useToast();
@@ -166,7 +169,11 @@ function SchoolsPage() {
 
   // Derive unique states from actual school data
   const filterStates = useMemo(() => {
-    const unique = [...new Set(allSchoolsData.map(s => s.state).filter(Boolean))];
+    const unique = [...new Set(
+      allSchoolsData
+        .map(s => normalizeLocationValue(s.state))
+        .filter(Boolean)
+    )];
     return unique.sort();
   }, [allSchoolsData]);
 
@@ -175,8 +182,8 @@ function SchoolsPage() {
     if (!stateFilter) return [];
     const unique = [...new Set(
       allSchoolsData
-        .filter(s => s.state === stateFilter)
-        .map(s => s.lga)
+        .filter(s => normalizeLocationValue(s.state) === normalizeLocationValue(stateFilter))
+        .map(s => normalizeLocationValue(s.lga))
         .filter(Boolean)
     )];
     return unique.sort();
@@ -347,6 +354,9 @@ function SchoolsPage() {
     setFormData({
       ...defaults,
       ...school,
+      state: normalizeLocationValue(school.state),
+      lga: normalizeLocationValue(school.lga),
+      ward: normalizeLocationValue(school.ward),
       // Ensure enum fields have valid values (not null/empty)
       school_type: school.school_type || defaults.school_type,
       category: school.category || defaults.category,
@@ -390,14 +400,14 @@ function SchoolsPage() {
         }
 
         const payload = {
-          name: formData.name,
-          code: formData.code || null,
+          name: capitalizeSchoolInput(formData.name).trim(),
+          code: capitalizeSchoolInput(formData.code).trim() || null,
           school_type: formData.school_type || 'senior',
           category: formData.category || 'public',
           location_category: formData.location_category || 'outside',
-          state: formData.state,
-          lga: formData.lga,
-          ward: formData.ward,
+          state: normalizeLocationValue(formData.state),
+          lga: normalizeLocationValue(formData.lga),
+          ward: normalizeLocationValue(formData.ward),
           address: formData.address || null,
           principal_name: formData.principal_name || null,
           principal_phone: formData.principal_phone || null,
@@ -537,7 +547,7 @@ function SchoolsPage() {
         <div className="min-w-0">
           <div className="font-medium text-gray-900 truncate flex items-center gap-1.5">
             {value}
-            {row.is_verified && (
+            {Number(row.is_verified) === 1 && (
               <IconShieldCheck className="w-4 h-4 text-green-600 flex-shrink-0" title="Verified in Central Registry" />
             )}
           </div>
@@ -993,7 +1003,7 @@ function SchoolsPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
               <Input
                 value={formData.name || ''}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, name: capitalizeSchoolInput(e.target.value) })}
                 placeholder="School name"
               />
             </div>
@@ -1002,7 +1012,7 @@ function SchoolsPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Code</label>
               <Input
                 value={formData.code || ''}
-                onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
+                onChange={(e) => setFormData({ ...formData, code: capitalizeSchoolInput(e.target.value) })}
                 placeholder="e.g., SCH001"
               />
             </div>

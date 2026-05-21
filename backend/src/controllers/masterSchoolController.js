@@ -11,6 +11,7 @@ const { z } = require('zod');
 const XLSX = require('xlsx');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const { normalizeLocationValue, normalizeOptionalLocationValue } = require('../utils/locationNormalizer');
 
 // Validation schemas
 const schemas = {
@@ -113,12 +114,12 @@ const getAll = async (req, res, next) => {
       params.push(status);
     }
     if (state) {
-      sql += ' AND ms.state = ?';
-      params.push(state);
+      sql += ' AND UPPER(ms.state) = ?';
+      params.push(normalizeLocationValue(state));
     }
     if (lga) {
-      sql += ' AND ms.lga = ?';
-      params.push(lga);
+      sql += ' AND UPPER(ms.lga) = ?';
+      params.push(normalizeLocationValue(lga));
     }
     if (school_type) {
       sql += ' AND ms.school_type = ?';
@@ -224,14 +225,17 @@ const create = async (req, res, next) => {
   try {
     const {
       name, official_code, school_type, category,
-      state, lga, ward, address,
+      state: rawState, lga: rawLga, ward: rawWard, address,
       principal_name, principal_phone,
       latitude, longitude, is_verified
     } = req.body;
+    const state = normalizeLocationValue(rawState);
+    const lga = normalizeLocationValue(rawLga);
+    const ward = normalizeOptionalLocationValue(rawWard);
 
     // Check for duplicate
     const existing = await query(
-      `SELECT id FROM master_schools WHERE name = ? AND state = ? AND lga = ?`,
+      `SELECT id FROM master_schools WHERE name = ? AND UPPER(state) = ? AND UPPER(lga) = ?`,
       [name, state, lga]
     );
 
@@ -252,7 +256,7 @@ const create = async (req, res, next) => {
       category || 'public',
       state,
       lga,
-      ward || null,
+      ward,
       address || null,
       principal_name || null,
       principal_phone || null,
@@ -316,8 +320,15 @@ const update = async (req, res, next) => {
 
     for (const field of allowedFields) {
       if (updates[field] !== undefined) {
+        let value = updates[field];
+        if (field === 'state' || field === 'lga') {
+          value = normalizeLocationValue(value);
+        }
+        if (field === 'ward') {
+          value = normalizeOptionalLocationValue(value);
+        }
         updateFields.push(`${field} = ?`);
-        updateParams.push(field === 'is_verified' ? (updates[field] ? 1 : 0) : updates[field]);
+        updateParams.push(field === 'is_verified' ? (value ? 1 : 0) : value);
       }
     }
 
@@ -574,8 +585,8 @@ const findDuplicates = async (req, res, next) => {
         ms1.id as school1_id,
         ms2.id as school2_id
       FROM master_schools ms1
-      JOIN master_schools ms2 ON ms1.state = ms2.state 
-        AND ms1.lga = ms2.lga 
+      JOIN master_schools ms2 ON UPPER(ms1.state) = UPPER(ms2.state) 
+        AND UPPER(ms1.lga) = UPPER(ms2.lga) 
         AND ms1.id < ms2.id
         AND (
           ms1.name = ms2.name 
@@ -588,12 +599,12 @@ const findDuplicates = async (req, res, next) => {
     const pairsParams = [];
 
     if (state) {
-      pairsSql += ' AND ms1.state = ?';
-      pairsParams.push(state);
+      pairsSql += ' AND UPPER(ms1.state) = ?';
+      pairsParams.push(normalizeLocationValue(state));
     }
     if (lga) {
-      pairsSql += ' AND ms1.lga = ?';
-      pairsParams.push(lga);
+      pairsSql += ' AND UPPER(ms1.lga) = ?';
+      pairsParams.push(normalizeLocationValue(lga));
     }
 
     pairsSql += ' LIMIT ?';

@@ -14,6 +14,7 @@ const fs = require('fs');
 const XLSX = require('xlsx');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const { normalizeLocationValue, normalizeOptionalLocationValue } = require('../utils/locationNormalizer');
 
 // Validation schemas
 const schemas = {
@@ -151,12 +152,12 @@ const getAll = async (req, res, next) => {
       params.push(location_category);
     }
     if (state) {
-      sql += ' AND ms.state = ?';
-      params.push(state);
+      sql += ' AND UPPER(ms.state) = ?';
+      params.push(normalizeLocationValue(state));
     }
     if (lga) {
-      sql += ' AND ms.lga = ?';
-      params.push(lga);
+      sql += ' AND UPPER(ms.lga) = ?';
+      params.push(normalizeLocationValue(lga));
     }
     if (status) {
       sql += ' AND isv.status = ?';
@@ -179,8 +180,8 @@ const getAll = async (req, res, next) => {
     if (school_type) countConditions.push('ms.school_type = ?');
     if (category) countConditions.push('ms.category = ?');
     if (location_category) countConditions.push('isv.location_category = ?');
-    if (state) countConditions.push('ms.state = ?');
-    if (lga) countConditions.push('ms.lga = ?');
+    if (state) countConditions.push('UPPER(ms.state) = ?');
+    if (lga) countConditions.push('UPPER(ms.lga) = ?');
     if (status) countConditions.push('isv.status = ?');
     if (search) countConditions.push('(ms.name LIKE ? OR ms.official_code LIKE ? OR ms.ward LIKE ? OR ms.principal_name LIKE ?)');
     
@@ -262,7 +263,7 @@ const create = async (req, res, next) => {
     const { institutionId } = req.params;
     const {
       // Master school data
-      name, school_type, category, state, lga, ward, address,
+      name, school_type, category, state: rawState, lga: rawLga, ward: rawWard, address,
       principal_name, principal_phone, latitude, longitude,
       // Institution-specific data
       location_category, distance_km, student_capacity,
@@ -270,6 +271,9 @@ const create = async (req, res, next) => {
       // Optional: link to existing master school
       master_school_id
     } = req.body;
+    const state = normalizeLocationValue(rawState) || 'UNKNOWN';
+    const lga = normalizeLocationValue(rawLga) || 'UNKNOWN';
+    const ward = normalizeOptionalLocationValue(rawWard);
 
     let masterSchoolId = master_school_id;
     let createdSchoolId;
@@ -279,8 +283,8 @@ const create = async (req, res, next) => {
         // Check if a similar school already exists in master
         const [existing] = await conn.execute(
           `SELECT id FROM master_schools 
-           WHERE name = ? AND state = ? AND lga = ? AND status = 'active'`,
-          [name, state || 'Unknown', lga || 'Unknown']
+           WHERE name = ? AND UPPER(state) = ? AND UPPER(lga) = ? AND status = 'active'`,
+          [name, state, lga]
         );
 
         if (existing.length > 0) {
@@ -301,9 +305,9 @@ const create = async (req, res, next) => {
             name,
             school_type || 'senior',
             category || 'public',
-            state || 'Unknown',
-            lga || 'Unknown',
-            ward || null,
+            state,
+            lga,
+            ward,
             address || null,
             principal_name || null,
             principal_phone || null,
@@ -498,12 +502,12 @@ const searchMasterSchools = async (req, res, next) => {
       params.push(searchTerm, searchTerm, searchTerm);
     }
     if (state) {
-      sql += ' AND ms.state = ?';
-      params.push(state);
+      sql += ' AND UPPER(ms.state) = ?';
+      params.push(normalizeLocationValue(state));
     }
     if (lga) {
-      sql += ' AND ms.lga = ?';
-      params.push(lga);
+      sql += ' AND UPPER(ms.lga) = ?';
+      params.push(normalizeLocationValue(lga));
     }
 
     sql += ' ORDER BY ms.is_verified DESC, ms.name ASC LIMIT ?';
@@ -804,8 +808,9 @@ const uploadFromExcel = async (req, res, next) => {
         try {
           const name = row.name || row.Name || row.SCHOOL_NAME || row['School Name'];
           const code = row.code || row.Code || row.SCHOOL_CODE || row['School Code'];
-          const state = row.state || row.State || 'Unknown';
-          const lga = row.lga || row.LGA || 'Unknown';
+          const state = normalizeLocationValue(row.state || row.State) || 'UNKNOWN';
+          const lga = normalizeLocationValue(row.lga || row.LGA) || 'UNKNOWN';
+          const ward = normalizeOptionalLocationValue(row.ward || row.Ward);
 
           if (!name) {
             results.errors.push({ row: rowNum, error: 'School name is required' });
@@ -815,7 +820,7 @@ const uploadFromExcel = async (req, res, next) => {
 
           // Check if school exists in master_schools
           let [existingMaster] = await conn.execute(
-            `SELECT id FROM master_schools WHERE name = ? AND state = ? AND lga = ?`,
+            `SELECT id FROM master_schools WHERE name = ? AND UPPER(state) = ? AND UPPER(lga) = ?`,
             [name, state, lga]
           );
 
@@ -831,7 +836,7 @@ const uploadFromExcel = async (req, res, next) => {
               [
                 row.school_type || row['School Type'] || 'senior',
                 row.category || row.Category || 'public',
-                row.ward || row.Ward || null,
+                ward,
                 row.principal_name || row['Principal Name'] || null,
                 row.principal_phone || row['Principal Phone'] || null,
                 masterSchoolId
@@ -850,7 +855,7 @@ const uploadFromExcel = async (req, res, next) => {
                 row.category || row.Category || 'public',
                 state,
                 lga,
-                row.ward || row.Ward || null,
+                ward,
                 row.principal_name || row['Principal Name'] || null,
                 row.principal_phone || row['Principal Phone'] || null,
                 parseInt(institutionId)
@@ -933,9 +938,9 @@ const downloadTemplate = async (req, res, next) => {
         'School Type': 'senior',
         'Category': 'public',
         'Location Category': 'inside',
-        'State': 'Kano',
-        'LGA': 'Kano Municipal',
-        'Ward': 'Kano City',
+        'State': 'KANO',
+        'LGA': 'KANO MUNICIPAL',
+        'Ward': 'KANO CITY',
         'Distance (km)': 5.5,
         'Capacity': 50,
         'Principal Name': 'Mr. John Doe',

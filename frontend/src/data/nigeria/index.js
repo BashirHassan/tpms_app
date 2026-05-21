@@ -20,6 +20,14 @@ import lgasData from './lgas.json';
 let lgasWithWardsData = null;
 let wardsData = null;
 
+function normalizeForCompare(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function toUpperLocation(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
 /**
  * Load wards data lazily (only when needed)
  * @returns {Promise<Object>} LGAs with wards data
@@ -49,10 +57,10 @@ async function loadFlatWardsData() {
  * @param {string} state - State name
  * @returns {string} Normalized state name
  */
-function normalizeStateName(state) {
+function normalizeStateKey(state) {
   if (!state) return '';
   
-  const stateLower = state.toLowerCase().trim();
+  const stateLower = normalizeForCompare(state);
   
   // Handle FCT variations
   if (stateLower === 'fct' || stateLower === 'abuja' || stateLower.includes('federal capital')) {
@@ -65,8 +73,12 @@ function normalizeStateName(state) {
   }
   
   // Find case-insensitive match
-  const match = statesData?.find(s => s.toLowerCase() === stateLower);
-  return match || state;
+  const match = statesData?.find(s => normalizeForCompare(s) === stateLower);
+  return match || String(state).trim();
+}
+
+function normalizeStateName(state) {
+  return toUpperLocation(normalizeStateKey(state));
 }
 
 /**
@@ -74,7 +86,7 @@ function normalizeStateName(state) {
  * @returns {string[]} Array of state names
  */
 function getStates() {
-  return statesData || [];
+  return (statesData || []).map(toUpperLocation);
 }
 
 /**
@@ -85,8 +97,8 @@ function getStates() {
 function getLGAs(state) {
   if (!state) return [];
   
-  const normalizedState = normalizeStateName(state);
-  return lgasData[normalizedState] || [];
+  const normalizedState = normalizeStateKey(state);
+  return (lgasData[normalizedState] || []).map(toUpperLocation);
 }
 
 /**
@@ -99,11 +111,19 @@ async function getWards(state, lga) {
   if (!state || !lga) return [];
   
   const data = await loadWardsData();
-  const normalizedState = normalizeStateName(state);
+  const normalizedState = normalizeStateKey(state);
   const stateData = data[normalizedState];
   if (!stateData) return [];
+
+  const lgaKey = Object.keys(stateData).find(
+    key => normalizeForCompare(key) === normalizeForCompare(lga)
+  );
+  if (!lgaKey) return [];
   
-  return stateData[lga] || [];
+  return (stateData[lgaKey] || []).map(ward => ({
+    ...ward,
+    name: toUpperLocation(ward.name)
+  }));
 }
 
 /**
@@ -118,13 +138,14 @@ async function getWardCoordinates(state, lga, wardName) {
   if (!wards.length) return null;
   
   // Find exact match first
-  let ward = wards.find(w => w.name.toLowerCase() === wardName.toLowerCase());
+  const searchWard = normalizeForCompare(wardName);
+  let ward = wards.find(w => normalizeForCompare(w.name) === searchWard);
   
   // If no exact match, try partial match
   if (!ward) {
     ward = wards.find(w => 
-      w.name.toLowerCase().includes(wardName.toLowerCase()) ||
-      wardName.toLowerCase().includes(w.name.toLowerCase())
+      normalizeForCompare(w.name).includes(searchWard) ||
+      searchWard.includes(normalizeForCompare(w.name))
     );
   }
   
@@ -141,15 +162,15 @@ async function searchWards(query, limit = 20) {
   if (!query || query.length < 2) return [];
   
   const data = await loadFlatWardsData();
-  const searchLower = query.toLowerCase();
+  const searchLower = normalizeForCompare(query);
   const results = [];
   
   for (const ward of data) {
-    if (ward.Ward.toLowerCase().includes(searchLower)) {
+    if (normalizeForCompare(ward.Ward).includes(searchLower)) {
       results.push({
-        state: ward.State,
-        lga: ward.LGA,
-        name: ward.Ward,
+        state: toUpperLocation(ward.State),
+        lga: toUpperLocation(ward.LGA),
+        name: toUpperLocation(ward.Ward),
         latitude: ward.Latitude,
         longitude: ward.Longitude
       });
@@ -167,7 +188,7 @@ async function searchWards(query, limit = 20) {
  * @returns {Promise<Object>} State data with LGAs and wards
  */
 async function getStateFullData(state) {
-  const normalizedState = normalizeStateName(state);
+  const normalizedState = normalizeStateKey(state);
   const lgas = getLGAs(normalizedState);
   
   const lgasWithWards = await Promise.all(
@@ -178,7 +199,7 @@ async function getStateFullData(state) {
   );
   
   return {
-    state: normalizedState,
+    state: toUpperLocation(normalizedState),
     lgas: lgasWithWards
   };
 }
@@ -190,8 +211,8 @@ async function getStateFullData(state) {
  */
 function isValidState(state) {
   if (!state) return false;
-  const normalized = normalizeStateName(state);
-  return statesData?.some(s => s.toLowerCase() === normalized.toLowerCase()) || false;
+  const normalized = normalizeStateKey(state);
+  return statesData?.some(s => normalizeForCompare(s) === normalizeForCompare(normalized)) || false;
 }
 
 /**
@@ -203,7 +224,7 @@ function isValidState(state) {
 function isValidLGA(state, lga) {
   if (!state || !lga) return false;
   const lgas = getLGAs(state);
-  return lgas.some(l => l.toLowerCase() === lga.toLowerCase());
+  return lgas.some(l => normalizeForCompare(l) === normalizeForCompare(lga));
 }
 
 /**
@@ -216,7 +237,7 @@ function isValidLGA(state, lga) {
 async function isValidWard(state, lga, ward) {
   if (!state || !lga || !ward) return false;
   const wards = await getWards(state, lga);
-  return wards.some(w => w.name.toLowerCase() === ward.toLowerCase());
+  return wards.some(w => normalizeForCompare(w.name) === normalizeForCompare(ward));
 }
 
 /**

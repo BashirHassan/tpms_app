@@ -34,9 +34,6 @@ import {
   IconShieldCheck,
   IconShieldOff,
   IconAlertTriangle,
-  IconFilter,
-  IconChevronDown,
-  IconChevronUp,
   IconChevronRight,
   IconChevronLeft,
   IconCurrentLocation,
@@ -51,6 +48,9 @@ import {
   IconCheck,
   IconTrashX,
 } from '@tabler/icons-react';
+
+const normalizeLocationValue = (value) => String(value || '').trim().toUpperCase();
+const capitalizeSchoolInput = (value) => String(value || '').toUpperCase();
 
 function MasterSchoolsPage() {
   const { hasRole } = useAuth();
@@ -84,10 +84,11 @@ function MasterSchoolsPage() {
 
   // Filters
   const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [stateFilter, setStateFilter] = useState('');
   const [lgaFilter, setLgaFilter] = useState('');
   const [verifiedFilter, setVerifiedFilter] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
@@ -136,6 +137,8 @@ function MasterSchoolsPage() {
         limit: pagination.limit,
       };
       if (search) params.search = search;
+      if (typeFilter) params.school_type = typeFilter;
+      if (categoryFilter) params.category = categoryFilter;
       if (stateFilter) params.state = stateFilter;
       if (lgaFilter) params.lga = lgaFilter;
       if (verifiedFilter) params.is_verified = verifiedFilter === 'verified' ? 1 : 0;
@@ -342,6 +345,9 @@ function MasterSchoolsPage() {
             } else {
               validSchools.push({
                 ...school,
+                state: normalizeLocationValue(school.state),
+                lga: normalizeLocationValue(school.lga),
+                ward: normalizeLocationValue(school.ward),
                 school_type: (school.school_type || 'senior').toLowerCase(),
                 category: (school.category || 'public').toLowerCase(),
               });
@@ -452,9 +458,9 @@ function MasterSchoolsPage() {
             official_code: school.official_code || null,
             school_type: school.school_type || 'senior',
             category: school.category || 'public',
-            state: school.state,
-            lga: school.lga,
-            ward: school.ward || null,
+            state: normalizeLocationValue(school.state),
+            lga: normalizeLocationValue(school.lga),
+            ward: normalizeLocationValue(school.ward) || null,
             address: school.address || null,
             principal_name: school.principal_name || null,
             principal_phone: school.principal_phone || null,
@@ -541,9 +547,9 @@ function MasterSchoolsPage() {
         official_code: 'GSS001',
         school_type: 'senior',
         category: 'public',
-        state: 'Kaduna',
-        lga: 'Kaduna North',
-        ward: 'Unguwan Sarki',
+        state: 'KADUNA',
+        lga: 'KADUNA NORTH',
+        ward: 'UNGUWAN SARKI',
         address: '123 School Road, Kaduna',
         principal_name: 'Mr. John Doe',
         principal_phone: '08012345678',
@@ -583,7 +589,7 @@ function MasterSchoolsPage() {
 
   useEffect(() => {
     fetchSchools();
-  }, [pagination.page, pagination.limit, search, stateFilter, lgaFilter, verifiedFilter]);
+  }, [pagination.page, pagination.limit, search, typeFilter, categoryFilter, stateFilter, lgaFilter, verifiedFilter]);
 
   useEffect(() => {
     fetchLgas(stateFilter);
@@ -619,6 +625,9 @@ function MasterSchoolsPage() {
     setFormData({
       ...defaults,
       ...school,
+      state: normalizeLocationValue(school.state),
+      lga: normalizeLocationValue(school.lga),
+      ward: normalizeLocationValue(school.ward),
       school_type: school.school_type || defaults.school_type,
       category: school.category || defaults.category,
     });
@@ -662,6 +671,11 @@ function MasterSchoolsPage() {
     try {
       const payload = {
         ...formData,
+        name: capitalizeSchoolInput(formData.name).trim(),
+        official_code: capitalizeSchoolInput(formData.official_code).trim() || null,
+        state: normalizeLocationValue(formData.state),
+        lga: normalizeLocationValue(formData.lga),
+        ward: normalizeLocationValue(formData.ward) || null,
         latitude: formData.latitude ? parseFloat(formData.latitude) : null,
         longitude: formData.longitude ? parseFloat(formData.longitude) : null,
       };
@@ -777,12 +791,14 @@ function MasterSchoolsPage() {
 
   const clearFilters = () => {
     setSearch('');
+    setTypeFilter('');
+    setCategoryFilter('');
     setStateFilter('');
     setLgaFilter('');
     setVerifiedFilter('');
   };
 
-  const hasActiveFilters = stateFilter || lgaFilter || verifiedFilter;
+  const hasActiveFilters = search || typeFilter || categoryFilter || stateFilter || lgaFilter || verifiedFilter;
 
   // Column definitions
   const columns = useMemo(() => [
@@ -986,33 +1002,38 @@ function MasterSchoolsPage() {
         <CardContent className="py-3 sm:py-4">
           <div className="space-y-3">
             <div className="flex gap-2">
-              <div className="flex-1 relative">
-                <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search schools..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
-              </div>
-              <Button
-                variant={hasActiveFilters ? 'primary' : 'outline'}
-                size="sm"
-                onClick={() => setShowFilters(!showFilters)}
-              >
-                <IconFilter className="w-4 h-4" />
-                {showFilters ? <IconChevronUp className="w-4 h-4 ml-1" /> : <IconChevronDown className="w-4 h-4 ml-1" />}
-              </Button>
-              {hasActiveFilters && (
-                <Button variant="ghost" size="sm" onClick={clearFilters}>
-                  <IconRefresh className="w-4 h-4" />
-                </Button>
-              )}
-            </div>
-
-            {showFilters && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 pt-2 border-t border-gray-100">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 flex-1">
+                <div className="relative col-span-2">
+                  <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search schools..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  />
+                </div>
+                <Select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  className="text-sm"
+                >
+                  <option value="">All Types</option>
+                  <option value="primary">Primary</option>
+                  <option value="junior">Junior</option>
+                  <option value="senior">Senior</option>
+                  <option value="both">Junior & Senior</option>
+                </Select>
+                <Select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="text-sm"
+                >
+                  <option value="">All Categories</option>
+                  <option value="public">Public</option>
+                  <option value="private">Private</option>
+                  <option value="others">Others</option>
+                </Select>
                 <Select
                   value={stateFilter}
                   onChange={(e) => { setStateFilter(e.target.value); setLgaFilter(''); }}
@@ -1044,7 +1065,12 @@ function MasterSchoolsPage() {
                   <option value="unverified">Unverified</option>
                 </Select>
               </div>
-            )}
+              {hasActiveFilters && (
+                <Button variant="outline" onClick={clearFilters}>
+                  <IconRefresh className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1094,7 +1120,7 @@ function MasterSchoolsPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
             <Input
               value={formData.name || ''}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              onChange={(e) => setFormData({ ...formData, name: capitalizeSchoolInput(e.target.value) })}
               placeholder="School name"
             />
           </div>
@@ -1103,7 +1129,7 @@ function MasterSchoolsPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">Official Code</label>
             <Input
               value={formData.official_code || ''}
-              onChange={(e) => setFormData({ ...formData, official_code: e.target.value.toUpperCase() })}
+              onChange={(e) => setFormData({ ...formData, official_code: capitalizeSchoolInput(e.target.value) })}
               placeholder="e.g., FED/KN/001"
             />
           </div>

@@ -11,6 +11,7 @@ const fs = require('fs');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError, AuthorizationError } = require('../utils/errors');
 const { cloudinaryService } = require('../services');
+const { normalizeLocationValue } = require('../utils/locationNormalizer');
 
 // Validation schemas
 const schemas = {
@@ -823,12 +824,12 @@ const getAvailableSchools = async (req, res, next) => {
       params.push(parseInt(route_id));
     }
     if (state) {
-      sql += ' AND ms.state = ?';
-      params.push(state);
+      sql += ' AND UPPER(ms.state) = ?';
+      params.push(normalizeLocationValue(state));
     }
     if (lga) {
-      sql += ' AND ms.lga = ?';
-      params.push(lga);
+      sql += ' AND UPPER(ms.lga) = ?';
+      params.push(normalizeLocationValue(lga));
     }
     if (search) {
       sql += ' AND (ms.name LIKE ? OR ms.official_code LIKE ? OR ms.ward LIKE ?)';
