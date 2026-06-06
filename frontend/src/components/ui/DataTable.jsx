@@ -119,6 +119,7 @@ const ExportModal = ({ isOpen, onClose, columns, onExport, exportType }) => {
     [columns]
   );
   const [selectedColumns, setSelectedColumns] = useState([]);
+  const [exportScope, setExportScope] = useState('loaded');
 
   // Get unique identifier for a column
   const getColumnId = (col) => col.accessor || col.key;
@@ -127,6 +128,7 @@ const ExportModal = ({ isOpen, onClose, columns, onExport, exportType }) => {
   useEffect(() => {
     if (isOpen) {
       setSelectedColumns(exportableColumns.map((col) => getColumnId(col)));
+      setExportScope('loaded');
     }
   }, [isOpen, exportableColumns]);
 
@@ -150,7 +152,7 @@ const ExportModal = ({ isOpen, onClose, columns, onExport, exportType }) => {
     const columnsToExport = exportableColumns.filter((col) =>
       selectedColumns.includes(getColumnId(col))
     );
-    onExport(columnsToExport);
+    onExport(columnsToExport, { scope: exportScope });
     onClose();
   };
 
@@ -199,6 +201,20 @@ const ExportModal = ({ isOpen, onClose, columns, onExport, exportType }) => {
         >
           Deselect All
         </Button>
+      </div>
+
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Export Scope
+        </label>
+        <select
+          value={exportScope}
+          onChange={(e) => setExportScope(e.target.value)}
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+        >
+          <option value="loaded">Currently Loaded</option>
+          <option value="all">All Matching Records</option>
+        </select>
       </div>
 
       {/* Column list */}
@@ -374,6 +390,7 @@ const DataTable = forwardRef(function DataTable(
     sortable = true,
     exportable = true,
     exportFilename = 'export',
+    exportDataProvider,
     searchable = false,
     searchPlaceholder = 'Search...',
     
@@ -421,6 +438,7 @@ const DataTable = forwardRef(function DataTable(
   const [internalSelectedRows, setInternalSelectedRows] = useState([]);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportType, setExportType] = useState(null); // 'excel' | 'pdf'
+  const [exportLoading, setExportLoading] = useState(false);
 
   // Use controlled or uncontrolled selection
   const isControlled = onSelectionChange !== undefined;
@@ -679,9 +697,10 @@ const DataTable = forwardRef(function DataTable(
                   setExportType('excel');
                   setExportModalOpen(true);
                 }}
+                disabled={exportLoading}
                 className="active:scale-95"
               >
-                <IconFileSpreadsheet className="w-4 h-4 sm:mr-2" />
+                {exportLoading ? <IconLoader2 className="w-4 h-4 sm:mr-2 animate-spin" /> : <IconFileSpreadsheet className="w-4 h-4 sm:mr-2" />}
                 <span className="hidden sm:inline">Excel</span>
               </Button>
               <Button
@@ -691,9 +710,10 @@ const DataTable = forwardRef(function DataTable(
                   setExportType('pdf');
                   setExportModalOpen(true);
                 }}
+                disabled={exportLoading}
                 className="active:scale-95"
               >
-                <IconFileTypePdf className="w-4 h-4 sm:mr-2" />
+                {exportLoading ? <IconLoader2 className="w-4 h-4 sm:mr-2 animate-spin" /> : <IconFileTypePdf className="w-4 h-4 sm:mr-2" />}
                 <span className="hidden sm:inline">PDF</span>
               </Button>
             </>
@@ -921,11 +941,34 @@ const DataTable = forwardRef(function DataTable(
         }}
         columns={columns}
         exportType={exportType}
-        onExport={(selectedColumns) => {
-          if (exportType === 'excel') {
-            exportToExcel(sortedData, selectedColumns, exportFilename);
-          } else if (exportType === 'pdf') {
-            exportToPdf(sortedData, selectedColumns, exportFilename);
+        onExport={async (selectedColumns, options = {}) => {
+          try {
+            setExportLoading(true);
+            let exportRows = sortedData;
+            const scope = options.scope || 'loaded';
+
+            if (typeof exportDataProvider === 'function') {
+              const providedRows = await exportDataProvider({
+                exportType,
+                scope,
+                selectedColumns,
+                displayedData: sortedData,
+              });
+
+              if (Array.isArray(providedRows)) {
+                exportRows = providedRows;
+              }
+            }
+
+            if (exportType === 'excel') {
+              await exportToExcel(exportRows, selectedColumns, exportFilename);
+            } else if (exportType === 'pdf') {
+              await exportToPdf(exportRows, selectedColumns, exportFilename);
+            }
+          } catch (error) {
+            console.error('Failed to export data:', error);
+          } finally {
+            setExportLoading(false);
           }
         }}
       />

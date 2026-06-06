@@ -132,6 +132,40 @@ function AcceptancesPage() {
     }
   };
 
+  const fetchAllAcceptancesForExport = useCallback(async ({ scope, displayedData } = {}) => {
+    if (scope === 'loaded') {
+      return Array.isArray(displayedData) ? displayedData : [];
+    }
+
+    if (!selectedSession) return [];
+
+    const baseParams = {
+      session_id: selectedSession,
+      limit: 500,
+    };
+
+    if (selectedSchool) baseParams.school_id = selectedSchool;
+    if (search) baseParams.search = search;
+
+    const firstResponse = await acceptancesApi.getAll({ ...baseParams, page: 1 });
+    const firstPageData = firstResponse.data.data || [];
+    const totalPages = firstResponse.data.pagination?.totalPages || 1;
+
+    if (totalPages <= 1) {
+      return firstPageData;
+    }
+
+    const pageRequests = [];
+    for (let page = 2; page <= totalPages; page++) {
+      pageRequests.push(acceptancesApi.getAll({ ...baseParams, page }));
+    }
+
+    const pageResponses = await Promise.all(pageRequests);
+    const remainingData = pageResponses.flatMap((response) => response.data.data || []);
+
+    return [...firstPageData, ...remainingData];
+  }, [selectedSession, selectedSchool, search]);
+
   // Helper to download image
   const handleDownload = async (url, filename) => {
     try {
@@ -196,6 +230,11 @@ function AcceptancesPage() {
           <p className="text-sm text-gray-500">{row.registration_number}</p>
         </div>
       ),
+    },
+    {
+      accessor: 'registration_number',
+      header: 'Reg Number',
+      render: (value) => value || 'N/A',
     },
     {
       accessor: 'phone',
@@ -413,6 +452,7 @@ function AcceptancesPage() {
         loading={loading}
         sortable
         exportable
+        exportDataProvider={fetchAllAcceptancesForExport}
         exportFilename="acceptances_export"
         emptyIcon={IconFileText}
         emptyTitle="No acceptances found"
