@@ -227,7 +227,6 @@ function AcceptancesPage() {
       render: (value, row) => (
         <div>
           <p className="font-medium text-gray-900">{value}</p>
-          <p className="text-sm text-gray-500">{row.registration_number}</p>
         </div>
       ),
     },
@@ -252,7 +251,7 @@ function AcceptancesPage() {
       render: (value, row) => (
         <div>
           <p className="text-gray-900">{value}</p>
-          <p className="text-sm text-gray-500">{row.route_name || 'N/A'}</p>
+          <p className="text-sm text-gray-500">{row.route_name}</p>
         </div>
       ),
     },
