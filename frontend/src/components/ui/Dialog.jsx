@@ -1,6 +1,6 @@
 /**
  * Reusable Dialog Component
- * 
+ *
  * A flexible, accessible modal dialog component with:
  * - Customizable width via props
  * - Scrollable content when long
@@ -11,11 +11,24 @@
  * - Prevent body scroll when open
  */
 
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { IconX } from '@tabler/icons-react';
 import { cn } from '../../utils/helpers';
 import { Button } from './Button';
+
+const overlayVariants = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit:    { opacity: 0 },
+};
+const panelVariants = {
+  initial: { opacity: 0, y: 12, scale: 0.98 },
+  animate: { opacity: 1, y: 0,  scale: 1    },
+  exit:    { opacity: 0, y: 12, scale: 0.98 },
+};
+const modalTransition = { duration: 0.2, ease: 'easeOut' };
 
 // Width presets
 const WIDTH_PRESETS = {
@@ -33,7 +46,7 @@ const WIDTH_PRESETS = {
 
 /**
  * Dialog Component
- * 
+ *
  * @param {Object} props
  * @param {boolean} props.isOpen - Whether the dialog is open
  * @param {function} props.onClose - Function to call when dialog should close
@@ -96,17 +109,17 @@ export function Dialog({
   useEffect(() => {
     if (isOpen) {
       previousActiveElement.current = document.activeElement;
-      
+
       if (preventBodyScroll) {
         const originalOverflow = document.body.style.overflow;
         const originalPaddingRight = document.body.style.paddingRight;
         const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
-        
+
         document.body.style.overflow = 'hidden';
         if (scrollbarWidth > 0) {
           document.body.style.paddingRight = `${scrollbarWidth}px`;
         }
-        
+
         return () => {
           document.body.style.overflow = originalOverflow;
           document.body.style.paddingRight = originalPaddingRight;
@@ -120,7 +133,7 @@ export function Dialog({
     if (isOpen && dialogRef.current) {
       dialogRef.current.focus();
     }
-    
+
     return () => {
       if (previousActiveElement.current && typeof previousActiveElement.current.focus === 'function') {
         previousActiveElement.current.focus();
@@ -136,98 +149,108 @@ export function Dialog({
     }
   }, [isOpen, handleKeyDown]);
 
-  if (!isOpen) return null;
-
   // Determine width class
   const widthClass = WIDTH_PRESETS[width] || width;
 
   const dialogContent = (
-    <div
-      className={cn(
-        'fixed inset-0 z-[100] flex items-center justify-center p-4',
-        'bg-black/50 backdrop-blur-sm',
-        'animate-in fade-in duration-200',
-        overlayClassName
-      )}
-      onClick={handleOverlayClick}
-      role="presentation"
-    >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={title ? 'dialog-title' : undefined}
-        aria-describedby={description ? 'dialog-description' : undefined}
-        tabIndex={-1}
-        className={cn(
-          'bg-white rounded-xl shadow-2xl w-full flex flex-col',
-          'animate-in fade-in zoom-in-95 duration-200',
-          widthClass,
-          className
-        )}
-        style={{ maxHeight }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        {header ? (
-          header
-        ) : (title || showCloseButton) ? (
-          <div className="flex items-start justify-between p-4 sm:p-6 border-b border-gray-100 flex-shrink-0">
-            <div className="flex-1 pr-4">
-              {title && (
-                <h2 
-                  id="dialog-title" 
-                  className="text-lg font-semibold text-gray-900"
-                >
-                  {title}
-                </h2>
-              )}
-              {description && (
-                <p 
-                  id="dialog-description" 
-                  className="mt-1 text-sm text-gray-500"
-                >
-                  {description}
-                </p>
-              )}
-            </div>
-            {showCloseButton && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onClose}
-                className="-m-1 text-gray-400 hover:text-gray-600"
-                aria-label="Close dialog"
-              >
-                <IconX className="w-5 h-5" />
-              </Button>
-            )}
-          </div>
-        ) : null}
-
-        {/* Content */}
-        <div 
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          variants={overlayVariants}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          transition={modalTransition}
           className={cn(
-            'flex-1 overflow-y-auto p-4 sm:p-6',
-            contentClassName
+            'fixed inset-0 z-[100] flex items-center justify-center p-4',
+            'bg-black/50 backdrop-blur-sm',
+            overlayClassName
           )}
+          onClick={handleOverlayClick}
+          role="presentation"
         >
-          {children}
-        </div>
+          <motion.div
+            variants={panelVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            transition={modalTransition}
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={title ? 'dialog-title' : undefined}
+            aria-describedby={description ? 'dialog-description' : undefined}
+            tabIndex={-1}
+            className={cn(
+              'bg-white rounded-xl shadow-2xl w-full flex flex-col',
+              widthClass,
+              className
+            )}
+            style={{ maxHeight }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            {header ? (
+              header
+            ) : (title || showCloseButton) ? (
+              <div className="flex items-start justify-between p-4 sm:p-6 border-b border-gray-100 flex-shrink-0">
+                <div className="flex-1 pr-4">
+                  {title && (
+                    <h2
+                      id="dialog-title"
+                      className="text-lg font-semibold text-gray-900"
+                    >
+                      {title}
+                    </h2>
+                  )}
+                  {description && (
+                    <p
+                      id="dialog-description"
+                      className="mt-1 text-sm text-gray-500"
+                    >
+                      {description}
+                    </p>
+                  )}
+                </div>
+                {showCloseButton && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={onClose}
+                    className="-m-1 text-gray-400 hover:text-gray-600"
+                    aria-label="Close dialog"
+                  >
+                    <IconX className="w-5 h-5" />
+                  </Button>
+                )}
+              </div>
+            ) : null}
 
-        {/* Footer */}
-        {customFooter ? (
-          customFooter
-        ) : footer ? (
-          <div className={cn(
-            'flex items-center justify-end gap-3 px-4 py-2 sm:px-6 sm:py-4 flex-shrink-0',
-            showFooterBorder && 'border-t border-gray-100'
-          )}>
-            {footer}
-          </div>
-        ) : null}
-      </div>
-    </div>
+            {/* Content */}
+            <div
+              className={cn(
+                'flex-1 overflow-y-auto p-4 sm:p-6',
+                contentClassName
+              )}
+            >
+              {children}
+            </div>
+
+            {/* Footer */}
+            {customFooter ? (
+              customFooter
+            ) : footer ? (
+              <div className={cn(
+                'flex items-center justify-end gap-2 px-4 py-2 sm:px-6 sm:py-4 flex-shrink-0',
+                showFooterBorder && 'border-t border-gray-100'
+              )}>
+                {footer}
+              </div>
+            ) : null}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 
   // Render using portal to ensure proper stacking
@@ -282,13 +305,6 @@ export function DialogBody({ children, className }) {
 
 /**
  * Dialog Footer Component
- * For custom footers - typically used for action buttons
- * 
- * @param {Object} props
- * @param {React.ReactNode} props.children - Footer content
- * @param {string} [props.className] - Additional classes
- * @param {'start'|'center'|'end'|'between'|'around'} [props.align='end'] - Content alignment
- * @param {boolean} [props.showBorder=true] - Whether to show top border
  */
 export function DialogFooter({ children, className, align = 'end', showBorder = true }) {
   const alignmentClasses = {
@@ -313,7 +329,6 @@ export function DialogFooter({ children, className, align = 'end', showBorder = 
 
 /**
  * useDialog Hook
- * Helper hook for managing dialog state
  */
 export function useDialog(initialOpen = false) {
   const [isOpen, setIsOpen] = useState(initialOpen);
@@ -342,8 +357,5 @@ export function useDialog(initialOpen = false) {
     setData,
   };
 }
-
-// Need to import useState for the hook
-import { useState } from 'react';
 
 export default Dialog;
