@@ -1,11 +1,37 @@
 /**
  * Reusable Confirmation Dialog Component
- * Supports simple confirm, danger confirm with text input, and custom content
+ * Supports simple confirm, danger confirm with text input, and custom content.
+ *
+ * Hook usage (recommended):
+ *   const { confirm, DialogComponent } = useConfirmDialog();
+ *   // in JSX: {DialogComponent}
+ *   // in handler:
+ *   const ok = await confirm({ title: 'Delete?', variant: 'danger', requireText: 'DELETE' });
+ *   if (ok) deleteItem();
  */
 
 import { useState, useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Button } from './Button';
-import { IconX, IconAlertTriangle, IconTrash, IconAlertCircle, IconCircleCheck } from '@tabler/icons-react';
+import {
+  IconX,
+  IconAlertTriangle,
+  IconTrash,
+  IconAlertCircle,
+  IconCircleCheck,
+} from '@tabler/icons-react';
+
+const overlayVariants = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit:    { opacity: 0 },
+};
+const panelVariants = {
+  initial: { opacity: 0, y: 12, scale: 0.98 },
+  animate: { opacity: 1, y: 0,  scale: 1    },
+  exit:    { opacity: 0, y: 12, scale: 0.98 },
+};
+const modalTransition = { duration: 0.2, ease: 'easeOut' };
 
 const VARIANTS = {
   danger: {
@@ -18,7 +44,7 @@ const VARIANTS = {
     icon: IconAlertTriangle,
     iconBg: 'bg-amber-100',
     iconColor: 'text-amber-600',
-    buttonVariant: 'warning',
+    buttonVariant: 'secondary',
   },
   info: {
     icon: IconAlertCircle,
@@ -30,7 +56,7 @@ const VARIANTS = {
     icon: IconCircleCheck,
     iconBg: 'bg-green-100',
     iconColor: 'text-green-600',
-    buttonVariant: 'success',
+    buttonVariant: 'primary',
   },
 };
 
@@ -43,105 +69,106 @@ export function ConfirmDialog({
   confirmText = 'Confirm',
   cancelText = 'Cancel',
   variant = 'warning',
-  requireText = null, // If set, user must type this text to confirm
+  requireText = null,
   loading = false,
 }) {
   const [inputValue, setInputValue] = useState('');
   const variantConfig = VARIANTS[variant] || VARIANTS.warning;
   const IconComponent = variantConfig.icon;
 
-  // Reset input when dialog opens/closes
   useEffect(() => {
-    if (!isOpen) {
-      setInputValue('');
-    }
+    if (!isOpen) setInputValue('');
   }, [isOpen]);
-
-  if (!isOpen) return null;
 
   const canConfirm = requireText ? inputValue === requireText : true;
 
-  const handleConfirm = () => {
-    if (canConfirm) {
-      onConfirm();
-    }
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && canConfirm && !loading) {
-      handleConfirm();
-    }
-    if (e.key === 'Escape') {
-      onClose();
-    }
-  };
-
   return (
-    <div 
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50"
-      onClick={onClose}
-      onKeyDown={handleKeyDown}
-    >
-      <div 
-        className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 transform transition-all animate-in fade-in zoom-in-95 duration-200"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-start gap-4">
-          <div className={`w-12 h-12 rounded-full ${variantConfig.iconBg} flex items-center justify-center flex-shrink-0`}>
-            <IconComponent className={`w-6 h-6 ${variantConfig.iconColor}`} />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-            <p className="text-sm text-gray-600 mt-1">{message}</p>
-          </div>
-          <Button 
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          variants={overlayVariants}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          transition={modalTransition}
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50"
+          onClick={onClose}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && canConfirm && !loading) onConfirm();
+            if (e.key === 'Escape') onClose();
+          }}
+        >
+          <motion.div
+            variants={panelVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            transition={modalTransition}
+            className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6"
+            onClick={(e) => e.stopPropagation()}
           >
-            <IconX className="w-5 h-5" />
-          </Button>
-        </div>
+            {/* Header */}
+            <div className="flex items-start gap-4">
+              <div className={`w-12 h-12 rounded-full ${variantConfig.iconBg} flex items-center justify-center flex-shrink-0`}>
+                <IconComponent className={`w-6 h-6 ${variantConfig.iconColor}`} />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+                <p className="text-sm text-gray-600 mt-1">{message}</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onClose}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <IconX className="w-5 h-5" />
+              </Button>
+            </div>
 
-        {/* Require Text Input */}
-        {requireText && (
-          <div className="mt-4">
-            <p className="text-sm text-gray-600 mb-2">
-              Type <span className="font-mono font-bold text-red-600">{requireText}</span> to confirm:
-            </p>
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              placeholder={requireText}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 font-mono"
-              autoFocus
-            />
-          </div>
-        )}
+            {/* Require-text input for dangerous operations */}
+            {requireText && (
+              <div className="mt-4">
+                <p className="text-sm text-gray-600 mb-2">
+                  Type{' '}
+                  <span className="font-mono font-bold text-red-600">{requireText}</span>{' '}
+                  to confirm:
+                </p>
+                <input
+                  type="text"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  placeholder={requireText}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 font-mono text-sm"
+                  autoFocus
+                />
+              </div>
+            )}
 
-        {/* Actions */}
-        <div className="flex justify-end gap-3 mt-6">
-          <Button variant="outline" onClick={onClose} disabled={loading}>
-            {cancelText}
-          </Button>
-          <Button
-            variant={variantConfig.buttonVariant}
-            onClick={handleConfirm}
-            disabled={!canConfirm || loading}
-            loading={loading}
-          >
-            {confirmText}
-          </Button>
-        </div>
-      </div>
-    </div>
+            {/* Actions */}
+            <div className="flex justify-end gap-3 mt-6">
+              <Button variant="outline" onClick={onClose} disabled={loading}>
+                {cancelText}
+              </Button>
+              <Button
+                variant={variantConfig.buttonVariant}
+                onClick={onConfirm}
+                disabled={!canConfirm || loading}
+                loading={loading}
+              >
+                {confirmText}
+              </Button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
-// Hook for easier usage
+/**
+ * Promise-based hook. Resolves true if confirmed, false if cancelled.
+ */
 export function useConfirmDialog() {
   const [state, setState] = useState({
     isOpen: false,
@@ -149,15 +176,10 @@ export function useConfirmDialog() {
     resolve: null,
   });
 
-  const confirm = (config) => {
-    return new Promise((resolve) => {
-      setState({
-        isOpen: true,
-        config,
-        resolve,
-      });
-    });
-  };
+  const confirm = (config) =>
+    new Promise((resolve) =>
+      setState({ isOpen: true, config, resolve })
+    );
 
   const handleConfirm = () => {
     state.resolve?.(true);
