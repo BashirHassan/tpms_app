@@ -93,6 +93,7 @@ const LocationTrackerPage = lazy(() => import('./pages/supervisor/LocationTracke
 const GlobalUsersPage = lazy(() => import('./pages/admin/GlobalUsersPage'));
 const GlobalFeaturesPage = lazy(() => import('./pages/admin/GlobalFeaturesPage'));
 const GlobalPaymentsPage = lazy(() => import('./pages/admin/GlobalPaymentsPage'));
+const DatabaseBackupsPage = lazy(() => import('./pages/admin/DatabaseBackupsPage'));
 
 // Student Pages
 const StudentDashboard = lazy(() => import('./pages/student/StudentDashboard'));
@@ -101,10 +102,8 @@ const AcceptanceFormPage = lazy(() => import('./pages/student/AcceptanceFormPage
 const PostingLetterPage = lazy(() => import('./pages/student/PostingLetterPage'));
 const IntroductionLetterPage = lazy(() => import('./pages/student/IntroductionLetterPage'));
 const AcceptanceDocumentPage = lazy(() => import('./pages/student/AcceptanceDocumentPage'));
-
-// Public Pages
-const PrincipalUpdatePage = lazy(() => import('./pages/public/PrincipalUpdatePage'));
-const LocationUpdatePage = lazy(() => import('./pages/public/LocationUpdatePage'));
+const StudentPrincipalUpdatePage = lazy(() => import('./pages/student/PrincipalUpdatePage'));
+const StudentLocationUpdatePage = lazy(() => import('./pages/student/LocationUpdatePage'));
 const DocsPage = lazy(() => import('./pages/public/DocsPage'));
 const MaintenancePage = lazy(() => import('./pages/errors/MaintenancePage'));
 
@@ -426,15 +425,25 @@ function AppRoutes() {
               />
               
               {/* Global Payments - Super Admin on admin subdomain */}
-              <Route 
-                path="global-payments" 
+              <Route
+                path="global-payments"
                 element={
                   <GlobalRoute>
                     <GlobalPaymentsPage />
                   </GlobalRoute>
-                } 
+                }
               />
-              
+
+              {/* Database Backups - Super Admin on admin subdomain */}
+              <Route
+                path="database-backups"
+                element={
+                  <GlobalRoute>
+                    <SuspensePage><DatabaseBackupsPage /></SuspensePage>
+                  </GlobalRoute>
+                }
+              />
+
               {/* Master Schools - Central Registry Management - Super Admin on admin subdomain */}
               <Route 
                 path="master-schools" 
@@ -464,12 +473,8 @@ function AppRoutes() {
               <Route path="introduction-letter" element={<IntroductionLetterPage />} />
               <Route path="acceptance-document" element={<AcceptanceDocumentPage />} />
               <Route path="posting-letter" element={<PostingLetterPage />} />
-            </Route>
-
-            {/* Public Routes (No Auth Required) */}
-            <Route element={<PublicLayout />}>
-              <Route path="/principal-update" element={<PrincipalUpdatePage />} />
-              <Route path="/location-update" element={<LocationUpdatePage />} />
+              <Route path="principal-update" element={<SuspensePage><StudentPrincipalUpdatePage /></SuspensePage>} />
+              <Route path="location-update" element={<SuspensePage><StudentLocationUpdatePage /></SuspensePage>} />
             </Route>
 
             {/* Redirects */}

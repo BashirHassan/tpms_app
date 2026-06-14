@@ -8,6 +8,7 @@ const multer = require('multer');
 const portalController = require('../controllers/portalController');
 const acceptanceController = require('../controllers/acceptanceController');
 const paymentController = require('../controllers/paymentController');
+const publicController = require('../controllers/publicController');
 const { authenticate } = require('../middleware/auth');
 const { studentOnly, requireInstitutionAccess, staffOnly } = require('../middleware/rbac');
 const { requireFeature } = require('../middleware/featureToggle');
@@ -48,6 +49,35 @@ router.get('/portal/payments/status', authenticate, studentOnly, paymentControll
 router.get('/portal/payments/pending', authenticate, studentOnly, paymentController.getStudentPendingTransactions);
 router.post('/portal/payments/initialize', authenticate, studentOnly, paymentController.initializeStudentPayment);
 router.post('/portal/payments/verify', authenticate, studentOnly, paymentController.verifyStudentPayment);
+
+// School update portal routes — student auth; institution comes from JWT
+// Thin adapters: inject institutionId from student JWT into req.params then forward to publicController
+function withStudentInstitution(fn) {
+  return (req, res, next) => {
+    req.params.institutionId = String(req.user.institutionId);
+    fn(req, res, next);
+  };
+}
+
+router.get('/portal/schools/for-update',
+  authenticate, studentOnly,
+  withStudentInstitution(publicController.getSchools));
+
+router.get('/portal/schools/:schoolId/principal',
+  authenticate, studentOnly,
+  withStudentInstitution(publicController.getSchoolPrincipal));
+
+router.post('/portal/schools/principal-update',
+  authenticate, studentOnly,
+  withStudentInstitution(publicController.submitPrincipalUpdate));
+
+router.get('/portal/schools/:schoolId/location',
+  authenticate, studentOnly,
+  withStudentInstitution(publicController.getSchoolLocation));
+
+router.post('/portal/schools/location-update',
+  authenticate, studentOnly,
+  withStudentInstitution(publicController.submitLocationUpdate));
 
 // Institution-scoped portal endpoints (for admin access to student data)
 // 🔒 SECURITY: These require authentication, institution access check, and staff role

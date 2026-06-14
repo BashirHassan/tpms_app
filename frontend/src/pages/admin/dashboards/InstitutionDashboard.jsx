@@ -1,6 +1,6 @@
 /**
  * Institution Dashboard
- * 
+ *
  * Head of Teaching Practice dashboard with institution-specific statistics.
  * Shows students, staff, schools, postings, and results.
  * Feature toggle dependent sections.
@@ -12,6 +12,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { dashboardApi } from '../../../api/dashboard';
 import { formatCurrency, formatDate, formatGreetingName } from '../../../utils/helpers';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/Card';
+import { StatsCard } from '../../../components/ui/StatsCard';
 import { Button } from '../../../components/ui/Button';
 import { DashboardSkeleton } from '../../../components/ui/Skeleton';
 import {
@@ -66,7 +67,6 @@ function InstitutionDashboard() {
     return num?.toString() || '0';
   };
 
-
   const formatTimeAgo = (dateString) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -106,7 +106,7 @@ function InstitutionDashboard() {
       value: formatNumber(students?.total_students),
       subValue: `${students?.active_students || 0} active`,
       icon: IconSchool,
-      color: 'bg-blue-500',
+      tone: 'blue',
       link: '/admin/students',
     },
     {
@@ -114,7 +114,7 @@ function InstitutionDashboard() {
       value: formatNumber(staff?.total_staff),
       subValue: `${staff?.supervisors || 0} supervisors`,
       icon: IconUsers,
-      color: 'bg-green-500',
+      tone: 'green',
       link: '/admin/users',
     },
     {
@@ -122,7 +122,7 @@ function InstitutionDashboard() {
       value: formatNumber(schools?.total_schools),
       subValue: `${schools?.active_schools || 0} active`,
       icon: IconBuildingBank,
-      color: 'bg-purple-500',
+      tone: 'purple',
       link: '/admin/schools',
     },
   ];
@@ -130,26 +130,24 @@ function InstitutionDashboard() {
   // Feature-dependent stats
   const featureStats = [];
 
-  // Total Postings (replaces Active Postings)
-  if (hasFeature('posting_engine') || hasFeature('supervisor_posting')) {
+  if (hasFeature('posting_management')) {
     featureStats.push({
       name: 'Total Postings',
       value: formatNumber(postings?.total_postings),
       subValue: `${postings?.primary_postings || 0} primary • ${postings?.secondary_postings || 0} merged`,
       icon: IconClipboardList,
-      color: 'bg-orange-500',
+      tone: 'orange',
       link: '/admin/postings',
     });
   }
 
-  // Payments - only visible to super_admin
-  if ((hasFeature('payment_integration') || hasFeature('payment_gateway')) && user?.role === 'super_admin') {
+  if (hasFeature('payment_management') && user?.role === 'super_admin') {
     featureStats.push({
       name: 'Payments',
       value: formatCurrency(payments?.successful_amount),
       subValue: `${payments?.successful_payments || 0} received`,
       icon: IconCash,
-      color: 'bg-teal-500',
+      tone: 'teal',
       link: '/admin/payments',
     });
   }
@@ -157,9 +155,9 @@ function InstitutionDashboard() {
   const allStats = [...primaryStats, ...featureStats];
 
   const lgGridCols =
-  allStats.length >= 5
-    ? 'lg:grid-cols-5'
-    : `lg:grid-cols-${allStats.length}`;
+    allStats.length >= 5
+      ? 'lg:grid-cols-5'
+      : `lg:grid-cols-${allStats.length}`;
 
   return (
     <div className="space-y-4">
@@ -176,9 +174,7 @@ function InstitutionDashboard() {
               {currentSession && (
                 <span className="flex items-center text-sm text-primary-100">
                   (<IconCalendar className="w-4 h-4" />
-                  <span>
-                    {currentSession.name}
-                  </span>)
+                  <span>{currentSession.name}</span>)
                 </span>
               )}
             </p>
@@ -199,23 +195,19 @@ function InstitutionDashboard() {
 
       {/* Stats Grid */}
       <div className={`grid grid-cols-2 md:grid-cols-2 ${lgGridCols} gap-3`}>
-        {allStats.map((stat) => (
-          <Link key={stat.name} to={stat.link}>
-            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-              <CardContent className="p-3 sm:p-4">
-                <div className="flex items-start gap-3">
-                  <div className={`w-10 h-10 rounded-lg ${stat.color} flex items-center justify-center flex-shrink-0`}>
-                    <stat.icon className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-gray-500 truncate">{stat.name}</p>
-                    <p className="text-lg sm:text-xl font-bold text-gray-900 truncate">{stat.value}</p>
-                    <p className="text-xs text-gray-400 truncate">{stat.subValue}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
+        {allStats.map((stat, i) => (
+          <StatsCard
+            key={stat.name}
+            index={i}
+            title={stat.name}
+            value={stat.value}
+            icon={stat.icon}
+            tone={stat.tone}
+            subValue={stat.subValue}
+            to={stat.link}
+            className="h-full"
+            valueClassName="text-lg sm:text-xl"
+          />
         ))}
       </div>
 
@@ -254,7 +246,7 @@ function InstitutionDashboard() {
       {/* Student & Acceptance Breakdown */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {/* Acceptance Status Breakdown */}
-        <Card>
+        <Card delay={0.05}>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base sm:text-lg">Acceptance Status</CardTitle>
             <Link
@@ -266,27 +258,34 @@ function InstitutionDashboard() {
             </Link>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {hasFeature('acceptance_forms') && (
-                <div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-3 bg-green-50 rounded-lg text-center">
-                      <p className="text-2xl font-bold text-green-700">{acceptances?.submitted || 0}</p>
-                      <p className="text-xs text-green-600">Submitted</p>
-                    </div>
-                    <div className="p-3 bg-gray-50 rounded-lg text-center">
-                      <p className="text-2xl font-bold text-gray-700">{acceptances?.not_submitted || 0}</p>
-                      <p className="text-xs text-gray-600">Not Submitted</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            {hasFeature('acceptance_forms') && (
+              <div className="grid grid-cols-2 gap-3">
+                <StatsCard
+                  surface="panel"
+                  title="Submitted"
+                  value={acceptances?.submitted ?? 0}
+                  icon={IconFileCheck}
+                  tone="green"
+                  valueClassName="text-green-700 text-xl"
+                  labelClassName="text-green-600"
+                />
+                <StatsCard
+                  surface="panel"
+                  title="Not Submitted"
+                  value={acceptances?.not_submitted ?? 0}
+                  icon={IconAlertCircle}
+                  tone="gray"
+                  valueClassName="text-gray-700 text-xl"
+                  labelClassName="text-gray-600"
+                />
+              </div>
+            )}
           </CardContent>
         </Card>
+
         {/* Results Summary */}
-        {hasFeature('supervisor_scoring') && (
-          <Card>
+        {hasFeature('student_results') && (
+          <Card delay={0.1}>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base sm:text-lg flex items-center gap-2">
                 <IconReport className="w-5 h-5 text-gray-400" />
@@ -301,34 +300,21 @@ function InstitutionDashboard() {
               </Link>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="p-3 bg-blue-50 rounded-lg text-center">
-                  <p className="text-2xl font-bold text-blue-700">{results?.total_results || 0}</p>
-                  <p className="text-xs text-blue-600">Total Results</p>
-                </div>
-                <div className="p-3 bg-green-50 rounded-lg text-center">
-                  <p className="text-2xl font-bold text-green-700">{results?.students_assessed || 0}</p>
-                  <p className="text-xs text-green-600">Students Assessed</p>
-                </div>
-                <div className="p-3 bg-orange-50 rounded-lg text-center">
-                  <p className="text-2xl font-bold text-orange-700">{results?.highest_score || 0}</p>
-                  <p className="text-xs text-orange-600">Highest Score</p>
-                </div>
-                <div className="p-3 bg-purple-50 rounded-lg text-center">
-                  <p className="text-2xl font-bold text-purple-700">{results?.compliance_percentage || 0}%</p>
-                  <p className="text-xs text-purple-600">Compliance</p>
-                </div>
+              <div className="grid grid-cols-2 gap-3">
+                <StatsCard surface="panel" title="Total Results" value={results?.total_results ?? 0} icon={IconReport} tone="blue" valueClassName="text-blue-700 text-xl" labelClassName="text-blue-600" />
+                <StatsCard surface="panel" title="Assessed" value={results?.students_assessed ?? 0} icon={IconFileCheck} tone="green" valueClassName="text-green-700 text-xl" labelClassName="text-green-600" />
+                <StatsCard surface="panel" title="Highest Score" value={results?.highest_score ?? 0} icon={IconReport} tone="orange" valueClassName="text-orange-700 text-xl" labelClassName="text-orange-600" />
+                <StatsCard surface="panel" title="Compliance" value={`${results?.compliance_percentage ?? 0}%`} icon={IconFileCheck} tone="purple" valueClassName="text-purple-700 text-xl" labelClassName="text-purple-600" />
               </div>
             </CardContent>
           </Card>
         )}
       </div>
 
-
       {/* Quick Actions & Recent Activity */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {/* Quick Actions */}
-        <Card>
+        <Card delay={0.1}>
           <CardHeader>
             <CardTitle className="text-base sm:text-lg">Quick Actions</CardTitle>
           </CardHeader>
@@ -357,7 +343,7 @@ function InstitutionDashboard() {
                   <span className="text-sm font-medium text-gray-700 text-center">Review Acceptances</span>
                 </Link>
               )}
-              {hasFeature('supervisor_posting') && (
+              {hasFeature('posting_management') && (
                 <Link
                   to="/admin/multiposting"
                   className="flex flex-col items-center gap-2 p-4 rounded-lg border border-gray-200 hover:bg-gray-50 hover:border-primary-300 transition-colors"
@@ -366,7 +352,7 @@ function InstitutionDashboard() {
                   <span className="text-sm font-medium text-gray-700 text-center">Create Postings</span>
                 </Link>
               )}
-              {hasFeature('supervisor_posting') && (
+              {hasFeature('posting_management') && (
                 <Link
                   to="/admin/postings"
                   className="flex flex-col items-center gap-2 p-4 rounded-lg border border-gray-200 hover:bg-gray-50 hover:border-primary-300 transition-colors"
@@ -375,7 +361,7 @@ function InstitutionDashboard() {
                   <span className="text-sm font-medium text-gray-700 text-center">All Postings</span>
                 </Link>
               )}
-              {hasFeature('supervisor_scoring') && (
+              {hasFeature('student_results') && (
                 <Link
                   to="/admin/results"
                   className="flex flex-col items-center gap-2 p-4 rounded-lg border border-gray-200 hover:bg-gray-50 hover:border-primary-300 transition-colors"
@@ -389,7 +375,7 @@ function InstitutionDashboard() {
         </Card>
 
         {/* Recent Activity */}
-        <Card>
+        <Card delay={0.15}>
           <CardHeader>
             <CardTitle className="text-base sm:text-lg flex items-center gap-2">
               <IconActivity className="w-5 h-5 text-gray-400" />

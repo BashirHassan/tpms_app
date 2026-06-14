@@ -46,6 +46,7 @@ import {
   IconPrinter,
   IconEdit,
   IconTemplate,
+  IconDatabase,
 } from '@tabler/icons-react';
 
 /**
@@ -135,6 +136,7 @@ const globalNavigation = [
   { name: 'Global Users', href: '/admin/global-users', icon: IconUsers },
   { name: 'Global Features', href: '/admin/global-features', icon: IconToggleLeft },
   { name: 'Global Payments', href: '/admin/global-payments', icon: IconCreditCard },
+  { name: 'Database Backups', href: '/admin/database-backups', icon: IconDatabase },
   { name: 'My Profile', href: '/admin/profile', icon: IconUser },
 ];
 

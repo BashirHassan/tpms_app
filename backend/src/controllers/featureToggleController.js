@@ -8,6 +8,7 @@
 const { z } = require('zod');
 const { query } = require('../db/database');
 const { NotFoundError, ValidationError } = require('../utils/errors');
+const { clearFeatureCache } = require('../middleware/featureToggle');
 
 // Validation schemas
 const schemas = {
@@ -288,6 +289,7 @@ const update = async (req, res, next) => {
        JSON.stringify({ feature_key: feature.feature_key, is_enabled }), req.ip]
     );
 
+    clearFeatureCache(parseInt(institutionId));
     res.json({
       success: true,
       message: `Feature ${is_enabled ? 'enabled' : 'disabled'} successfully`,
@@ -364,6 +366,7 @@ const bulkUpdate = async (req, res, next) => {
       }
     }
 
+    clearFeatureCache(parseInt(institutionId));
     res.json({
       success: true,
       data: results,
@@ -453,6 +456,7 @@ const create = async (req, res, next) => {
        JSON.stringify({ feature_key, name, is_enabled, is_premium }), req.ip]
     );
 
+    clearFeatureCache(parseInt(institutionId));
     res.status(201).json({
       success: true,
       message: 'Feature created successfully',
@@ -541,6 +545,7 @@ const toggle = async (req, res, next) => {
        JSON.stringify({ feature_key: feature.feature_key, is_enabled }), req.ip]
     );
 
+    clearFeatureCache(parseInt(institutionId));
     res.json({
       success: true,
       message: `Feature ${is_enabled ? 'enabled' : 'disabled'} successfully`,
@@ -590,6 +595,7 @@ const remove = async (req, res, next) => {
        JSON.stringify({ feature_key: feature.feature_key, name: feature.name }), req.ip]
     );
 
+    clearFeatureCache(parseInt(institutionId));
     res.json({
       success: true,
       message: 'Feature deleted successfully',

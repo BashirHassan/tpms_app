@@ -1240,4 +1240,12 @@ router.delete('/global/master-schools/:id/force', authenticate, isSuperAdmin, ma
 router.post('/global/master-schools/:id/verify', authenticate, isSuperAdmin, masterSchoolController.verify);
 router.post('/global/master-schools/merge', authenticate, isSuperAdmin, validate(masterSchoolController.schemas.merge), masterSchoolController.merge);
 
+// =============================================================================
+// DATABASE BACKUPS (Super Admin only)
+// =============================================================================
+
+const { listBackups, downloadBackup } = require('../controllers/backupController');
+router.get('/global/backups',           authenticate, isSuperAdmin, listBackups);
+router.get('/global/backups/:filename', authenticate, isSuperAdmin, downloadBackup);
+
 module.exports = router;

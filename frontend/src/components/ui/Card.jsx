@@ -3,16 +3,21 @@
  * Container component with various styles
  */
 
+import { motion } from 'framer-motion';
 import { cn } from '../../utils/helpers';
 
-function Card({ className, children, ...props }) {
+function Card({ className, children, delay = 0, ...props }) {
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-40px' }}
+      transition={{ duration: 0.35, ease: 'easeOut', delay }}
       className={cn('rounded-lg border border-gray-200 bg-white shadow-sm', className)}
       {...props}
     >
       {children}
-    </div>
+    </motion.div>
   );
 }
 

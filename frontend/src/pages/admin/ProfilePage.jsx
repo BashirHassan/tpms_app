@@ -11,12 +11,13 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Ca
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
-import { 
-  IconUser, 
-  IconLock, 
-  IconMail, 
-  IconPhone, 
-  IconBuilding, 
+import { usePasswordConfirmDialog } from '../../components/ui/PasswordConfirmDialog';
+import {
+  IconUser,
+  IconLock,
+  IconMail,
+  IconPhone,
+  IconBuilding,
   IconFileText,
   IconShieldCheck,
   IconBuildingBank,
@@ -25,9 +26,10 @@ import {
 } from '@tabler/icons-react';
 
 function ProfilePage() {
-  const { user, institution, refreshProfile } = useAuth();
+  const { user, institution, refreshProfile, hasFeature } = useAuth();
   const { toast } = useToast();
   const { get } = useInstitutionApi();
+  const canEditProfile = user?.role === 'super_admin' || hasFeature('edit_profile');
 
   const [profileData, setProfileData] = useState({
     name: user?.name || '',
@@ -46,6 +48,8 @@ function ProfilePage() {
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [ranks, setRanks] = useState([]);
   const [faculties, setFaculties] = useState([]);
+
+  const { confirmWithAction, DialogComponent: PasswordDialog } = usePasswordConfirmDialog();
 
   // Load ranks and faculties for dropdowns
   useEffect(() => {
@@ -80,20 +84,46 @@ function ProfilePage() {
     }
   }, [user]);
 
+  const buildProfilePayload = () => {
+    const payload = { ...profileData };
+    if (!payload.phone) payload.phone = null;
+    if (!payload.file_number) payload.file_number = null;
+    if (!payload.rank_id) payload.rank_id = null;
+    else payload.rank_id = parseInt(payload.rank_id);
+    if (!payload.faculty_id) payload.faculty_id = null;
+    else payload.faculty_id = parseInt(payload.faculty_id);
+    return payload;
+  };
+
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
+
+    if (!canEditProfile) {
+      toast.error('Profile editing is disabled for your institution');
+      return;
+    }
+
+    const payload = buildProfilePayload();
+
+    // Email is changing — open password confirmation dialog
+    if (payload.email && payload.email !== user?.email) {
+      confirmWithAction(
+        {
+          title: 'Confirm Email Change',
+          description: `You are changing your email to ${payload.email}. Enter your current password to confirm.`,
+          confirmText: 'Confirm Change',
+        },
+        async (currentPassword) => {
+          await authApi.updateProfile({ ...payload, currentPassword });
+          await refreshProfile();
+          toast.success('Profile updated successfully');
+        }
+      );
+      return;
+    }
+
     setProfileLoading(true);
-
     try {
-      const payload = { ...profileData };
-      // Convert empty strings to null for optional fields
-      if (!payload.phone) payload.phone = null;
-      if (!payload.file_number) payload.file_number = null;
-      if (!payload.rank_id) payload.rank_id = null;
-      else payload.rank_id = parseInt(payload.rank_id);
-      if (!payload.faculty_id) payload.faculty_id = null;
-      else payload.faculty_id = parseInt(payload.faculty_id);
-
       await authApi.updateProfile(payload);
       await refreshProfile();
       toast.success('Profile updated successfully');
@@ -120,9 +150,9 @@ function ProfilePage() {
     setPasswordLoading(true);
 
     try {
-      await authApi.changePassword({ 
-        currentPassword: passwordData.currentPassword, 
-        newPassword: passwordData.newPassword 
+      await authApi.changePassword({
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword
       });
       toast.success('Password changed successfully');
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
@@ -162,7 +192,7 @@ function ProfilePage() {
             <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-white/20 backdrop-blur flex items-center justify-center text-white text-3xl sm:text-4xl font-bold border-4 border-white/30">
               {user?.name?.charAt(0)?.toUpperCase() || 'U'}
             </div>
-            
+
             {/* User Info */}
             <div className="text-center sm:text-left text-white">
               <h2 className="text-xl sm:text-2xl font-bold">{user?.name}</h2>
@@ -184,16 +214,7 @@ function ProfilePage() {
         </div>
 
         {/* Quick Info Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 divide-x divide-y sm:divide-y-0 divide-gray-100 bg-gray-50">
-          <div className="p-4 text-center">
-            <div className="flex items-center justify-center w-10 h-10 mx-auto rounded-full bg-blue-100 text-blue-600 mb-2">
-              <IconMail className="w-5 h-5" />
-            </div>
-            <p className="text-xs text-gray-500">Email</p>
-            <p className="text-sm font-medium text-gray-900 truncate" title={user?.email}>
-              {user?.email}
-            </p>
-          </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-gray-100 bg-gray-50">
           <div className="p-4 text-center">
             <div className="flex items-center justify-center w-10 h-10 mx-auto rounded-full bg-green-100 text-green-600 mb-2">
               <IconPhone className="w-5 h-5" />
@@ -233,6 +254,8 @@ function ProfilePage() {
         </div>
       </Card>
 
+      {PasswordDialog}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Edit Profile */}
         <Card>
@@ -243,72 +266,90 @@ function ProfilePage() {
               </div>
               <div>
                 <CardTitle className="text-lg">Edit Profile</CardTitle>
-                <p className="text-xs text-gray-500 mt-0.5">Update your personal information</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {canEditProfile
+                    ? 'Update your personal information'
+                    : 'Profile editing is disabled for your institution'}
+                </p>
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleProfileUpdate} className="space-y-4">
-              <Input
-                label="Full Name"
-                value={profileData.name}
-                onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
-                required
-                placeholder="Enter your full name"
-              />
-              <Input
-                label="Email Address"
-                type="email"
-                value={profileData.email}
-                onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
-                required
-                placeholder="Enter your email address"
-              />
-              <Input
-                label="Phone Number"
-                value={profileData.phone}
-                onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
-                placeholder="Enter your phone number"
-              />
-              <Input
-                label="File Number"
-                value={profileData.file_number}
-                onChange={(e) => setProfileData({ ...profileData, file_number: e.target.value })}
-                placeholder="Enter your file number"
-              />
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Rank</label>
-                <Select
-                  value={profileData.rank_id}
-                  onChange={(e) => setProfileData({ ...profileData, rank_id: e.target.value })}
-                >
-                  <option value="">Select rank</option>
-                  {ranks.map((rank) => (
-                    <option key={rank.id} value={rank.id}>
-                      {rank.name} ({rank.code})
-                    </option>
-                  ))}
-                </Select>
+            <form onSubmit={handleProfileUpdate}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <Input
+                    label="Full Name"
+                    value={profileData.name}
+                    onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
+                    required
+                    placeholder="Enter your full name"
+                    disabled={!canEditProfile}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Input
+                    label="Email Address"
+                    type="email"
+                    value={profileData.email}
+                    onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
+                    required
+                    placeholder="Enter your email address"
+                    disabled={!canEditProfile}
+                    helperText={canEditProfile ? 'Changing email requires password confirmation' : undefined}
+                  />
+                </div>
+                <Input
+                  label="Phone Number"
+                  value={profileData.phone}
+                  onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
+                  placeholder="Enter your phone number"
+                  disabled={!canEditProfile}
+                />
+                <Input
+                  label="File Number"
+                  value={profileData.file_number}
+                  onChange={(e) => setProfileData({ ...profileData, file_number: e.target.value })}
+                  placeholder="Enter your file number"
+                  disabled={!canEditProfile}
+                />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Rank</label>
+                  <Select
+                    value={profileData.rank_id}
+                    onChange={(e) => setProfileData({ ...profileData, rank_id: e.target.value })}
+                    disabled={!canEditProfile}
+                  >
+                    <option value="">Select rank</option>
+                    {ranks.map((rank) => (
+                      <option key={rank.id} value={rank.id}>
+                        {rank.name} ({rank.code})
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Faculty / Department</label>
+                  <Select
+                    value={profileData.faculty_id}
+                    onChange={(e) => setProfileData({ ...profileData, faculty_id: e.target.value })}
+                    disabled={!canEditProfile}
+                  >
+                    <option value="">Select faculty</option>
+                    {faculties.map((faculty) => (
+                      <option key={faculty.id} value={faculty.id}>
+                        {faculty.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Faculty / Department</label>
-                <Select
-                  value={profileData.faculty_id}
-                  onChange={(e) => setProfileData({ ...profileData, faculty_id: e.target.value })}
-                >
-                  <option value="">Select faculty</option>
-                  {faculties.map((faculty) => (
-                    <option key={faculty.id} value={faculty.id}>
-                      {faculty.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div className="flex justify-end">
-                <Button 
-                  type="submit" 
-                  loading={profileLoading} 
+              <div className="text-end mt-4">
+                <Button
+                  type="submit"
+                  loading={profileLoading}
                   className="w-full sm:w-auto"
+                  disabled={!canEditProfile}
                 >
                   Save Changes
                 </Button>
@@ -358,8 +399,8 @@ function ProfilePage() {
                 placeholder="Confirm new password"
               />
               <div className="flex justify-end">
-                <Button 
-                  type="submit" 
+                <Button
+                  type="submit"
                   loading={passwordLoading}
                   variant="secondary"
                   className="w-full sm:w-auto"

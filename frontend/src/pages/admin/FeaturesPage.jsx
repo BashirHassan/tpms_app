@@ -6,7 +6,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { featuresApi } from '../../api/features';
 import { useAuth } from '../../context/AuthContext';
+import { useInstitutionSelection } from '../../context/InstitutionSelectionContext';
 import { useToast } from '../../context/ToastContext';
+import { StatsCard } from '../../components/ui/StatsCard';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -56,7 +58,9 @@ const Textarea = ({ className = '', ...props }) => (
 
 function FeaturesPage() {
   const { refreshFeatures, hasRole } = useAuth();
+  const { refreshFeatures: refreshInstitutionFeatures } = useInstitutionSelection();
   const { toast } = useToast();
+  const toBoolean = (v) => v === true || v === 1;
   const [features, setFeatures] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(null);
@@ -84,15 +88,14 @@ function FeaturesPage() {
   const [showFilters, setShowFilters] = useState(false);
 
   const moduleNames = {
-    core: 'Core Features',
-    posting: 'Posting & Grouping',
-    finance: 'Finance & Payments',
-    documents: 'Documents',
-    portal: 'Portals',
+    core:       'Core Features',
+    posting:    'Posting & Grouping',
+    documents:  'Documents',
+    finance:    'Finance & Payments',
+    results:    'Results',
     monitoring: 'Monitoring',
-    reports: 'Reports & Analytics',
-    notifications: 'Notifications',
-    other: 'Other',
+    supervision:'Supervision',
+    schools:    'Schools & Updates',
   };
 
   const fetchFeatures = useCallback(async () => {
@@ -117,6 +120,7 @@ function FeaturesPage() {
       await featuresApi.toggle(featureId, !currentState);
       await fetchFeatures();
       await refreshFeatures();
+      await refreshInstitutionFeatures();
       toast.success(`Feature ${!currentState ? 'enabled' : 'disabled'}`);
     } catch (err) {
       toast.error('Failed to toggle feature');
@@ -219,6 +223,7 @@ function FeaturesPage() {
       handleCloseForm();
       await fetchFeatures();
       await refreshFeatures();
+      await refreshInstitutionFeatures();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to save feature');
     } finally {
@@ -236,6 +241,7 @@ function FeaturesPage() {
       setDeleteConfirm(null);
       await fetchFeatures();
       await refreshFeatures();
+      await refreshInstitutionFeatures();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to delete feature');
     } finally {
@@ -244,17 +250,17 @@ function FeaturesPage() {
   };
 
   // Stats calculations
-  const enabledCount = features.filter(f => f.is_enabled).length;
-  const premiumCount = features.filter(f => f.is_premium).length;
+  const enabledCount = features.filter(f => toBoolean(f.is_enabled)).length;
+  const premiumCount = features.filter(f => toBoolean(f.is_premium)).length;
 
   // Filter features based on selected filters
   const filteredFeatures = useMemo(() => {
     return features.filter((feature) => {
       if (filters.module && feature.module !== filters.module) return false;
-      if (filters.type === 'premium' && !feature.is_premium) return false;
-      if (filters.type === 'standard' && feature.is_premium) return false;
-      if (filters.status === 'enabled' && !feature.is_enabled) return false;
-      if (filters.status === 'disabled' && feature.is_enabled) return false;
+      if (filters.type === 'premium' && !toBoolean(feature.is_premium)) return false;
+      if (filters.type === 'standard' && toBoolean(feature.is_premium)) return false;
+      if (filters.status === 'enabled' && !toBoolean(feature.is_enabled)) return false;
+      if (filters.status === 'disabled' && toBoolean(feature.is_enabled)) return false;
       return true;
     });
   }, [features, filters]);
@@ -270,6 +276,15 @@ function FeaturesPage() {
   // DataTable columns
   const columns = useMemo(
     () => [
+      {
+        accessor: '__index',
+        header: '#',
+        sortable: false,
+        exportable: false,
+        render: (_v, _row, index) => (
+          <span className="text-sm text-gray-400 tabular-nums">{index + 1}</span>
+        ),
+      },
       {
         accessor: 'name',
         header: 'Feature',
@@ -315,18 +330,21 @@ function FeaturesPage() {
       {
         accessor: 'is_enabled',
         header: 'Status',
-        render: (value, row) => (
-          <div className="flex items-center gap-2">
-            <Switch
-              checked={value}
-              onCheckedChange={() => handleToggle(row.id, value)}
-              disabled={toggling === row.id}
-            />
-            <span className={`text-sm ${value ? 'text-green-600' : 'text-gray-500'}`}>
-              {value ? 'Enabled' : 'Disabled'}
-            </span>
-          </div>
-        ),
+        render: (value, row) => {
+          const enabled = toBoolean(value);
+          return (
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={enabled}
+                onCheckedChange={() => handleToggle(row.id, enabled)}
+                disabled={toggling === row.id}
+              />
+              <span className={`text-sm ${enabled ? 'text-green-600' : 'text-gray-500'}`}>
+                {enabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </div>
+          );
+        },
       },
       {
         accessor: 'actions',
@@ -382,45 +400,9 @@ function FeaturesPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
-        <Card>
-          <CardContent className="p-3 sm:pt-6">
-            <div className="flex items-center gap-2 sm:gap-4">
-              <div className="p-2 sm:p-3 rounded-lg bg-blue-100 flex-shrink-0">
-                <IconToggleLeft className="h-4 w-4 sm:h-6 sm:w-6 text-blue-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-lg sm:text-2xl font-bold text-gray-900">{features.length}</p>
-                <p className="text-[10px] sm:text-sm text-gray-500 truncate">Total Features</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3 sm:pt-6">
-            <div className="flex items-center gap-2 sm:gap-4">
-              <div className="p-2 sm:p-3 rounded-lg bg-green-100 flex-shrink-0">
-                <IconSettings className="h-4 w-4 sm:h-6 sm:w-6 text-green-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-lg sm:text-2xl font-bold text-gray-900">{enabledCount}</p>
-                <p className="text-[10px] sm:text-sm text-gray-500 truncate">Enabled</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3 sm:pt-6">
-            <div className="flex items-center gap-2 sm:gap-4">
-              <div className="p-2 sm:p-3 rounded-lg bg-purple-100 flex-shrink-0">
-                <IconShieldCheck className="h-4 w-4 sm:h-6 sm:w-6 text-purple-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-lg sm:text-2xl font-bold text-gray-900">{premiumCount}</p>
-                <p className="text-[10px] sm:text-sm text-gray-500 truncate">Premium</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <StatsCard index={0} title="Total Features" value={features.length} icon={IconToggleLeft} tone="blue" />
+        <StatsCard index={1} title="Enabled" value={enabledCount} icon={IconSettings} tone="green" />
+        <StatsCard index={2} title="Premium" value={premiumCount} icon={IconShieldCheck} tone="purple" />
       </div>
 
       {/* Filters */}

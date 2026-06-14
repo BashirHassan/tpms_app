@@ -17,7 +17,8 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const { query, transaction } = require('../db/database');
-const { NotFoundError, ValidationError, AuthenticationError, ConflictError } = require('../utils/errors');
+const { NotFoundError, ValidationError, AuthenticationError, AuthorizationError, ConflictError } = require('../utils/errors');
+const { isFeatureEnabled } = require('../middleware/featureToggle');
 const emailService = require('../services/emailService');
 const emailQueueService = require('../services/emailQueueService');
 
@@ -145,6 +146,7 @@ const schemas = {
       file_number: z.string().max(50).optional().nullable(),
       rank_id: z.coerce.number().int().positive().optional().nullable(),
       faculty_id: z.coerce.number().int().positive().optional().nullable(),
+      currentPassword: z.string().optional(),
     }),
   }),
 };
@@ -804,7 +806,7 @@ const updateProfile = async (req, res, next) => {
       throw new ValidationError('Validation failed', validation.error.flatten().fieldErrors);
     }
 
-    const { name, email, phone, file_number, rank_id, faculty_id } = validation.data.body;
+    const { name, email, phone, file_number, rank_id, faculty_id, currentPassword } = validation.data.body;
     const user = req.user;
     const authType = req.authType;
 
@@ -827,8 +829,29 @@ const updateProfile = async (req, res, next) => {
         await query(`UPDATE students SET ${updates.join(', ')} WHERE id = ?`, params);
       }
     } else {
-      // Check email uniqueness if changing email
+      // Feature gate: non-super_admin users need edit_profile enabled for their institution
+      if (user.role !== ROLES.SUPER_ADMIN) {
+        const institutionId = user.institution_id;
+        if (!institutionId) {
+          throw new AuthorizationError('Institution context is required to update profile');
+        }
+        const canEdit = await isFeatureEnabled('edit_profile', institutionId);
+        if (!canEdit) {
+          throw new AuthorizationError('Profile editing is disabled for your institution');
+        }
+      }
+
+      // Require current password when changing email
       if (email && email !== user.email) {
+        if (!currentPassword) {
+          throw new ValidationError('Current password is required to change your email address');
+        }
+        const [fullUser] = await query('SELECT password_hash FROM users WHERE id = ?', [user.id]);
+        const passwordValid = fullUser && await bcrypt.compare(currentPassword, fullUser.password_hash);
+        if (!passwordValid) {
+          throw new ValidationError('Incorrect password');
+        }
+
         const [existing] = await query(
           'SELECT id FROM users WHERE email = ? AND id != ?',
           [email, user.id]

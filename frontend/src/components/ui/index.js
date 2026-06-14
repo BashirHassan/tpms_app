@@ -12,6 +12,7 @@ export {
   schoolFilterFn 
 } from './SearchableSelect';
 export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './Card';
+export { StatsCard, StatsGrid } from './StatsCard';
 export { Badge, badgeVariants } from './Badge';
 export { Stepper, Step, StepContent, StepActions } from './Stepper';
 export { DataTable, columnHelpers, exportToExcel, STATUS_VARIANTS } from './DataTable';

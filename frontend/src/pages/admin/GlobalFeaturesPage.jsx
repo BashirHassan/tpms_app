@@ -7,20 +7,22 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { 
-  IconToggleLeft, 
+import {
+  IconToggleLeft,
   IconToggleRight,
-  IconSearch, 
+  IconSearch,
   IconRefresh,
   IconBuilding,
   IconCheck,
   IconX,
   IconChartBar,
   IconFilter,
+  IconShieldCheck,
 } from '@tabler/icons-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { StatsCard } from '../../components/ui/StatsCard';
 import api from '../../api/client';
 
 const getModuleColor = (module) => {
@@ -114,63 +116,10 @@ function GlobalFeaturesPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                <IconToggleLeft className="w-5 h-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-gray-900">{stats.total_features}</p>
-                <p className="text-xs text-gray-500">Total Features</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
-                <IconBuilding className="w-5 h-5 text-green-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-gray-900">{stats.total_institutions}</p>
-                <p className="text-xs text-gray-500">Active Institutions</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                <IconChartBar className="w-5 h-5 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-gray-900">{stats.by_module?.length || 0}</p>
-                <p className="text-xs text-gray-500">Feature Modules</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
-                <IconToggleRight className="w-5 h-5 text-orange-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-gray-900">
-                  {features.filter(f => f.is_premium).length}
-                </p>
-                <p className="text-xs text-gray-500">Premium Features</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <StatsCard index={0} title="Total Features" value={stats.total_features} icon={IconToggleLeft} tone="blue" />
+        <StatsCard index={1} title="Active Institutions" value={stats.total_institutions} icon={IconBuilding} tone="green" />
+        <StatsCard index={2} title="Feature Modules" value={stats.by_module?.length || 0} icon={IconChartBar} tone="purple" />
+        <StatsCard index={3} title="Premium Features" value={features.filter(f => f.is_premium).length} icon={IconShieldCheck} tone="orange" />
       </div>
 
       {/* Module Filter */}
@@ -308,19 +257,10 @@ function GlobalFeaturesPage() {
                     </div>
                     
                     {/* Stats */}
-                    <div className="grid grid-cols-3 gap-4 mt-4">
-                      <div className="text-center p-3 bg-green-50 rounded-lg">
-                        <p className="text-2xl font-bold text-green-600">{featureDetail.stats.enabled_count}</p>
-                        <p className="text-xs text-green-700">Enabled</p>
-                      </div>
-                      <div className="text-center p-3 bg-gray-50 rounded-lg">
-                        <p className="text-2xl font-bold text-gray-600">{featureDetail.stats.disabled_count}</p>
-                        <p className="text-xs text-gray-700">Disabled</p>
-                      </div>
-                      <div className="text-center p-3 bg-blue-50 rounded-lg">
-                        <p className="text-2xl font-bold text-blue-600">{featureDetail.stats.usage_percentage}%</p>
-                        <p className="text-xs text-blue-700">Adoption</p>
-                      </div>
+                    <div className="grid grid-cols-3 gap-3 mt-4">
+                      <StatsCard surface="panel" index={0} title="Enabled" value={featureDetail.stats.enabled_count} icon={IconCheck} tone="green" />
+                      <StatsCard surface="panel" index={1} title="Disabled" value={featureDetail.stats.disabled_count} icon={IconX} tone="gray" />
+                      <StatsCard surface="panel" index={2} title="Adoption" value={`${featureDetail.stats.usage_percentage}%`} icon={IconChartBar} tone="blue" />
                     </div>
                   </div>
                   

@@ -37,14 +37,14 @@ function SkeletonCircle({ className, size = 'w-10 h-10', ...props }) {
  */
 function SkeletonStatCard({ className }) {
   return (
-    <div className={cn('rounded-lg border border-gray-200 bg-white shadow-sm p-3 sm:p-4', className)}>
-      <div className="flex items-start gap-3">
-        <Skeleton className="w-10 h-10 rounded-lg flex-shrink-0" />
+    <div className={cn('rounded-xl border border-gray-200 bg-white shadow-sm p-4 sm:p-5', className)}>
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-2">
           <Skeleton className="h-3 w-20" />
-          <Skeleton className="h-6 w-16" />
+          <Skeleton className="h-7 w-16" />
           <Skeleton className="h-3 w-24" />
         </div>
+        <Skeleton className="h-10 w-10 rounded-xl flex-shrink-0 sm:h-12 sm:w-12" />
       </div>
     </div>
   );

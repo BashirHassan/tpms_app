@@ -284,7 +284,7 @@ const getSchoolPrincipal = async (req, res, next) => {
     const { institutionId, schoolId } = req.params;
 
     // Check feature toggle
-    const featureEnabled = await isFeatureEnabled('public_principal_update', parseInt(institutionId));
+    const featureEnabled = await isFeatureEnabled('principal_update', parseInt(institutionId));
 
     // Get school info
     const [school] = await query(
@@ -350,7 +350,7 @@ const submitPrincipalUpdate = async (req, res, next) => {
     const targetInstitutionId = data.institution_id || parseInt(institutionId);
 
     // Check feature toggle
-    const featureEnabled = await isFeatureEnabled('public_principal_update', targetInstitutionId);
+    const featureEnabled = await isFeatureEnabled('principal_update', targetInstitutionId);
     if (!featureEnabled) {
       throw new ValidationError('Principal update requests are not enabled for this institution');
     }
@@ -425,11 +425,11 @@ const getSchoolLocation = async (req, res, next) => {
     const { institutionId, schoolId } = req.params;
 
     // Check feature toggle
-    const featureEnabled = await isFeatureEnabled('public_location_update', parseInt(institutionId));
+    const featureEnabled = await isFeatureEnabled('location_update', parseInt(institutionId));
 
     // Get school info
     const [school] = await query(
-      `SELECT isv.id, ms.name, ms.official_code as code, 
+      `SELECT isv.id, ms.name, ms.official_code as code,
               ST_X(ms.location) as longitude,
               ST_Y(ms.location) as latitude
        FROM institution_schools isv
@@ -493,7 +493,7 @@ const submitLocationUpdate = async (req, res, next) => {
     const targetInstitutionId = data.institution_id || parseInt(institutionId);
 
     // Check feature toggle
-    const featureEnabled = await isFeatureEnabled('public_location_update', targetInstitutionId);
+    const featureEnabled = await isFeatureEnabled('location_update', targetInstitutionId);
     if (!featureEnabled) {
       throw new ValidationError('Location update requests are not enabled for this institution');
     }

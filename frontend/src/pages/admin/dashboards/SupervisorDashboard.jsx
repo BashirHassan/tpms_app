@@ -12,6 +12,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { dashboardApi } from '../../../api/dashboard';
 import { formatCurrency, formatDate, formatGreetingName, getOrdinal } from '../../../utils/helpers';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/Card';
+import { StatsCard } from '../../../components/ui/StatsCard';
 import { Button } from '../../../components/ui/Button';
 import { DashboardSkeleton } from '../../../components/ui/Skeleton';
 import {
@@ -168,91 +169,46 @@ function SupervisorDashboard() {
       {isSupervisor && (
         <>
           {/* Summary Cards */}
-          <div className={`grid grid-cols-2 ${hasFeature('allowance_calculation') ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-2 sm:gap-4`}>
-            {/* Total Postings */}
-            <Card>
-              <CardContent className="p-3 sm:p-4">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
-                    <IconClipboardList className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-lg sm:text-2xl font-bold">{formatNumber(summary?.postings?.total_postings)}</p>
-                    <p className="text-[10px] sm:text-sm text-gray-500 truncate">Total Postings</p>
-                    <div className="hidden sm:flex gap-2 mt-1 truncate">
-                      <span className="text-xs text-green-600">
-                        {summary?.postings?.primary_postings || 0} Primary
-                      </span>
-                      <span className="text-xs text-gray-400">|</span>
-                      <span className="text-xs text-orange-600">
-                        {summary?.postings?.merged_postings || 0} Merged
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Inside Count */}
-            <Card>
-              <CardContent className="p-3 sm:p-4">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
-                    <IconWalk className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-lg sm:text-2xl font-bold">{formatNumber(summary?.postings?.inside_count)}</p>
-                    <p className="text-[10px] sm:text-sm text-gray-500 truncate">Total Inside</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Outside Count */}
-            <Card>
-              <CardContent className="p-3 sm:p-4">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-orange-100 flex items-center justify-center flex-shrink-0">
-                    <IconCar className="w-4 h-4 sm:w-5 sm:h-5 text-orange-600" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-lg sm:text-2xl font-bold">{formatNumber(summary?.postings?.outside_count)}</p>
-                    <p className="text-[10px] sm:text-sm text-gray-500 truncate">Total Outside</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Total Students */}
-            <Card>
-              <CardContent className="p-3 sm:p-4">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
-                    <IconUsers className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-lg sm:text-2xl font-bold">{formatNumber(summary?.postings?.total_students)}</p>
-                    <p className="text-[10px] sm:text-sm text-gray-500 truncate">Total Students</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Total Allowances - only if feature enabled */}
-            {hasFeature('allowance_calculation') && (
-              <Card className="col-span-2 md:col-span-1">
-                <CardContent className="p-3 sm:p-4">
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0">
-                      <IconCash className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-lg sm:text-xl font-bold truncate">{formatCurrency(summary?.postings?.total_allowances)}</p>
-                      <p className="text-[10px] sm:text-sm text-gray-500 truncate">Total Allowances</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+          <div className={`grid grid-cols-2 ${hasFeature('allowance_management') ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3 sm:gap-4`}>
+            <StatsCard
+              index={0}
+              title="Total Postings"
+              value={formatNumber(summary?.postings?.total_postings)}
+              subValue={`${summary?.postings?.primary_postings || 0} primary • ${summary?.postings?.merged_postings || 0} merged`}
+              icon={IconClipboardList}
+              tone="blue"
+            />
+            <StatsCard
+              index={1}
+              title="Total Inside"
+              value={formatNumber(summary?.postings?.inside_count)}
+              icon={IconWalk}
+              tone="green"
+            />
+            <StatsCard
+              index={2}
+              title="Total Outside"
+              value={formatNumber(summary?.postings?.outside_count)}
+              icon={IconCar}
+              tone="orange"
+            />
+            <StatsCard
+              index={3}
+              title="Total Students"
+              value={formatNumber(summary?.postings?.total_students)}
+              icon={IconUsers}
+              tone="purple"
+            />
+            {hasFeature('allowance_management') && (
+              <StatsCard
+                index={4}
+                title="Total Allowances"
+                value={formatCurrency(summary?.postings?.total_allowances)}
+                icon={IconCash}
+                tone="teal"
+                className="col-span-2 md:col-span-1"
+                valueClassName="text-lg sm:text-xl"
+              />
             )}
           </div>
 
@@ -310,7 +266,7 @@ function SupervisorDashboard() {
           </Card>
 
           {/* My Results */}
-          {hasFeature('supervisor_scoring') && (
+          {hasFeature('student_results') && (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-base sm:text-lg flex items-center gap-2">
@@ -372,69 +328,10 @@ function SupervisorDashboard() {
         <>
           {/* Summary Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            <Card>
-              <CardContent className="p-3 sm:p-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
-                    <IconChecklist className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-gray-500">Total Assignments</p>
-                    <p className="text-xl font-bold text-gray-900">
-                      {formatNumber(summary?.assignments?.total_assignments)}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-3 sm:p-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-yellow-500 flex items-center justify-center flex-shrink-0">
-                    <IconClock className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-gray-500">Pending</p>
-                    <p className="text-xl font-bold text-gray-900">
-                      {formatNumber(summary?.assignments?.pending_assignments)}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-3 sm:p-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-purple-500 flex items-center justify-center flex-shrink-0">
-                    <IconTrendingUp className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-gray-500">In Progress</p>
-                    <p className="text-xl font-bold text-gray-900">
-                      {formatNumber(summary?.assignments?.in_progress)}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-3 sm:p-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
-                    <IconCheck className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-gray-500">Completed</p>
-                    <p className="text-xl font-bold text-gray-900">
-                      {formatNumber(summary?.assignments?.completed_assignments)}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <StatsCard index={0} title="Total Assignments" value={formatNumber(summary?.assignments?.total_assignments)} icon={IconChecklist} tone="blue" />
+            <StatsCard index={1} title="Pending" value={formatNumber(summary?.assignments?.pending_assignments)} icon={IconClock} tone="amber" />
+            <StatsCard index={2} title="In Progress" value={formatNumber(summary?.assignments?.in_progress)} icon={IconTrendingUp} tone="purple" />
+            <StatsCard index={3} title="Completed" value={formatNumber(summary?.assignments?.completed_assignments)} icon={IconCheck} tone="green" />
           </div>
 
           {/* My Assignments */}

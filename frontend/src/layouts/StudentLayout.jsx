@@ -21,6 +21,8 @@ import {
   IconSignature,
   IconMenu2,
   IconX,
+  IconEdit,
+  IconMapPin,
 } from '@tabler/icons-react';
 
 const ALL_NAVIGATION = [
@@ -28,6 +30,8 @@ const ALL_NAVIGATION = [
   { name: 'Payment', shortName: 'Pay', href: '/student/payment', icon: IconCreditCard, requiresPayment: true },
   { name: 'Acceptance', shortName: 'Accept', href: '/student/acceptance', icon: IconFileCheck },
   { name: 'Posting Letter', shortName: 'Letter', href: '/student/posting-letter', icon: IconSignature },
+  { name: 'Principal Update', shortName: 'Principal', href: '/student/principal-update', icon: IconEdit },
+  { name: 'Location Update', shortName: 'Location', href: '/student/location-update', icon: IconMapPin },
 ];
 
 function StudentLayout() {

@@ -13,6 +13,7 @@ import { authApi } from '../../../api/auth';
 import { getInstitutionUrl } from '../../../hooks/useSubdomain';
 import { formatCurrency, formatNumber } from '../../../utils/helpers';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/Card';
+import { StatsCard } from '../../../components/ui/StatsCard';
 import { Button } from '../../../components/ui/Button';
 import { GlobalDashboardSkeleton } from '../../../components/ui/Skeleton';
 import {
@@ -155,42 +156,42 @@ function GlobalAdminDashboard() {
       value: formatNumber(summary?.institutions?.total_institutions),
       subValue: `${summary?.institutions?.active_institutions || 0} active`,
       icon: IconBuilding,
-      color: 'bg-blue-500',
+      tone: 'blue',
     },
     {
       name: 'Total Users',
       value: formatNumber(summary?.users?.total_users),
       subValue: `${summary?.users?.supervisors || 0} supervisors`,
       icon: IconUsers,
-      color: 'bg-green-500',
+      tone: 'green',
     },
     {
       name: 'Total Students',
       value: formatNumber(summary?.students?.total_students),
       subValue: `${summary?.students?.active_students || 0} active`,
       icon: IconSchool,
-      color: 'bg-purple-500',
+      tone: 'purple',
     },
     {
       name: 'Partner Schools',
       value: formatNumber(summary?.schools?.total_schools),
       subValue: `${summary?.schools?.active_schools || 0} active`,
       icon: IconBuildingBank,
-      color: 'bg-orange-500',
+      tone: 'orange',
     },
     {
       name: 'Active Sessions',
       value: formatNumber(summary?.sessions?.current_sessions),
       subValue: `${summary?.sessions?.total_sessions || 0} total`,
       icon: IconCalendar,
-      color: 'bg-teal-500',
+      tone: 'teal',
     },
     {
       name: 'Active Postings',
       value: formatNumber(summary?.postings?.active_postings),
       subValue: `${summary?.postings?.total_postings || 0} total`,
       icon: IconClipboardList,
-      color: 'bg-pink-500',
+      tone: 'primary',
     },
   ];
 
@@ -218,21 +219,17 @@ function GlobalAdminDashboard() {
 
       {/* Platform Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
-        {platformStats.map((stat) => (
-          <Card key={stat.name}>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-start gap-3">
-                <div className={`w-10 h-10 rounded-lg ${stat.color} flex items-center justify-center flex-shrink-0`}>
-                  <stat.icon className="w-5 h-5 text-white" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs text-gray-500 truncate">{stat.name}</p>
-                  <p className="text-lg sm:text-xl font-bold text-gray-900">{stat.value}</p>
-                  <p className="text-xs text-gray-400">{stat.subValue}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        {platformStats.map((stat, i) => (
+          <StatsCard
+            key={stat.name}
+            index={i}
+            title={stat.name}
+            value={stat.value}
+            icon={stat.icon}
+            tone={stat.tone}
+            subValue={stat.subValue}
+            valueClassName="text-lg sm:text-xl"
+          />
         ))}
       </div>
 
