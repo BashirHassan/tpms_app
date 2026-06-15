@@ -8,6 +8,7 @@
 const { z } = require('zod');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError } = require('../utils/errors');
+const { clampLimit, clampOffset } = require('../utils/pagination');
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -239,7 +240,9 @@ function formatDate(date, format = 'long') {
 const getAll = async (req, res, next) => {
   try {
     const { institutionId } = req.params;
-    const { document_type, status, session_id, is_default, search, limit = 50, offset = 0 } = req.query;
+    const { document_type, status, session_id, is_default, search } = req.query;
+    const limit = clampLimit(req.query.limit, 50);
+    const offset = clampOffset(req.query.offset);
 
     let sql = `
       SELECT dt.*, 

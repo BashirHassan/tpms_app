@@ -104,7 +104,8 @@ async function getSmtpConfig(institutionId) {
     try {
       decryptedPassword = encryptionService.decrypt(config.smtp_password);
     } catch (error) {
-      console.error(`[EMAIL] Failed to decrypt SMTP password for institution ${institutionId}:`, error.message);
+      // Avoid logging crypto-failure details; institution id is enough to diagnose.
+      console.error(`[EMAIL] Failed to decrypt SMTP password for institution ${institutionId}`);
       return null;
     }
   }

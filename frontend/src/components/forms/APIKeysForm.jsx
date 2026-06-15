@@ -382,7 +382,10 @@ export default function APIKeysForm({ institutionId, onToast }) {
                   <Input
                     value={
                       showSecretKey
-                        ? (newSecretKey || apiKeys.secretKey || '')
+                        ? (newSecretKey || apiKeys.secretKey
+                            || (apiKeys.secretKeyHint
+                              ? `${apiKeys.secretKeyHint}  (full key shown only once, at creation)`
+                              : ''))
                         : '•'.repeat(64)
                     }
                     readOnly

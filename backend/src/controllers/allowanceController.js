@@ -8,6 +8,7 @@
 const { z } = require('zod');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const { clampLimit, clampOffset } = require('../utils/pagination');
 
 // Validation schemas
 const schemas = {
@@ -51,7 +52,9 @@ const schemas = {
 const getAll = async (req, res, next) => {
   try {
     const { institutionId } = req.params;
-    const { session_id, supervisor_id, allowance_type, payment_status, limit = 100, offset = 0 } = req.query;
+    const { session_id, supervisor_id, allowance_type, payment_status } = req.query;
+    const limit = clampLimit(req.query.limit, 100);
+    const offset = clampOffset(req.query.offset);
 
     let sql = `
       SELECT a.*, 

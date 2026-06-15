@@ -9,6 +9,7 @@ import { studentsApi, programsApi, sessionsApi } from '../../api';
 import { useToast } from '../../context/ToastContext';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
+import { escapeHtml } from '../../utils/helpers';
 import {
   IconArrowLeft,
   IconPrinter,
@@ -199,16 +200,16 @@ function PrintPinPage() {
       <body>
         <div class="print-header">
           <h1>Student Login PINs</h1>
-          <p>Session: ${sessions.find(s => s.id.toString() === selectedSession)?.name || 'N/A'} | 
-             Program: ${programFilter ? programs.find(p => p.id.toString() === programFilter)?.name : 'All Programs'} |
+          <p>Session: ${escapeHtml(sessions.find(s => s.id.toString() === selectedSession)?.name || 'N/A')} |
+             Program: ${escapeHtml(programFilter ? programs.find(p => p.id.toString() === programFilter)?.name : 'All Programs')} |
              Total: ${students.length} students</p>
         </div>
         <div class="cards-grid">
           ${students.map(student => `
             <div class="pin-card">
-              <div class="student-name">${student.full_name}</div>
-              <div class="reg-number">${student.registration_number}</div>
-              <div class="pin-value">${student.pin || '----'}</div>
+              <div class="student-name">${escapeHtml(student.full_name)}</div>
+              <div class="reg-number">${escapeHtml(student.registration_number)}</div>
+              <div class="pin-value">${escapeHtml(student.pin || '----')}</div>
               <div class="pin-label">Login PIN</div>
             </div>
           `).join('')}
@@ -244,7 +245,7 @@ function PrintPinPage() {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>PIN - ${thermalStudent.registration_number}</title>
+        <title>PIN - ${escapeHtml(thermalStudent.registration_number)}</title>
         <style>
           * {
             margin: 0;
@@ -309,11 +310,11 @@ function PrintPinPage() {
       <body>
         <div class="thermal-card">
           <div class="divider"></div>
-          <div class="student-name">${thermalStudent.full_name}</div>
-          <div class="reg-number">${thermalStudent.registration_number}</div>
+          <div class="student-name">${escapeHtml(thermalStudent.full_name)}</div>
+          <div class="reg-number">${escapeHtml(thermalStudent.registration_number)}</div>
           <div class="divider"></div>
           <div class="pin-label">Your Login PIN</div>
-          <div class="pin-value">${thermalStudent.pin || '----'}</div>
+          <div class="pin-value">${escapeHtml(thermalStudent.pin || '----')}</div>
           <div class="divider"></div>
           <div class="footer">Keep this PIN secure</div>
         </div>

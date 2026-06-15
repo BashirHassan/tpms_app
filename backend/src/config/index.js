@@ -42,29 +42,93 @@ require('dotenv').config({ path: envPath });
 
 const nodeEnv = detectedEnv;
 
+const configuredCorsOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
+  : ['http://localhost:5173'];
+
+const isLocalDevelopmentOrigin = (origin) => {
+  if (!origin || nodeEnv !== 'development') return false;
+
+  try {
+    const { hostname } = new URL(origin);
+    const isPrivateNetwork =
+      /^10\./.test(hostname) ||
+      /^192\.168\./.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname);
+
+    return (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname.endsWith('.localhost') ||
+      hostname.endsWith('.sitpms.local') ||
+      isPrivateNetwork
+    );
+  } catch (error) {
+    return false;
+  }
+};
+
+// Allow any subdomain of the production base domain (multi-tenancy)
+const isInstitutionSubdomain = (origin) => {
+  if (!origin) return false;
+  const baseDomain = process.env.BASE_DOMAIN || 'sitpms.com';
+  try {
+    const { hostname, protocol } = new URL(origin);
+    return (protocol === 'https:' || nodeEnv !== 'production') &&
+      hostname.endsWith('.' + baseDomain);
+  } catch {
+    return false;
+  }
+};
+
 module.exports = {
   port: parseInt(process.env.PORT) || 5000,
   nodeEnv,
   isProduction: nodeEnv === 'production',
   isDevelopment: nodeEnv === 'development',
 
-  db: {
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT) || 3306,
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'digitaltp',
-  },
+  db: (() => {
+    if (nodeEnv === 'production') {
+      if (!process.env.DB_PASSWORD) {
+        throw new Error('DB_PASSWORD must be set in production');
+      }
+      if (!process.env.DB_USER || process.env.DB_USER === 'root') {
+        console.warn('⚠️  WARNING: Running as DB root user in production. Use a dedicated database user.');
+      }
+    }
+    return {
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT) || 3306,
+      user: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD || '',
+      database: process.env.DB_NAME || 'digitaltp',
+    };
+  })(),
 
   jwt: {
-    secret: process.env.JWT_SECRET || 'default-secret-change-me',
+    secret: (() => {
+      const secret = process.env.JWT_SECRET;
+      if (!secret || secret.length < 32) {
+        if (nodeEnv === 'production') {
+          throw new Error('JWT_SECRET must be set and at least 32 characters in production');
+        }
+        console.warn('⚠️  WARNING: JWT_SECRET is missing or too short. Set a strong secret before going to production!');
+        return secret || 'default-secret-change-me-not-for-production';
+      }
+      return secret;
+    })(),
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   },
 
   cors: {
-    origin: process.env.CORS_ORIGIN
-      ? process.env.CORS_ORIGIN.split(',')
-      : ['http://localhost:5173', 'http://192.168.0.151:5173'],
+    origin(origin, callback) {
+      if (!origin || configuredCorsOrigins.includes(origin) || isLocalDevelopmentOrigin(origin) || isInstitutionSubdomain(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`CORS blocked origin: ${origin}`));
+    },
   },
 
   smtp: {

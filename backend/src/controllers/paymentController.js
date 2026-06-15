@@ -880,30 +880,58 @@ const cancelPayment = async (req, res, next) => {
  * POST /:institutionId/payments/webhook
  */
 const handleWebhook = async (req, res, next) => {
+  const signature = req.headers['x-paystack-signature'];
   try {
-    const { institutionId } = req.params;
-    const signature = req.headers['x-paystack-signature'];
-    
-    // Get institution's Paystack secret key (decrypted)
-    const Institution = require('../models/Institution');
-    const institution = await Institution.findById(parseInt(institutionId), true);
-
-    const paystackSecretKey = institution?.paystack_secret_key || process.env.PAYSTACK_SECRET_KEY;
-
-    if (!paystackSecretKey) {
-      throw new ValidationError('Paystack not configured');
+    if (!signature) {
+      return res.status(401).json({ success: false, message: 'Missing signature' });
     }
 
-    // Verify signature
+    const { event, data } = req.body || {};
+    const reference = data?.reference;
+
+    if (!reference) {
+      return res.status(400).json({ success: false, message: 'Missing payment reference' });
+    }
+
+    // 🔒 MULTI-TENANCY: the webhook URL carries no institution context, so resolve the
+    // owning institution from the (still-untrusted) reference. The signature is then
+    // verified below with THAT institution's secret — an attacker cannot forge it.
+    const [owner] = await query(
+      `SELECT institution_id FROM student_payments WHERE reference = ? OR paystack_reference = ?
+       UNION
+       SELECT institution_id FROM pending_transactions WHERE reference = ? OR paystack_reference = ?
+       LIMIT 1`,
+      [reference, reference, reference, reference]
+    );
+
+    if (!owner) {
+      // Unknown reference — acknowledge so Paystack stops retrying, but take no action.
+      console.warn('[WEBHOOK] Received event for unknown payment reference');
+      return res.status(200).json({ success: true });
+    }
+
+    const institutionId = owner.institution_id;
+
+    // Load that institution's Paystack secret (decrypted). No global fallback —
+    // a system-wide key must never be used to verify a tenant's webhook.
+    const Institution = require('../models/Institution');
+    const institution = await Institution.findById(parseInt(institutionId), true);
+    const paystackSecretKey = institution?.paystack_secret_key;
+
+    if (!paystackSecretKey) {
+      console.error('[WEBHOOK] Paystack not configured for the owning institution');
+      // Transient from Paystack's perspective — allow retry after configuration is fixed.
+      return res.status(500).json({ success: false, message: 'Paystack not configured' });
+    }
+
+    // Verify signature against the tenant's secret
     const hash = crypto.createHmac('sha512', paystackSecretKey)
       .update(JSON.stringify(req.body))
       .digest('hex');
 
     if (hash !== signature) {
-      throw new ValidationError('Invalid webhook signature');
+      return res.status(401).json({ success: false, message: 'Invalid webhook signature' });
     }
-
-    const { event, data } = req.body;
 
     if (event === 'charge.success') {
       // Find payment record
@@ -1014,11 +1042,11 @@ const handleWebhook = async (req, res, next) => {
       }
     }
 
-    res.json({ success: true });
+    res.status(200).json({ success: true });
   } catch (error) {
-    // Log error but return 200 to Paystack
-    console.error('Webhook error:', error);
-    res.json({ success: true });
+    // Transient/unexpected failure — return 5xx so Paystack retries delivery.
+    console.error('[WEBHOOK] Processing error:', error.message);
+    res.status(500).json({ success: false });
   }
 };
 

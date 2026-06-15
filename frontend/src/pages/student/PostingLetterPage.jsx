@@ -10,6 +10,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { portalApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
+import { sanitizeHtml } from '../../utils/sanitize';
 import { useToast } from '../../context/ToastContext';
 import { formatDate } from '../../utils/helpers';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -289,7 +290,7 @@ function PostingLetterPage() {
           {templateHtml ? (
             <div 
               className="template-body text-sm"
-              dangerouslySetInnerHTML={{ __html: templateHtml }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(templateHtml) }}
             />
           ) : (
             <>

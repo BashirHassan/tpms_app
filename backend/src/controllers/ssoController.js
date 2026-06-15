@@ -16,6 +16,7 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { query } = require('../db/database');
 const { ValidationError, AuthenticationError, NotFoundError } = require('../utils/errors');
+const encryptionService = require('../services/encryptionService');
 
 // Import the SSO token store from authController
 // This is used for internal SSO token exchange
@@ -98,6 +99,17 @@ function decodeToken(tokenString) {
 /**
  * Verify token signature using partner's secret key
  */
+/**
+ * Resolve a partner's cleartext SSO secret from the stored value.
+ * New rows are AES-256-GCM encrypted; legacy rows are plaintext (pre-migration 047).
+ * A value that doesn't look like our ciphertext is treated as legacy plaintext.
+ */
+function resolvePartnerSecret(stored) {
+  return encryptionService.isEncryptedString(stored)
+    ? encryptionService.decrypt(stored)
+    : stored;
+}
+
 function verifySignature(payloadBase64, signatureBase64, secretKey) {
   const expectedSignature = crypto
     .createHmac('sha256', secretKey)
@@ -190,7 +202,7 @@ const handleStudentSSO = async (req, res, next) => {
     }
 
     // 6. Verify signature
-    const isValidSignature = verifySignature(payloadBase64, signatureBase64, partnerRow.secret_key_hash);
+    const isValidSignature = verifySignature(payloadBase64, signatureBase64, resolvePartnerSecret(partnerRow.secret_key_encrypted));
     if (!isValidSignature) {
       throw { ...SSO_ERRORS.INVALID_TOKEN };
     }
@@ -316,7 +328,7 @@ const handleStaffSSO = async (req, res, next) => {
     }
 
     // 6. Verify signature
-    const isValidSignature = verifySignature(payloadBase64, signatureBase64, partnerRow.secret_key_hash);
+    const isValidSignature = verifySignature(payloadBase64, signatureBase64, resolvePartnerSecret(partnerRow.secret_key_encrypted));
     if (!isValidSignature) {
       throw { ...SSO_ERRORS.INVALID_TOKEN };
     }

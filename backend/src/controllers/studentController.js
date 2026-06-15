@@ -6,11 +6,13 @@
  */
 
 const { z } = require('zod');
+const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const XLSX = require('xlsx');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const { clampLimit, clampOffset } = require('../utils/pagination');
 const { encryptStudentPin, decryptStudentPin } = require('../services/encryptionService');
 const { hashPassword } = require('./authController');
 
@@ -54,10 +56,10 @@ const schemas = {
 };
 
 /**
- * Generate a 10-digit PIN
+ * Generate a 10-digit PIN using a cryptographically secure RNG.
  */
 function generatePin() {
-  return Math.floor(1000000000 + Math.random() * 9000000000).toString();
+  return String(crypto.randomInt(1_000_000_000, 9_999_999_999));
 }
 
 /**
@@ -67,7 +69,9 @@ function generatePin() {
 const getAll = async (req, res, next) => {
   try {
     const { institutionId } = req.params;
-    const { program_id, session_id, status, payment_status, search, limit = 100, offset = 0 } = req.query;
+    const { program_id, session_id, status, payment_status, search } = req.query;
+    const limit = clampLimit(req.query.limit, 100);
+    const offset = clampOffset(req.query.offset);
 
     let sql = `
       SELECT s.id, s.institution_id, s.program_id, s.session_id, s.registration_number,

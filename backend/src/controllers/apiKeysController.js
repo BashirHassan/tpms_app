@@ -8,6 +8,7 @@
 const crypto = require('crypto');
 const { query } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const encryptionService = require('../services/encryptionService');
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -58,8 +59,10 @@ const getAPIKeys = async (req, res, next) => {
     }
 
     // Get partner credentials (there should be at most one per institution)
+    // NOTE: the secret key is never returned here — only the hint. The full key
+    // is shown exactly once, at create/regenerate time.
     const [partner] = await query(
-      `SELECT id, partner_id, secret_key_hash, name, allowed_origins, is_enabled, created_at, updated_at
+      `SELECT id, partner_id, secret_key_hint, name, allowed_origins, is_enabled, created_at, updated_at
        FROM sso_partners
        WHERE institution_id = ?`,
       [parseInt(institutionId)]
@@ -75,7 +78,7 @@ const getAPIKeys = async (req, res, next) => {
           ? {
               id: partner.id,
               partnerId: partner.partner_id,
-              secretKey: partner.secret_key_hash, // Return full key for viewing/copying
+              secretKeyHint: partner.secret_key_hint, // Only the hint, never the full key
               name: partner.name,
               allowedOrigins: partner.allowed_origins ? JSON.parse(partner.allowed_origins) : [],
               isEnabled: Boolean(partner.is_enabled),
@@ -125,15 +128,16 @@ const createAPIKeys = async (req, res, next) => {
     const secretKey = generateSecretKey();
     const secretKeyHint = getSecretKeyHint(secretKey);
 
-    // Store credentials (store the actual secret key as it's used for validation)
+    // Store credentials. The secret is needed in cleartext for HMAC verification,
+    // so it is encrypted at rest (AES-256-GCM) rather than hashed.
     await query(
-      `INSERT INTO sso_partners 
-       (institution_id, partner_id, secret_key_hash, secret_key_hint, name, allowed_origins, created_by)
+      `INSERT INTO sso_partners
+       (institution_id, partner_id, secret_key_encrypted, secret_key_hint, name, allowed_origins, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         parseInt(institutionId),
         partnerId,
-        secretKey, // Store the actual key for signature verification
+        encryptionService.encrypt(secretKey), // Encrypted at rest
         secretKeyHint,
         name || `${institution.name} SSO`,
         allowedOrigins ? JSON.stringify(allowedOrigins) : null,
@@ -193,10 +197,10 @@ const regenerateSecretKey = async (req, res, next) => {
     const secretKey = generateSecretKey();
     const secretKeyHint = getSecretKeyHint(secretKey);
 
-    // Update secret key
+    // Update secret key (encrypted at rest)
     await query(
-      `UPDATE sso_partners SET secret_key_hash = ?, secret_key_hint = ?, updated_at = NOW() WHERE id = ?`,
-      [secretKey, secretKeyHint, partner.id]
+      `UPDATE sso_partners SET secret_key_encrypted = ?, secret_key_hint = ?, updated_at = NOW() WHERE id = ?`,
+      [encryptionService.encrypt(secretKey), secretKeyHint, partner.id]
     );
 
     res.json({

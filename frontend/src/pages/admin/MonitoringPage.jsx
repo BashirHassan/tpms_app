@@ -28,7 +28,7 @@ import {
   IconPrinter,
 } from '@tabler/icons-react';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
-import { formatDate, formatDateTime } from '../../utils/helpers';
+import { formatDate, formatDateTime, escapeHtml } from '../../utils/helpers';
 
 function MonitoringPage() {
   const { user } = useAuth();
@@ -522,7 +522,7 @@ function MonitoringPage() {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Monitoring Report - ${selectedReport.school_name}</title>
+        <title>Monitoring Report - ${escapeHtml(selectedReport.school_name)}</title>
         <style>
           * {
             margin: 0;
@@ -624,16 +624,16 @@ function MonitoringPage() {
       <body>
         <div class="header">
           <h1>Field Monitoring Report</h1>
-          <h2>${selectedSessionName} Academic Session</h2>
+          <h2>${escapeHtml(selectedSessionName)} Academic Session</h2>
           <p>Teaching Practice Supervision & Evaluation</p>
-          <h4>${selectedReport.school_name || '-'} (${selectedReport.school_code || '-'})</h4>
-          <h5>${selectedReport.route_name || '-'} (${selectedReport.ward || '-'})</h5>
+          <h4>${escapeHtml(selectedReport.school_name || '-')} (${escapeHtml(selectedReport.school_code || '-')})</h4>
+          <h5>${escapeHtml(selectedReport.route_name || '-')} (${escapeHtml(selectedReport.ward || '-')})</h5>
         </div>
 
         <div class="meta-grid">
           <div class="meta-item">
             <div class="meta-label">Field Monitor</div>
-            <div class="meta-value">${selectedReport.monitor_name || '-'}</div>
+            <div class="meta-value">${escapeHtml(selectedReport.monitor_name || '-')}</div>
           </div>
           <div class="meta-item">
             <div class="meta-label">Date of Visit</div>
@@ -643,18 +643,18 @@ function MonitoringPage() {
 
         <div class="section">
           <div class="section-header">Observations</div>
-          <div class="section-content">${selectedReport.observations || 'No observations recorded.'}</div>
+          <div class="section-content">${escapeHtml(selectedReport.observations || 'No observations recorded.')}</div>
         </div>
 
         <div class="section">
           <div class="section-header">Recommendations</div>
-          <div class="section-content">${selectedReport.recommendations || 'No recommendations recorded.'}</div>
+          <div class="section-content">${escapeHtml(selectedReport.recommendations || 'No recommendations recorded.')}</div>
         </div>
 
         ${selectedReport.additional_notes ? `
         <div class="section">
           <div class="section-header">Additional Notes</div>
-          <div class="section-content">${selectedReport.additional_notes}</div>
+          <div class="section-content">${escapeHtml(selectedReport.additional_notes)}</div>
         </div>
         ` : ''}
       </body>

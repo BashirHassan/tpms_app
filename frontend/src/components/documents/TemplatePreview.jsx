@@ -19,8 +19,9 @@ import {
 import { Button } from '../ui';
 import { documentTemplatesApi } from '../../api/documentTemplates';
 import { useAuth } from '../../context/AuthContext';
-import { 
-  TemplateBodyStyles, 
+import { sanitizeHtml } from '../../utils/sanitize';
+import {
+  TemplateBodyStyles,
   DocumentLetterhead, 
   DocumentFooter, 
   DocumentContainer,
@@ -196,7 +197,7 @@ const TemplatePreview = ({
                 {/* Template Content */}
                 <div 
                   className="template-body text-sm"
-                  dangerouslySetInnerHTML={{ __html: html }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }}
                 />
                 
                 {/* Document Footer */}
@@ -272,7 +273,7 @@ const TemplatePreview = ({
               {/* Template Content */}
               <div 
                 className="template-body text-sm"
-                dangerouslySetInnerHTML={{ __html: html }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }}
               />
               
               {/* Document Footer */}

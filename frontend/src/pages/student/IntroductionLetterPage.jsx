@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { portalApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { sanitizeHtml } from '../../utils/sanitize';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import {
@@ -229,7 +230,7 @@ function IntroductionLetterPage() {
           {templateHtml && (
             <div 
               className="template-body text-sm"
-              dangerouslySetInnerHTML={{ __html: templateHtml }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(templateHtml) }}
             />
           )}
 

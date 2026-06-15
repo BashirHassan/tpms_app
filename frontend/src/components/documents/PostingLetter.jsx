@@ -14,6 +14,7 @@ import {
   StudentInfoTable,
 } from './DocumentPreview';
 import { formatDate } from '../../utils/helpers';
+import { sanitizeHtml } from '../../utils/sanitize';
 
 export function PostingLetter({
   student,
@@ -65,7 +66,7 @@ export function PostingLetter({
         <TemplateBodyStyles />
         <div 
           className="template-body text-sm"
-          dangerouslySetInnerHTML={{ __html: templateHtml }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(templateHtml) }}
         />
       </DocumentPreview>
     );

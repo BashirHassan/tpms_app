@@ -10,6 +10,7 @@ const path = require('path');
 const fs = require('fs');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError, AuthorizationError } = require('../utils/errors');
+const { clampLimit, clampOffset } = require('../utils/pagination');
 const { cloudinaryService } = require('../services');
 const { normalizeLocationValue } = require('../utils/locationNormalizer');
 
@@ -60,15 +61,15 @@ const schemas = {
 const getAll = async (req, res, next) => {
   try {
     const { institutionId } = req.params;
-    const { 
+    const {
       session_id, school_id, student_id, status, search,
-      limit = 50, page = 1, offset
+      page = 1, offset
     } = req.query;
 
     // Support both page/limit and offset/limit pagination
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 50;
-    const offsetNum = offset !== undefined ? parseInt(offset) : (pageNum - 1) * limitNum;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = clampLimit(req.query.limit, 50);
+    const offsetNum = offset !== undefined ? clampOffset(offset) : (pageNum - 1) * limitNum;
 
     let sql = `
       SELECT sa.*,

@@ -9,6 +9,7 @@ const paymentController = require('../controllers/paymentController');
 const { authenticate } = require('../middleware/auth');
 const { requireInstitutionAccess, staffOnly, isHeadOfTP } = require('../middleware/rbac');
 const { requireFeature } = require('../middleware/featureToggle');
+const { publicRateLimiter } = require('../middleware/rateLimiter');
 const validate = require('../middleware/validate');
 
 // Read operations - staff can view
@@ -22,7 +23,7 @@ router.post('/:institutionId/payments/:id/process', authenticate, requireInstitu
 router.post('/:institutionId/payments/verify-paystack', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('payment_management'), paymentController.verifyPaystack);
 router.post('/:institutionId/payments/:id/cancel', authenticate, requireInstitutionAccess(), isHeadOfTP, requireFeature('payment_management'), paymentController.cancelPayment);
 
-// Paystack webhook (no auth - verified by signature)
-router.post('/payments/webhook/paystack', paymentController.handleWebhook);
+// Paystack webhook (no auth - tenant resolved from payload, verified by signature)
+router.post('/payments/webhook/paystack', publicRateLimiter, paymentController.handleWebhook);
 
 module.exports = router;

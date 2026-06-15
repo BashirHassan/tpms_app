@@ -13,6 +13,20 @@ export function cn(...inputs) {
 }
 
 /**
+ * Escape a value for safe interpolation into an HTML string.
+ * Use this for any user-controlled data placed into markup built by hand
+ * (e.g. print windows via document.write) to prevent XSS.
+ */
+export function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/**
  * Format date
  * @param {string|Date} date - Date to format
  * @param {object} options - Intl.DateTimeFormat options
