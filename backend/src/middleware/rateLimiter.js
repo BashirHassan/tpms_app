@@ -107,7 +107,10 @@ const authRateLimiter = createRateLimiter({
   // account (email / registration number) gets its own budget; brute-forcing a
   // single account is still limited to 10 attempts / 15 min.
   keyGenerator: (req) => {
-    const identifier = (req.body?.email || req.body?.registration_number || '').toString().toLowerCase().trim();
+    // Field names match the auth Zod schemas: staff login = `email`,
+    // student login = `registrationNumber`.
+    const raw = req.body?.email || req.body?.registrationNumber || '';
+    const identifier = raw.toString().toLowerCase().trim();
     return `auth:${req.ip}:${identifier}`;
   },
   message: 'Too many login attempts. Please try again in 15 minutes.',
