@@ -17,7 +17,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Button } from './Button';
-import { IconLock, IconX } from '@tabler/icons-react';
+import { IconLock, IconX, IconEye, IconEyeOff } from '@tabler/icons-react';
 
 const overlayVariants = {
   initial: { opacity: 0 },
@@ -41,6 +41,7 @@ export function PasswordConfirmDialog({
   cancelText = 'Cancel',
 }) {
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const inputRef = useRef(null);
@@ -48,6 +49,7 @@ export function PasswordConfirmDialog({
   useEffect(() => {
     if (!isOpen) {
       setPassword('');
+      setShowPassword(false);
       setLoading(false);
       setError('');
     }
@@ -129,20 +131,31 @@ export function PasswordConfirmDialog({
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Current Password
               </label>
-              <input
-                ref={inputRef}
-                type="password"
-                value={password}
-                onChange={(e) => { setPassword(e.target.value); setError(''); }}
-                placeholder="Enter your current password"
-                className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 transition-colors ${
-                  error
-                    ? 'border-red-500 focus:ring-red-500'
-                    : 'border-gray-300 focus:ring-amber-500 focus:border-amber-500'
-                }`}
-                disabled={loading}
-                autoComplete="current-password"
-              />
+              <div className="relative">
+                <input
+                  ref={inputRef}
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); setError(''); }}
+                  placeholder="Enter your current password"
+                  className={`w-full px-3 py-2 pr-10 border rounded-lg text-sm focus:outline-none focus:ring-2 transition-colors ${
+                    error
+                      ? 'border-red-500 focus:ring-red-500'
+                      : 'border-gray-300 focus:ring-amber-500 focus:border-amber-500'
+                  }`}
+                  disabled={loading}
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <IconEyeOff className="w-4 h-4" /> : <IconEye className="w-4 h-4" />}
+                </button>
+              </div>
               {error && (
                 <p className="mt-1.5 text-sm text-red-600">{error}</p>
               )}

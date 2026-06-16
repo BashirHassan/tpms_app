@@ -43,9 +43,9 @@ function StatsCard({
   ...props
 }) {
   const body = (
-    <div className="relative overflow-hidden">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
+    <div className="relative flex flex-col h-full overflow-hidden">
+      <div className="flex items-start justify-between gap-3 flex-1">
+        <div className="min-w-0 flex-1 flex flex-col">
           <p
             className={cn(
               'truncate text-[11px] font-medium uppercase tracking-wide text-gray-500 sm:text-xs',
@@ -64,11 +64,11 @@ function StatsCard({
             {value ?? 0}
           </p>
 
-          {subValue ? (
-            <p className="mt-1 truncate text-xs font-medium text-gray-500 sm:text-sm">
-              {subValue}
-            </p>
-          ) : null}
+          <div className="flex-1" />
+
+          <p className="mt-1 truncate text-xs font-medium text-gray-500 sm:text-sm min-h-[1.25rem] sm:min-h-[1.5rem]">
+            {subValue ?? ''}
+          </p>
 
           {children ? <div className="mt-2">{children}</div> : null}
         </div>
@@ -89,7 +89,7 @@ function StatsCard({
   );
 
   const interactiveClassName = cn(
-    'group relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm',
+    'group relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm h-full',
     'transition-all duration-200 ease-out',
     (to || onClick) && 'hover:-translate-y-0.5 hover:border-gray-200 hover:shadow-lg',
     onClick && 'cursor-pointer',
@@ -107,7 +107,7 @@ function StatsCard({
       </div>
     ) : (
       <Card className={interactiveClassName} onClick={onClick} {...props}>
-        <CardContent className={cn('p-4 sm:p-5', contentClassName)}>
+        <CardContent className={cn('p-4 sm:p-5 h-full', contentClassName)}>
           {body}
         </CardContent>
       </Card>
@@ -115,13 +115,14 @@ function StatsCard({
 
   return (
     <motion.div
+      className="h-full"
       variants={cardVariants}
       initial="initial"
       animate="animate"
       transition={{ ...cardTransition, delay: index * 0.05 }}
     >
       {to ? (
-        <Link to={to} className="block rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/30">
+        <Link to={to} className="block h-full rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/30">
           {content}
         </Link>
       ) : content}
