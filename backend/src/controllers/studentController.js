@@ -14,7 +14,7 @@ const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 const { clampLimit, clampOffset } = require('../utils/pagination');
 const { encryptStudentPin, decryptStudentPin } = require('../services/encryptionService');
-const { hashPassword } = require('./authController');
+const { hashPassword, BULK_BCRYPT_ROUNDS } = require('./authController');
 
 // Validation schemas
 const schemas = {
@@ -577,13 +577,16 @@ const uploadFromExcel = async (req, res, next) => {
       }
     }
 
-    // Check for duplicates within file
-    const regNumbers = validStudents.map(s => s.registration_number);
-    const duplicatesInFile = regNumbers.filter((item, index) => regNumbers.indexOf(item) !== index);
+    // Check for duplicates within file — O(n) with a Set instead of O(n²) indexOf
+    const seenInFile = new Set();
+    const duplicatesInFileSet = new Set();
+    for (const rn of validStudents.map(s => s.registration_number)) {
+      if (seenInFile.has(rn)) duplicatesInFileSet.add(rn);
+      else seenInFile.add(rn);
+    }
 
-    if (duplicatesInFile.length > 0) {
-      const uniqueDuplicates = [...new Set(duplicatesInFile)];
-      for (const dup of uniqueDuplicates) {
+    if (duplicatesInFileSet.size > 0) {
+      for (const dup of duplicatesInFileSet) {
         const rows = validStudents.filter(s => s.registration_number === dup).map(s => s.row_number);
         errors.push({
           row: rows.join(', '),
@@ -593,12 +596,17 @@ const uploadFromExcel = async (req, res, next) => {
       }
     }
 
-    // Check for duplicates in database
-    const existingStudents = await query(
-      'SELECT registration_number FROM students WHERE institution_id = ?',
-      [parseInt(institutionId)]
-    );
-    const existingRegNumbers = new Set(existingStudents.map(s => s.registration_number.toUpperCase()));
+    // Check for duplicates in database — only query for the reg numbers in this file
+    const uploadedRegNums = validStudents.map(s => s.registration_number);
+    const existingRegNumbers = new Set();
+    if (uploadedRegNums.length > 0) {
+      const inPlaceholders = uploadedRegNums.map(() => '?').join(', ');
+      const existingStudents = await query(
+        `SELECT registration_number FROM students WHERE institution_id = ? AND registration_number IN (${inPlaceholders})`,
+        [parseInt(institutionId), ...uploadedRegNums]
+      );
+      for (const s of existingStudents) existingRegNumbers.add(s.registration_number.toUpperCase());
+    }
 
     const newStudents = [];
     for (const student of validStudents) {
@@ -608,7 +616,7 @@ const uploadFromExcel = async (req, res, next) => {
           registration_number: student.registration_number,
           errors: ['Registration number already exists in database'],
         });
-      } else if (!duplicatesInFile.includes(student.registration_number)) {
+      } else if (!duplicatesInFileSet.has(student.registration_number)) {
         newStudents.push(student);
       }
     }
@@ -619,25 +627,31 @@ const uploadFromExcel = async (req, res, next) => {
       [parseInt(institutionId)]
     );
 
+    // Precompute a flat code → program Map so each student lookup is O(1) instead of O(programs)
+    const programCodeMap = new Map();
+    for (const program of programs) {
+      const code = program.code.toUpperCase().trim();
+      programCodeMap.set(code, program);
+      if (code.includes('-')) programCodeMap.set(code.split('-').pop(), program);
+    }
+
     const programMap = new Map();
     const studentsWithPrograms = [];
-    
+
     for (const student of newStudents) {
       let detectedProgram = null;
-      
+
       // Extract parts from registration number (e.g., NCE/2024/MATH/124 -> ['NCE', '2024', 'MATH', '124'])
       const regParts = student.registration_number.toUpperCase().split('/').map(p => p.trim());
-      
-      for (const program of programs) {
-        const programCode = program.code.toUpperCase();
-        const codeSuffix = programCode.includes('-') ? programCode.split('-').pop() : programCode;
-        
-        if (regParts.includes(programCode) || regParts.includes(codeSuffix)) {
-          detectedProgram = { id: program.id, name: program.name, code: program.code };
+
+      for (const part of regParts) {
+        const match = programCodeMap.get(part);
+        if (match) {
+          detectedProgram = { id: match.id, name: match.name, code: match.code };
           break;
         }
       }
-      
+
       if (detectedProgram) {
         programMap.set(student.registration_number, detectedProgram);
         studentsWithPrograms.push(student);
@@ -683,37 +697,101 @@ const uploadFromExcel = async (req, res, next) => {
     );
     const currentSessionId = sessions[0]?.id || null;
 
+    if (!currentSessionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No active academic session found. Please set a current session before uploading students.',
+        warning: true,
+      });
+    }
+
     // Insert students (only those with valid programs)
     const insertedStudents = [];
     const insertErrors = [];
 
-    for (const student of studentsWithPrograms) {
-      try {
-        const program = programMap.get(student.registration_number);
-        const pin = generatePin();
-        const pinHash = await hashPassword(pin);
-        const pinEncrypted = encryptStudentPin(pin);
+    if (studentsWithPrograms.length > 0) {
+      // Step 1: Generate all PINs upfront (synchronous)
+      const batch = studentsWithPrograms.map(student => ({
+        student,
+        pin: generatePin(),
+        program: programMap.get(student.registration_number),
+        pinHash: null,
+        pinEncrypted: null,
+      }));
 
-        const result = await query(
-          `INSERT INTO students (institution_id, program_id, session_id, registration_number, 
-                                 full_name, pin_hash, pin_encrypted, status, payment_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 'pending')`,
-          [parseInt(institutionId), program?.id || null, currentSessionId, student.registration_number,
-           student.full_name, pinHash, pinEncrypted]
+      // Step 2: Hash PINs in parallel — bcrypt runs in libuv worker threads so
+      // concurrent hashing is genuinely faster than sequential.
+      // Chunks of 10 keep the worker-thread queue from growing unbounded.
+      const HASH_CONCURRENCY = 10;
+      for (let i = 0; i < batch.length; i += HASH_CONCURRENCY) {
+        await Promise.all(
+          batch.slice(i, i + HASH_CONCURRENCY).map(async (entry) => {
+            entry.pinHash = await hashPassword(entry.pin, BULK_BCRYPT_ROUNDS);
+            entry.pinEncrypted = encryptStudentPin(entry.pin);
+          })
         );
+      }
 
-        insertedStudents.push({
-          id: result.insertId,
-          registration_number: student.registration_number,
-          full_name: student.full_name,
-          program_name: program?.name || null,
-          pin,
+      // Step 3: Single bulk INSERT — one round trip instead of N
+      const valuePlaceholders = batch.map(() => "(?, ?, ?, ?, ?, ?, ?, 'active', 'pending')").join(', ');
+      const flatValues = batch.flatMap(({ student, program, pinHash, pinEncrypted }) => [
+        parseInt(institutionId),
+        program?.id || null,
+        currentSessionId,
+        student.registration_number,
+        student.full_name,
+        pinHash,
+        pinEncrypted,
+      ]);
+
+      try {
+        const rows = await transaction(async (conn) => {
+          const [result] = await conn.execute(
+            `INSERT IGNORE INTO students (institution_id, program_id, session_id, registration_number,
+                                          full_name, pin_hash, pin_encrypted, status, payment_status)
+             VALUES ${valuePlaceholders}`,
+            flatValues
+          );
+
+          // MySQL guarantees contiguous auto-increment IDs for a single bulk INSERT.
+          // IGNORE silently skips duplicate rows; affectedRows counts only inserted ones.
+          const firstId = result.insertId;
+          return batch.map(({ student, pin, program }, i) => ({
+            id: firstId + i,
+            registration_number: student.registration_number,
+            full_name: student.full_name,
+            program_name: program?.name || null,
+            pin,
+          }));
         });
-      } catch (err) {
-        insertErrors.push({
-          registration_number: student.registration_number,
-          error: err.message,
-        });
+        insertedStudents.push(...rows);
+      } catch (bulkErr) {
+        // Fall back to per-row inserts inside a single transaction so partial
+        // failures don't leave the table in a half-written state.
+        try {
+          await transaction(async (conn) => {
+            for (const { student, pin, pinHash, pinEncrypted, program } of batch) {
+              const [result] = await conn.execute(
+                `INSERT IGNORE INTO students (institution_id, program_id, session_id, registration_number,
+                                              full_name, pin_hash, pin_encrypted, status, payment_status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 'pending')`,
+                [parseInt(institutionId), program?.id || null, currentSessionId, student.registration_number,
+                 student.full_name, pinHash, pinEncrypted]
+              );
+              if (result.affectedRows > 0) {
+                insertedStudents.push({
+                  id: result.insertId,
+                  registration_number: student.registration_number,
+                  full_name: student.full_name,
+                  program_name: program?.name || null,
+                  pin,
+                });
+              }
+            }
+          });
+        } catch (fallbackErr) {
+          insertErrors.push({ registration_number: 'batch', error: fallbackErr.message });
+        }
       }
     }
 

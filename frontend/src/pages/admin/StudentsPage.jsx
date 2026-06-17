@@ -337,10 +337,11 @@ function StudentsPage() {
     setUploading(true);
     try {
       const response = await studentsApi.upload(uploadFile, false); // validate_only=false
-      const result = response.data.data || response.data || {};
+      const body = response.data;
+      const result = body?.data || body || {};
       setUploadResult(result);
       setUploadStep('result');
-      
+
       const insertedCount = result?.inserted || 0;
       if (insertedCount > 0) {
         toast.success(`Successfully imported ${insertedCount} students`);
@@ -349,6 +350,10 @@ function StudentsPage() {
       fetchStudents();
     } catch (err) {
       const errorData = err.response?.data;
+      if (errorData?.warning) {
+        toast.error(errorData.message, { duration: 6000 });
+        return;
+      }
       if (errorData) {
         setUploadResult(errorData);
         setUploadStep('result');

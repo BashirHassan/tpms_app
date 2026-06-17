@@ -43,6 +43,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 const JWT_EXPIRES_IN_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 const BCRYPT_ROUNDS = 12;
+const BULK_BCRYPT_ROUNDS = 10; // auto-generated PINs expected to be changed on first login
 const RESET_TOKEN_EXPIRES_HOURS = 1;
 const SSO_TOKEN_EXPIRES_SECONDS = 30; // SSO tokens expire in 30 seconds
 
@@ -245,8 +246,8 @@ function generateToken(user, authType, sessionId) {
 /**
  * Hash password using bcrypt
  */
-async function hashPassword(password) {
-  return bcrypt.hash(password, BCRYPT_ROUNDS);
+async function hashPassword(password, rounds = BCRYPT_ROUNDS) {
+  return bcrypt.hash(password, rounds);
 }
 
 /**
@@ -2212,6 +2213,7 @@ module.exports = {
   AUTH_TYPES,
   generateToken,
   hashPassword,
+  BULK_BCRYPT_ROUNDS,
   verifyPassword,
   // SSO token store getter for partner SSO
   getSsoTokenStore: () => ssoTokenStore,
