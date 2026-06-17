@@ -282,20 +282,21 @@ function StudentsPage() {
 
       // Now validate against server (check for existing students)
       const serverResponse = await studentsApi.upload(file, true); // validate_only=true
-      const serverData = serverResponse.data;
+      const serverBody = serverResponse.data; // { success, message, data: {...}, can_proceed }
+      const serverData = serverBody?.data || {}; // unwrap nested validation payload
 
       // Merge client and server validation results
-      const allErrors = serverData.errors || clientValidation.clientErrors;
+      const allErrors = serverData.errors?.length ? serverData.errors : clientValidation.clientErrors;
       const hasErrors = allErrors && allErrors.length > 0;
       setValidationResult({
         totalRows: clientValidation.totalRows,
-        validRows: serverData.valid_rows || clientValidation.validStudents.length,
-        errorRows: serverData.error_rows || clientValidation.clientErrors.length,
+        validRows: serverData.valid_rows ?? clientValidation.validStudents.length,
+        errorRows: serverData.error_rows ?? clientValidation.clientErrors.length,
         programsDetected: serverData.programs_detected || 0,
         programsUndetected: serverData.programs_undetected || 0,
         errors: allErrors,
-        preview: serverData.preview || clientValidation.preview,
-        canProceed: !hasErrors && serverData.can_proceed !== false && clientValidation.validStudents.length > 0,
+        preview: serverData.preview?.length ? serverData.preview : clientValidation.preview,
+        canProceed: !hasErrors && serverBody?.can_proceed !== false && clientValidation.validStudents.length > 0,
       });
 
       setUploadStep('preview');
@@ -741,7 +742,7 @@ function StudentsPage() {
           uploadStep === 'preview' ? 'Upload Students - Review & Confirm' :
           'Upload Students - Results'
         }
-        width="2xl"
+        width="3xl"
       >
         {/* Step Indicator */}
         <div className="flex items-center justify-center mb-4 sm:mb-6">

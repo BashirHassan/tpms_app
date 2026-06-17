@@ -129,9 +129,9 @@ function AcademicPage() {
       case 'faculty':
         return { name: '', code: '' };
       case 'department':
-        return { name: '', code: '', faculty_id: selectedFaculty || '' };
+        return { name: '', code: '', faculty_id: selectedFaculty ? parseInt(selectedFaculty) : '' };
       case 'program':
-        return { name: '', code: '', department_id: selectedDepartment || '' };
+        return { name: '', code: '', department_id: selectedDepartment ? parseInt(selectedDepartment) : '' };
       default:
         return {};
     }
