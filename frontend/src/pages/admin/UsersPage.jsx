@@ -581,10 +581,11 @@ function UsersPage() {
             label="Full Name"
             name="name"
             value={formData.name}
-            onChange={handleChange}
+            onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value.toUpperCase() }))}
             error={formErrors.name}
             required
             placeholder="Enter full name"
+            className="uppercase"
           />
 
           {/* Email */}

@@ -281,10 +281,11 @@ function ProfilePage() {
                   <Input
                     label="Full Name"
                     value={profileData.name}
-                    onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
+                    onChange={(e) => setProfileData({ ...profileData, name: e.target.value.toUpperCase() })}
                     required
                     placeholder="Enter your full name"
                     disabled={!canEditProfile}
+                    className="uppercase"
                   />
                 </div>
                 <div className="col-span-2">

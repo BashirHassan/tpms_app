@@ -23,6 +23,7 @@ import {
   IconPlus,
   IconPencil,
   IconTrash,
+  IconRefresh,
 } from '@tabler/icons-react';
 
 function AcademicPage() {
@@ -43,6 +44,8 @@ function AcademicPage() {
   // Filters
   const [selectedFaculty, setSelectedFaculty] = useState(null);
   const [selectedDepartment, setSelectedDepartment] = useState(null);
+
+  const [refreshing, setRefreshing] = useState(false);
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
@@ -96,6 +99,15 @@ function AcademicPage() {
     setLoading(true);
     await Promise.all([fetchFaculties(), fetchDepartments(), fetchPrograms()]);
     setLoading(false);
+  };
+
+  const handleRefresh = async () => {
+    setSearch('');
+    setSelectedFaculty(null);
+    setSelectedDepartment(null);
+    setRefreshing(true);
+    await fetchAll();
+    setRefreshing(false);
   };
 
   useEffect(() => {
@@ -335,6 +347,16 @@ function AcademicPage() {
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Academic Structure</h1>
           <p className="text-xs sm:text-sm text-gray-500 truncate">Manage faculties, departments, and programs</p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefresh}
+          disabled={refreshing || loading}
+          className="flex-shrink-0"
+        >
+          <IconRefresh className={cn('w-4 h-4 sm:mr-2', (refreshing || loading) && 'animate-spin')} />
+          <span className="hidden sm:inline">Refresh</span>
+        </Button>
       </div>
 
       {/* Tabs */}
@@ -459,8 +481,9 @@ function AcademicPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
             <Input
               value={formData.name || ''}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value.toUpperCase() })}
               placeholder={`Enter ${modalType} name`}
+              className="uppercase"
             />
           </div>
 

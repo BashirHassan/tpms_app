@@ -10,7 +10,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import { dashboardApi } from '../../../api/dashboard';
-import { formatCurrency, formatDate, formatGreetingName } from '../../../utils/helpers';
+import { formatCurrency, formatDate, formatGreetingName, formatNumber } from '../../../utils/helpers';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/Card';
 import { StatsCard } from '../../../components/ui/StatsCard';
 import { Button } from '../../../components/ui/Button';
@@ -61,12 +61,6 @@ function InstitutionDashboard() {
     fetchDashboardData();
   };
 
-  const formatNumber = (num) => {
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
-    return num?.toString() || '0';
-  };
-
   const formatTimeAgo = (dateString) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -103,24 +97,24 @@ function InstitutionDashboard() {
   const primaryStats = [
     {
       name: 'Total Students',
-      value: formatNumber(students?.total_students),
-      subValue: `${students?.active_students || 0} active`,
+      value: formatNumber(students?.total_students ?? 0),
+      subValue: `${formatNumber(students?.active_students ?? 0)} active`,
       icon: IconSchool,
       tone: 'blue',
       link: '/admin/students',
     },
     {
       name: 'Staff Members',
-      value: formatNumber(staff?.total_staff),
-      subValue: `${staff?.supervisors || 0} supervisors`,
+      value: formatNumber(staff?.total_staff ?? 0),
+      subValue: `${formatNumber(staff?.supervisors ?? 0)} supervisors`,
       icon: IconUsers,
       tone: 'green',
       link: '/admin/users',
     },
     {
       name: 'Partner Schools',
-      value: formatNumber(schools?.total_schools),
-      subValue: `${schools?.active_schools || 0} active`,
+      value: formatNumber(schools?.total_schools ?? 0),
+      subValue: `${formatNumber(schools?.active_schools ?? 0)} active`,
       icon: IconBuildingBank,
       tone: 'purple',
       link: '/admin/schools',
@@ -133,8 +127,8 @@ function InstitutionDashboard() {
   if (hasFeature('posting_management')) {
     featureStats.push({
       name: 'Total Postings',
-      value: formatNumber(postings?.total_postings),
-      subValue: `${postings?.primary_postings || 0} primary • ${postings?.secondary_postings || 0} merged`,
+      value: formatNumber(postings?.total_postings ?? 0),
+      subValue: `${formatNumber(postings?.primary_postings ?? 0)} primary • ${formatNumber(postings?.secondary_postings ?? 0)} merged`,
       icon: IconClipboardList,
       tone: 'orange',
       link: '/admin/postings',
@@ -145,7 +139,7 @@ function InstitutionDashboard() {
     featureStats.push({
       name: 'Payments',
       value: formatCurrency(payments?.successful_amount),
-      subValue: `${payments?.successful_payments || 0} received`,
+      subValue: `${formatNumber(payments?.successful_payments ?? 0)} received`,
       icon: IconCash,
       tone: 'teal',
       link: '/admin/payments',
@@ -223,11 +217,11 @@ function InstitutionDashboard() {
                 <p className="font-medium text-amber-800">Pending Update Requests</p>
                 <p className="text-sm text-amber-600">
                   {pendingRequests?.pending_location_updates > 0 && (
-                    <span>{pendingRequests.pending_location_updates} location update{pendingRequests.pending_location_updates > 1 ? 's' : ''}</span>
+                    <span>{formatNumber(pendingRequests.pending_location_updates)} location update{pendingRequests.pending_location_updates > 1 ? 's' : ''}</span>
                   )}
                   {pendingRequests?.pending_location_updates > 0 && pendingRequests?.pending_principal_updates > 0 && ' • '}
                   {pendingRequests?.pending_principal_updates > 0 && (
-                    <span>{pendingRequests.pending_principal_updates} principal update{pendingRequests.pending_principal_updates > 1 ? 's' : ''}</span>
+                    <span>{formatNumber(pendingRequests.pending_principal_updates)} principal update{pendingRequests.pending_principal_updates > 1 ? 's' : ''}</span>
                   )}
                 </p>
               </div>
@@ -263,7 +257,7 @@ function InstitutionDashboard() {
                 <StatsCard
                   surface="panel"
                   title="Submitted"
-                  value={acceptances?.submitted ?? 0}
+                  value={formatNumber(acceptances?.submitted ?? 0)}
                   icon={IconFileCheck}
                   tone="green"
                   valueClassName="text-green-700 text-xl"
@@ -272,7 +266,7 @@ function InstitutionDashboard() {
                 <StatsCard
                   surface="panel"
                   title="Not Submitted"
-                  value={acceptances?.not_submitted ?? 0}
+                  value={formatNumber(acceptances?.not_submitted ?? 0)}
                   icon={IconAlertCircle}
                   tone="gray"
                   valueClassName="text-gray-700 text-xl"
@@ -301,8 +295,8 @@ function InstitutionDashboard() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-3">
-                <StatsCard surface="panel" title="Total Results" value={results?.total_results ?? 0} icon={IconReport} tone="blue" valueClassName="text-blue-700 text-xl" labelClassName="text-blue-600" />
-                <StatsCard surface="panel" title="Assessed" value={results?.students_assessed ?? 0} icon={IconFileCheck} tone="green" valueClassName="text-green-700 text-xl" labelClassName="text-green-600" />
+                <StatsCard surface="panel" title="Total Results" value={formatNumber(results?.total_results ?? 0)} icon={IconReport} tone="blue" valueClassName="text-blue-700 text-xl" labelClassName="text-blue-600" />
+                <StatsCard surface="panel" title="Assessed" value={formatNumber(results?.students_assessed ?? 0)} icon={IconFileCheck} tone="green" valueClassName="text-green-700 text-xl" labelClassName="text-green-600" />
                 <StatsCard surface="panel" title="Highest Score" value={results?.highest_score ?? 0} icon={IconReport} tone="orange" valueClassName="text-orange-700 text-xl" labelClassName="text-orange-600" />
                 <StatsCard surface="panel" title="Compliance" value={`${results?.compliance_percentage ?? 0}%`} icon={IconFileCheck} tone="purple" valueClassName="text-purple-700 text-xl" labelClassName="text-purple-600" />
               </div>

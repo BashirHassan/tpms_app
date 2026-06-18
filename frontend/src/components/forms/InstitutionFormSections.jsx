@@ -140,8 +140,9 @@ export function InstitutionInfoForm({
             <Input
               label="Institution Name *"
               value={data.name || ''}
-              onChange={(e) => onChange('name', e.target.value)}
+              onChange={(e) => onChange('name', e.target.value.toUpperCase())}
               placeholder="e.g., Federal University of Technology"
+              className="uppercase"
               error={errors.name}
             />
             {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}

@@ -457,8 +457,9 @@ export default function StudentLocationUpdatePage() {
                             <Input
                               label="Your Name"
                               value={formData.contributor_name}
-                              onChange={(e) => setFormData({ ...formData, contributor_name: e.target.value })}
+                              onChange={(e) => setFormData({ ...formData, contributor_name: e.target.value.toUpperCase() })}
                               placeholder="Enter your full name"
+                              className="uppercase"
                               icon={<IconUser className="w-4 h-4" />}
                             />
                             <Input

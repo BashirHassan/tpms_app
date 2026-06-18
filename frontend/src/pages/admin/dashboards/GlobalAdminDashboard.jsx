@@ -98,12 +98,6 @@ function GlobalAdminDashboard() {
     }
   };
 
-  const formatNumber = (num) => {
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
-    return num?.toString() || '0';
-  };
-
   const formatTimeAgo = (dateString) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -153,43 +147,43 @@ function GlobalAdminDashboard() {
   const platformStats = [
     {
       name: 'Total Institutions',
-      value: formatNumber(summary?.institutions?.total_institutions),
-      subValue: `${summary?.institutions?.active_institutions || 0} active`,
+      value: formatNumber(summary?.institutions?.total_institutions ?? 0),
+      subValue: `${formatNumber(summary?.institutions?.active_institutions ?? 0)} active`,
       icon: IconBuilding,
       tone: 'blue',
     },
     {
       name: 'Total Users',
-      value: formatNumber(summary?.users?.total_users),
-      subValue: `${summary?.users?.supervisors || 0} supervisors`,
+      value: formatNumber(summary?.users?.total_users ?? 0),
+      subValue: `${formatNumber(summary?.users?.supervisors ?? 0)} supervisors`,
       icon: IconUsers,
       tone: 'green',
     },
     {
       name: 'Total Students',
-      value: formatNumber(summary?.students?.total_students),
-      subValue: `${summary?.students?.active_students || 0} active`,
+      value: formatNumber(summary?.students?.total_students ?? 0),
+      subValue: `${formatNumber(summary?.students?.active_students ?? 0)} active`,
       icon: IconSchool,
       tone: 'purple',
     },
     {
       name: 'Partner Schools',
-      value: formatNumber(summary?.schools?.total_schools),
-      subValue: `${summary?.schools?.active_schools || 0} active`,
+      value: formatNumber(summary?.schools?.total_schools ?? 0),
+      subValue: `${formatNumber(summary?.schools?.active_schools ?? 0)} active`,
       icon: IconBuildingBank,
       tone: 'orange',
     },
     {
       name: 'Active Sessions',
-      value: formatNumber(summary?.sessions?.current_sessions),
-      subValue: `${summary?.sessions?.total_sessions || 0} total`,
+      value: formatNumber(summary?.sessions?.current_sessions ?? 0),
+      subValue: `${formatNumber(summary?.sessions?.total_sessions ?? 0)} total`,
       icon: IconCalendar,
       tone: 'teal',
     },
     {
       name: 'Active Postings',
-      value: formatNumber(summary?.postings?.active_postings),
-      subValue: `${summary?.postings?.total_postings || 0} total`,
+      value: formatNumber(summary?.postings?.active_postings ?? 0),
+      subValue: `${formatNumber(summary?.postings?.total_postings ?? 0)} total`,
       icon: IconClipboardList,
       tone: 'primary',
     },
@@ -279,15 +273,15 @@ function GlobalAdminDashboard() {
                     <div className="flex items-center gap-4 text-xs text-gray-500 flex-shrink-0">
                       <div className="flex items-center gap-1">
                         <IconSchool className="w-3.5 h-3.5" />
-                        <span>{institution.student_count}</span>
+                        <span>{formatNumber(institution.student_count ?? 0)}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <IconUsers className="w-3.5 h-3.5" />
-                        <span>{institution.user_count}</span>
+                        <span>{formatNumber(institution.user_count ?? 0)}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <IconBuildingBank className="w-3.5 h-3.5" />
-                        <span>{institution.school_count}</span>
+                        <span>{formatNumber(institution.school_count ?? 0)}</span>
                       </div>
                       <span
                         className={`px-2 py-0.5 rounded-full text-xs ${

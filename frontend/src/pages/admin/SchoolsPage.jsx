@@ -1177,8 +1177,9 @@ function SchoolsPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Principal Name</label>
               <Input
                 value={formData.principal_name || ''}
-                onChange={(e) => setFormData({ ...formData, principal_name: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, principal_name: e.target.value.toUpperCase() })}
                 placeholder="Principal's name"
+                className="uppercase"
               />
             </div>
 

@@ -10,7 +10,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import { dashboardApi } from '../../../api/dashboard';
-import { formatCurrency, formatDate, formatGreetingName, getOrdinal } from '../../../utils/helpers';
+import { formatCurrency, formatDate, formatGreetingName, formatNumber, getOrdinal } from '../../../utils/helpers';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/Card';
 import { StatsCard } from '../../../components/ui/StatsCard';
 import { Button } from '../../../components/ui/Button';
@@ -67,11 +67,6 @@ function SupervisorDashboard() {
     setRefreshing(true);
     fetchDashboardData();
   };
-
-  const formatNumber = (num) => {
-    return num?.toString() || '0';
-  };
-
 
   const formatTimeAgo = (dateString) => {
     const date = new Date(dateString);
@@ -173,29 +168,29 @@ function SupervisorDashboard() {
             <StatsCard
               index={0}
               title="Total Postings"
-              value={formatNumber(summary?.postings?.total_postings)}
-              subValue={`${summary?.postings?.primary_postings || 0} primary • ${summary?.postings?.merged_postings || 0} merged`}
+              value={formatNumber(summary?.postings?.total_postings ?? 0)}
+              subValue={`${formatNumber(summary?.postings?.primary_postings ?? 0)} primary • ${formatNumber(summary?.postings?.merged_postings ?? 0)} merged`}
               icon={IconClipboardList}
               tone="blue"
             />
             <StatsCard
               index={1}
               title="Total Inside"
-              value={formatNumber(summary?.postings?.inside_count)}
+              value={formatNumber(summary?.postings?.inside_count ?? 0)}
               icon={IconWalk}
               tone="green"
             />
             <StatsCard
               index={2}
               title="Total Outside"
-              value={formatNumber(summary?.postings?.outside_count)}
+              value={formatNumber(summary?.postings?.outside_count ?? 0)}
               icon={IconCar}
               tone="orange"
             />
             <StatsCard
               index={3}
               title="Total Students"
-              value={formatNumber(summary?.postings?.total_students)}
+              value={formatNumber(summary?.postings?.total_students ?? 0)}
               icon={IconUsers}
               tone="purple"
             />
@@ -242,7 +237,7 @@ function SupervisorDashboard() {
                         <div className="min-w-0 flex-1">
                           <p className="font-medium text-gray-900 whitespace-nowrap truncate">{posting.school_name}</p>
                           <p className="text-xs text-gray-500">
-                            Group {posting.group_number} • {getOrdinal(posting.visit_number)} Visit • {posting.student_count} students
+                            Group {posting.group_number} • {getOrdinal(posting.visit_number)} Visit • {formatNumber(posting.student_count ?? 0)} students
                           </p>
                         </div>
                       </div>
@@ -328,10 +323,10 @@ function SupervisorDashboard() {
         <>
           {/* Summary Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            <StatsCard index={0} title="Total Assignments" value={formatNumber(summary?.assignments?.total_assignments)} icon={IconChecklist} tone="blue" />
-            <StatsCard index={1} title="Pending" value={formatNumber(summary?.assignments?.pending_assignments)} icon={IconClock} tone="amber" />
-            <StatsCard index={2} title="In Progress" value={formatNumber(summary?.assignments?.in_progress)} icon={IconTrendingUp} tone="purple" />
-            <StatsCard index={3} title="Completed" value={formatNumber(summary?.assignments?.completed_assignments)} icon={IconCheck} tone="green" />
+            <StatsCard index={0} title="Total Assignments" value={formatNumber(summary?.assignments?.total_assignments ?? 0)} icon={IconChecklist} tone="blue" />
+            <StatsCard index={1} title="Pending" value={formatNumber(summary?.assignments?.pending_assignments ?? 0)} icon={IconClock} tone="amber" />
+            <StatsCard index={2} title="In Progress" value={formatNumber(summary?.assignments?.in_progress ?? 0)} icon={IconTrendingUp} tone="purple" />
+            <StatsCard index={3} title="Completed" value={formatNumber(summary?.assignments?.completed_assignments ?? 0)} icon={IconCheck} tone="green" />
           </div>
 
           {/* My Assignments */}
@@ -402,8 +397,8 @@ function SupervisorDashboard() {
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-gray-900 truncate">{report.school_name}</p>
                         <p className="text-xs text-gray-500">
-                          {formatDate(report.visit_date)} • 
-                          {report.students_observed} students observed •
+                          {formatDate(report.visit_date)} •
+                          {formatNumber(report.students_observed ?? 0)} students observed •
                           Rating: {report.overall_rating}/5
                         </p>
                       </div>
