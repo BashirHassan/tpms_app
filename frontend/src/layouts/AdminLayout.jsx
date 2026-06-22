@@ -419,7 +419,14 @@ function AdminLayout() {
             <IconMenu2 className="w-5 h-5" />
           </Button>
 
-          <div className="flex-1" />
+          <div className="hidden lg:block min-w-0">
+            <p className="text-sm font-medium text-gray-900 truncate">
+              {effectiveInstitution?.name || branding.name}
+            </p>
+            <p className="text-xs text-gray-500">Staff Portal</p>
+          </div>
+
+          <div className="flex-1 lg:hidden" />
 
           {/* User menu */}
           <div className="relative">
