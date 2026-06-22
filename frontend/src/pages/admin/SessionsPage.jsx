@@ -1024,9 +1024,9 @@ function SessionsPage() {
                       }
                       placeholder="e.g. 100"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Maximum GPS error radius students may submit. Leave blank for no limit.</p>
+                    <p className="text-xs text-gray-500 mt-1">Maximum GPS error radius. Leave blank for no limit.</p>
                   </div>
-                  <div className="col-span-2">
+                  <div className="md:col-span-2">
                     <div className="flex items-center gap-2 my-3">
                       <input
                         type="checkbox"

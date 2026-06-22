@@ -250,7 +250,7 @@ function AdminLayout() {
               <p className="text-sm font-semibold text-gray-800 truncate leading-tight">
                 {effectiveInstitution?.name || branding.name || 'DigitalTP'}
               </p>
-              <p className="text-xs text-gray-500 leading-tight">Staff Portal</p>
+              <p className="text-xs text-gray-500 leading-tight">Teaching Practice Portal</p>
             </div>
           </Link>
           <Button
