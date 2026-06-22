@@ -451,8 +451,8 @@ const DocumentTemplatesPage = () => {
         <div className="flex-1 flex overflow-hidden">
           {/* Main Editor - hidden when preview is active */}
           {!showPreview && (
-            <div className="flex-1 p-6 overflow-auto">
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="flex-1 p-6 flex flex-col min-h-0">
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 flex-1 flex flex-col min-h-0 overflow-hidden">
                 <TemplateEditor
                   value={editorContent}
                   onChange={setEditorContent}

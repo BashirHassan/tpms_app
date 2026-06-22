@@ -69,7 +69,7 @@ const TemplateEditor = ({
   }, [onInsertPlaceholder]);
 
   return (
-    <div className={`template-editor ${className}`}>
+    <div className={`template-editor ${className} h-full`}>
       <Editor
         tinymceScriptSrc="/tinymce/tinymce.min.js"
         licenseKey="gpl"
@@ -87,7 +87,7 @@ const TemplateEditor = ({
           onChange?.(html);
         }}
         init={{
-          height: 620,
+          height: '100%',
           menubar: false,
           placeholder,
           plugins: PLUGINS,
