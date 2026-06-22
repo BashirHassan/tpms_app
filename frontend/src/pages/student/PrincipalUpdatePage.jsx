@@ -12,14 +12,17 @@ import {
   IconAlertCircle,
   IconInfoCircle,
   IconSchool,
+  IconBuilding,
+  IconMapPin,
+  IconSearch,
+  IconX,
   IconChevronRight,
   IconUserCircle,
 } from '@tabler/icons-react';
 import apiClient from '../../api/client';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { SearchableSelect } from '../../components/ui/SearchableSelect';
 
 const portalSchoolsApi = {
   getSchoolsForUpdate: (params) =>
@@ -33,6 +36,7 @@ const portalSchoolsApi = {
 export default function StudentPrincipalUpdatePage() {
   const [schools, setSchools] = useState([]);
   const [selectedSchool, setSelectedSchool] = useState('');
+  const [search, setSearch] = useState('');
   const [schoolInfo, setSchoolInfo] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -64,6 +68,7 @@ export default function StudentPrincipalUpdatePage() {
       setShowForm(false);
       setSuccess(false);
       setError('');
+      setSearch('');
       setFormData({ proposed_principal_name: '', proposed_principal_phone: '', contributor_name: '', contributor_phone: '' });
       setFormErrors({});
       setShowContactInfo(false);
@@ -142,8 +147,18 @@ export default function StudentPrincipalUpdatePage() {
 
   const selectedSchoolData = schools.find((s) => String(s.id) === String(selectedSchool));
 
+  const filteredSchools = schools.filter((s) => {
+    const q = search.toLowerCase();
+    return (
+      s.name?.toLowerCase().includes(q) ||
+      s.school_code?.toLowerCase().includes(q) ||
+      s.ward?.toLowerCase().includes(q) ||
+      s.lga?.toLowerCase().includes(q)
+    );
+  });
+
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+    <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
       {/* Page Header */}
       <div>
         <h1 className="text-xl font-bold text-gray-900">Update Principal Details</h1>
@@ -187,38 +202,119 @@ export default function StudentPrincipalUpdatePage() {
         <CardContent className="p-0">
           {/* School Selection */}
           <div className="p-6 space-y-4">
-            <div className="space-y-2">
-              <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-                <IconSchool className="w-4 h-4 text-primary-500" />
-                Select School
-              </label>
-              <SearchableSelect
-                options={schools}
-                value={selectedSchool}
-                onChange={setSelectedSchool}
-                placeholder="Search for a school..."
-                searchPlaceholder="Type school name, code, ward, or LGA..."
-                loading={loadingSchools}
-                getOptionValue={(opt) => String(opt.id)}
-                getOptionLabel={(opt) => `${opt.name} (${opt.school_code || 'N/A'}) - ${opt.ward}, ${opt.lga}`}
-                filterFn={(options, search) => {
-                  const q = search.toLowerCase();
-                  return options.filter((opt) =>
-                    opt.name?.toLowerCase().includes(q) ||
-                    opt.school_code?.toLowerCase().includes(q) ||
-                    opt.ward?.toLowerCase().includes(q) ||
-                    opt.lga?.toLowerCase().includes(q)
-                  );
-                }}
-                renderOption={(opt) => (
-                  <div className="py-1">
-                    <div className="font-medium text-gray-900">{opt.name}</div>
-                    <div className="text-xs text-gray-500">{opt.ward}, {opt.lga}</div>
-                  </div>
-                )}
-                clearable
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
+                <IconSchool className="w-4 h-4 text-primary-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-gray-900 text-sm">Select School</p>
+                <p className="text-xs text-gray-500">Search and choose the school to update</p>
+              </div>
+            </div>
+
+            {/* Search */}
+            <div className="relative">
+              <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <Input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-10 h-11 text-sm"
+                placeholder="Search by name, code, ward, or LGA..."
+                disabled={!!selectedSchool}
               />
             </div>
+
+            {/* Selected School Card */}
+            {selectedSchoolData && (
+              <div className="p-3 sm:p-4 bg-primary-50 border-2 border-primary-300 rounded-xl">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                    <div className="w-9 h-9 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
+                      <IconBuilding className="w-4 h-4 text-primary-600" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-primary-900 text-sm truncate">
+                        {selectedSchoolData.school_code
+                          ? `${selectedSchoolData.school_code} | ${selectedSchoolData.name}`
+                          : selectedSchoolData.name}
+                      </p>
+                      <p className="text-xs text-gray-700 flex items-center gap-1 mt-0.5">
+                        <IconMapPin className="w-3 h-3 flex-shrink-0" />
+                        <span className="truncate">
+                          {selectedSchoolData.ward}, {selectedSchoolData.lga}
+                          {selectedSchoolData.state ? `, ${selectedSchoolData.state}` : ''}
+                        </span>
+                      </p>
+                      {selectedSchoolData.route_name && (
+                        <p className="text-xs text-primary-600 mt-0.5 truncate">
+                          Route: {selectedSchoolData.route_name}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSchool('')}
+                    className="p-1.5 text-primary-600 hover:text-primary-800 hover:bg-primary-100 active:bg-primary-200 rounded-lg transition-colors flex-shrink-0"
+                  >
+                    <IconX className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* School List */}
+            {!selectedSchool && (
+              <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
+                {loadingSchools ? (
+                  <div className="flex items-center justify-center p-8 text-gray-500">
+                    <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mr-3" />
+                    <span className="text-sm">Loading schools...</span>
+                  </div>
+                ) : filteredSchools.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 text-gray-500">
+                    <IconSchool className="w-10 h-10 text-gray-300 mb-2" />
+                    <p className="font-medium text-sm">No schools found</p>
+                    <p className="text-xs text-gray-400">Try adjusting your search</p>
+                  </div>
+                ) : (
+                  filteredSchools.map((school) => (
+                    <button
+                      key={school.id}
+                      type="button"
+                      onClick={() => setSelectedSchool(String(school.id))}
+                      className="w-full p-3 sm:p-4 text-left hover:bg-gray-50 active:bg-gray-100 transition-colors flex items-start gap-3"
+                    >
+                      <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                        <IconBuilding className="w-4 h-4 text-gray-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900 truncate text-sm">{school.name}</p>
+                        {school.school_code && (
+                          <p className="text-xs font-medium text-primary-700 mt-0.5">({school.school_code})</p>
+                        )}
+                        <p className="text-xs text-gray-600 flex items-center gap-1 mt-0.5">
+                          <IconMapPin className="w-3 h-3 flex-shrink-0" />
+                          <span className="truncate">
+                            {school.ward}, {school.lga}
+                            {school.state ? `, ${school.state}` : ''}
+                          </span>
+                        </p>
+                        {school.route_name && (
+                          <p className="text-xs text-primary-600 mt-0.5 truncate">Route: {school.route_name}</p>
+                        )}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+
+            <p className="text-xs text-gray-500 flex items-start gap-2">
+              <IconInfoCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+              <span>Schools with pending requests are hidden. Contact the TP office if your school is not listed.</span>
+            </p>
           </div>
 
           {/* School Info */}
@@ -231,21 +327,9 @@ export default function StudentPrincipalUpdatePage() {
             </div>
           ) : schoolInfo && (
             <div className="border-t border-gray-100">
-              {/* School Header */}
-              <div className="bg-gray-50 p-6">
-                <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-white shadow-sm flex items-center justify-center">
-                    <IconSchool className="w-5 h-5 text-primary-500" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900 truncate">{selectedSchoolData?.name}</h3>
-                    <p className="text-sm text-gray-500">{selectedSchoolData?.ward}, {selectedSchoolData?.lga}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Current Principal */}
               <div className="p-6 space-y-4">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Current Principal</p>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex items-start gap-3 p-4 rounded-xl bg-slate-50">
                     <div className="w-9 h-9 rounded-lg bg-white shadow-sm flex items-center justify-center flex-shrink-0">
