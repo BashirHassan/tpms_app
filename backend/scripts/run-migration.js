@@ -7,6 +7,8 @@
  *   npm run migrate -- <file>     - run a specific migration (skips if already applied)
  *   npm run migrate -- --pending  - run all pending migrations in order
  *   npm run migrate -- --force <file> - re-run a migration even if already applied
+ *   npm run migrate -- --backfill - mark ALL migrations as applied without running them
+ *                                   (use once on a DB that already has all migrations applied)
  */
 
 const fs = require('fs');
@@ -96,6 +98,27 @@ async function runPending(pool) {
   console.log('\n✅ All pending migrations applied.');
 }
 
+async function backfill(pool) {
+  const allFiles = fs.readdirSync(MIGRATIONS_DIR)
+    .filter(f => f.endsWith('.sql'))
+    .sort();
+
+  let marked = 0;
+  for (const file of allFiles) {
+    const [result] = await pool.query(
+      'INSERT IGNORE INTO schema_migrations (filename) VALUES (?)',
+      [file]
+    );
+    if (result.affectedRows > 0) {
+      console.log(`  ✅ Marked: ${file}`);
+      marked++;
+    } else {
+      console.log(`  ⏭  Already recorded: ${file}`);
+    }
+  }
+  console.log(`\n✅ Backfill complete. ${marked} migration(s) newly recorded.`);
+}
+
 async function showStatus(pool) {
   const allFiles = fs.readdirSync(MIGRATIONS_DIR)
     .filter(f => f.endsWith('.sql'))
@@ -114,6 +137,7 @@ async function showStatus(pool) {
     pending.forEach(f => console.log(`  ⏳ ${f}`));
     console.log('\nTo apply all pending:  npm run migrate -- --pending');
     console.log('To apply one:          npm run migrate -- <filename>');
+    console.log('To mark all applied:   npm run migrate -- --backfill  (use on a DB that already has all migrations)');
   } else {
     console.log('\n✅ Database is up to date.');
   }
@@ -134,7 +158,9 @@ async function main() {
 
     const args = process.argv.slice(2);
 
-    if (args[0] === '--pending') {
+    if (args[0] === '--backfill') {
+      await backfill(pool);
+    } else if (args[0] === '--pending') {
       await runPending(pool);
     } else if (args[0] === '--force') {
       const filename = args[1];
