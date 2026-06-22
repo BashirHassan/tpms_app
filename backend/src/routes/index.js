@@ -163,7 +163,15 @@ router.use('/', institutionRoutes);
 router.use('/', userRoutes);
 
 // =============================================================================
-// 4. TENANT-SCOPED ROUTES
+// 4. STUDENT PORTAL ROUTES - MUST come before any /:institutionId/* routes.
+// /portal/schools/for-update would otherwise match /:institutionId/schools/:id
+// with institutionId='portal' and fail institution validation.
+// =============================================================================
+
+router.use('/', portalRoutes);
+
+// =============================================================================
+// 5. TENANT-SCOPED ROUTES
 // All routes use /:institutionId prefix for explicit tenant context
 // Individual route files handle their own authentication and RBAC middleware
 // =============================================================================
@@ -191,10 +199,6 @@ router.use('/', schoolRoutes);
 
 // Academic sessions
 router.use('/', sessionRoutes);
-
-// Student portal - MUST be before /:institutionId routes to avoid path collision
-// (e.g., /portal/payments/status would match /:institutionId/payments with institutionId='portal')
-router.use('/', portalRoutes);
 
 // Payments
 router.use('/', paymentRoutes);

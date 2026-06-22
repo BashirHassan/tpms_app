@@ -3,7 +3,7 @@ import { Editor } from '@tinymce/tinymce-react';
 import PropTypes from 'prop-types';
 
 const FONT_SIZES = '10px 12px 14px 16px 18px 20px 22px 24px 26px 28px 30px 32px 36px 48px';
-const LINE_HEIGHTS = '0.5 1 1.15 1.5 1.75 2 2.5 3';
+const LINE_HEIGHTS = '0 0.5 1 1.15 1.5 1.75 2 2.5 3';
 
 const CONTENT_STYLE = `
   body {
@@ -87,7 +87,7 @@ const TemplateEditor = ({
           onChange?.(html);
         }}
         init={{
-          height: '100%',
+          height: 750,
           menubar: false,
           placeholder,
           plugins: PLUGINS,
