@@ -103,6 +103,10 @@ const DocumentTemplatesPage = () => {
   });
 
   const insertPlaceholderRef = useRef(null);
+  // After a template loads, TinyMCE normalizes the raw HTML and fires onEditorChange
+  // with the normalized version. We capture that as the true baseline so the cancel
+  // check doesn't falsely flag a diff between raw DB content and normalized output.
+  const isEditorJustLoaded = useRef(false);
 
   // Fetch templates
   const fetchTemplates = useCallback(async () => {
@@ -140,6 +144,7 @@ const DocumentTemplatesPage = () => {
     setTemplateName(defaultName);
     setTemplateDescription('');
     setInitialEditorState({ content: '', name: defaultName, description: '' });
+    isEditorJustLoaded.current = true;
     setIsEditing(true);
     setShowPreview(false);
   };
@@ -159,6 +164,7 @@ const DocumentTemplatesPage = () => {
         name: fullTemplate.name,
         description: fullTemplate.description || ''
       });
+      isEditorJustLoaded.current = true;
       setIsEditing(true);
       setShowPreview(false);
     } catch (err) {
@@ -455,7 +461,13 @@ const DocumentTemplatesPage = () => {
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 flex-1 flex flex-col min-h-0 overflow-hidden">
                 <TemplateEditor
                   value={editorContent}
-                  onChange={setEditorContent}
+                  onChange={(html) => {
+                    if (isEditorJustLoaded.current) {
+                      setInitialEditorState(prev => ({ ...prev, content: html }));
+                      isEditorJustLoaded.current = false;
+                    }
+                    setEditorContent(html);
+                  }}
                   onInsertPlaceholder={insertPlaceholderRef}
                   placeholder="Start designing your document template..."
                 />
