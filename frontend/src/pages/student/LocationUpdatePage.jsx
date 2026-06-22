@@ -44,6 +44,7 @@ export default function StudentLocationUpdatePage() {
   const [loadingSchools, setLoadingSchools] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [gettingLocation, setGettingLocation] = useState(false);
+  const [locationAccuracy, setLocationAccuracy] = useState(null);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
   const [formData, setFormData] = useState({
@@ -69,6 +70,7 @@ export default function StudentLocationUpdatePage() {
       setSearch('');
       setFormData({ proposed_latitude: '', proposed_longitude: '' });
       setFormErrors({});
+      setLocationAccuracy(null);
     }
   }, [selectedSchool]);
 
@@ -108,6 +110,7 @@ export default function StudentLocationUpdatePage() {
     }
     setGettingLocation(true);
     setError('');
+    setLocationAccuracy(null);
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setFormData((prev) => ({
@@ -115,13 +118,14 @@ export default function StudentLocationUpdatePage() {
           proposed_latitude: formatCoordinate(position.coords.latitude, 8),
           proposed_longitude: formatCoordinate(position.coords.longitude, 8),
         }));
+        setLocationAccuracy(Math.round(position.coords.accuracy));
         setGettingLocation(false);
       },
       () => {
         setError('Unable to get your location. Please enter coordinates manually.');
         setGettingLocation(false);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   };
 
@@ -161,6 +165,7 @@ export default function StudentLocationUpdatePage() {
       });
       setSuccess(true);
       setShowForm(false);
+      setLocationAccuracy(null);
       loadSchoolInfo(selectedSchool);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to submit update request');
@@ -452,6 +457,29 @@ export default function StudentLocationUpdatePage() {
                       </div>
                     </div>
 
+                    {locationAccuracy !== null && (() => {
+                      const maxAllowed = schoolInfo?.max_gps_accuracy_meters || null;
+                      const excellent = locationAccuracy <= 20;
+                      const withinLimit = !maxAllowed || locationAccuracy <= maxAllowed;
+                      const cls = excellent
+                        ? 'bg-green-50 border-green-200 text-green-800'
+                        : withinLimit
+                        ? 'bg-amber-50 border-amber-200 text-amber-800'
+                        : 'bg-red-50 border-red-200 text-red-800';
+                      const label = excellent ? 'Excellent' : withinLimit ? 'Acceptable' : 'Too imprecise';
+                      return (
+                        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm ${cls}`}>
+                          <span className="font-medium">GPS accuracy: ±{locationAccuracy} m</span>
+                          <span className="font-semibold">— {label}</span>
+                          {!withinLimit && (
+                            <span className="text-xs ml-1">
+                              (max allowed: ±{maxAllowed} m — move outdoors and try again)
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     {/* Manual Coordinates */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <Input
@@ -509,7 +537,16 @@ export default function StudentLocationUpdatePage() {
                       >
                         Cancel
                       </Button>
-                      <Button type="submit" loading={submitting}>
+                      <Button
+                        type="submit"
+                        loading={submitting}
+                        disabled={
+                          submitting ||
+                          (locationAccuracy !== null &&
+                            schoolInfo?.max_gps_accuracy_meters &&
+                            locationAccuracy > schoolInfo.max_gps_accuracy_meters)
+                        }
+                      >
                         <IconCheck className="w-4 h-4 mr-2" />
                         Submit Location Update
                       </Button>

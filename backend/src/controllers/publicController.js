@@ -469,6 +469,7 @@ const getSchoolLocation = async (req, res, next) => {
         can_request_update: featureEnabled && session && !pendingRequestExists,
         pending_request_exists: pendingRequestExists,
         active_session: session ? { id: session.id, name: session.name } : null,
+        max_gps_accuracy_meters: session?.max_gps_accuracy_meters || null,
       },
     });
   } catch (error) {

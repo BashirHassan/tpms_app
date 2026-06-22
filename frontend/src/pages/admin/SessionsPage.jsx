@@ -136,6 +136,7 @@ function SessionsPage() {
     // Distance thresholds
     inside_distance_threshold_km: 10,
     max_supervision_visits: 3,
+    max_gps_accuracy_meters: '',
     // Scoring settings
     scoring_type: 'basic',
     // DSA settings
@@ -249,6 +250,7 @@ function SessionsPage() {
         // Distance thresholds
         inside_distance_threshold_km: parseFloat(formData.inside_distance_threshold_km) || 10,
         max_supervision_visits: parseInt(formData.max_supervision_visits) || 3,
+        max_gps_accuracy_meters: formData.max_gps_accuracy_meters ? parseInt(formData.max_gps_accuracy_meters) : null,
         // Scoring settings
         scoring_type: formData.scoring_type || 'basic',
         // DSA settings - convert to proper booleans
@@ -1007,6 +1009,22 @@ function SessionsPage() {
                       }
                     />
                     <p className="text-xs text-gray-500 mt-1">Schools within this distance are &quot;Inside&quot;</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Max GPS Accuracy (m)
+                    </label>
+                    <Input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={formData.max_gps_accuracy_meters || ''}
+                      onChange={(e) =>
+                        setFormData({ ...formData, max_gps_accuracy_meters: e.target.value })
+                      }
+                      placeholder="e.g. 100"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Maximum GPS error radius students may submit. Leave blank for no limit.</p>
                   </div>
                   <div className="col-span-2">
                     <div className="flex items-center gap-2 my-3">
