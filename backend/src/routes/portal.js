@@ -54,7 +54,7 @@ router.post('/portal/payments/verify', authenticate, studentOnly, paymentControl
 // Thin adapters: inject institutionId from student JWT into req.params then forward to publicController
 function withStudentInstitution(fn) {
   return (req, res, next) => {
-    req.params.institutionId = String(req.user.institutionId);
+    req.params.institutionId = String(req.user.institution_id);
     fn(req, res, next);
   };
 }
