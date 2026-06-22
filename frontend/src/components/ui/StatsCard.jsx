@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from './Card';
-import { cn } from '../../utils/helpers';
+import { cn, formatNumber } from '../../utils/helpers';
 
 const cardVariants = {
   initial: { opacity: 0, y: 12 },
@@ -10,16 +10,16 @@ const cardVariants = {
 const cardTransition = { duration: 0.4, ease: 'easeOut' };
 
 const toneClasses = {
-  blue:    'bg-blue-50 text-blue-600 ring-blue-100',
-  green:   'bg-green-50 text-green-600 ring-green-100',
-  amber:   'bg-amber-50 text-amber-600 ring-amber-100',
-  yellow:  'bg-yellow-50 text-yellow-600 ring-yellow-100',
-  orange:  'bg-orange-50 text-orange-600 ring-orange-100',
-  red:     'bg-red-50 text-red-600 ring-red-100',
-  purple:  'bg-purple-50 text-purple-600 ring-purple-100',
-  teal:    'bg-teal-50 text-teal-600 ring-teal-100',
+  blue: 'bg-blue-50 text-blue-600 ring-blue-100',
+  green: 'bg-green-50 text-green-600 ring-green-100',
+  amber: 'bg-amber-50 text-amber-600 ring-amber-100',
+  yellow: 'bg-yellow-50 text-yellow-600 ring-yellow-100',
+  orange: 'bg-orange-50 text-orange-600 ring-orange-100',
+  red: 'bg-red-50 text-red-600 ring-red-100',
+  purple: 'bg-purple-50 text-purple-600 ring-purple-100',
+  teal: 'bg-teal-50 text-teal-600 ring-teal-100',
   primary: 'bg-primary-50 text-primary-600 ring-primary-100',
-  gray:    'bg-gray-50 text-gray-600 ring-gray-100',
+  gray: 'bg-gray-50 text-gray-600 ring-gray-100',
 };
 
 function StatsCard({
@@ -43,9 +43,9 @@ function StatsCard({
   ...props
 }) {
   const body = (
-    <div className="relative flex flex-col h-full overflow-hidden">
-      <div className="flex items-start justify-between gap-3 flex-1">
-        <div className="min-w-0 flex-1 flex flex-col">
+    <div className="relative flex h-full flex-col overflow-hidden">
+      <div className="flex flex-1 items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <p
             className={cn(
               'truncate text-[11px] font-medium uppercase tracking-wide text-gray-500 sm:text-xs',
@@ -61,14 +61,18 @@ function StatsCard({
               valueClassName
             )}
           >
-            {value ?? 0}
+            {typeof value === 'number' ? formatNumber(value) : (value ?? 0)}
           </p>
 
-          <div className="flex-1" />
-
-          <p className="mt-1 truncate text-xs font-medium text-gray-500 sm:text-sm min-h-[1.25rem] sm:min-h-[1.5rem]">
-            {subValue ?? ''}
-          </p>
+          {/* Always reserve subValue space so cards align in a grid row */}
+          {subValue && (
+            <p className={cn(
+              'mt-1 truncate text-xs font-medium sm:text-sm',
+              subValue ? 'text-gray-500' : 'invisible select-none'
+            )}>
+              {subValue || ' '}
+            </p>
+          )}
 
           {children ? <div className="mt-2">{children}</div> : null}
         </div>
@@ -89,7 +93,7 @@ function StatsCard({
   );
 
   const interactiveClassName = cn(
-    'group relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm h-full',
+    'group relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm',
     'transition-all duration-200 ease-out',
     (to || onClick) && 'hover:-translate-y-0.5 hover:border-gray-200 hover:shadow-lg',
     onClick && 'cursor-pointer',
@@ -99,15 +103,15 @@ function StatsCard({
   const content =
     surface === 'panel' ? (
       <div
-        className={cn(interactiveClassName, 'p-4 sm:p-5', contentClassName)}
+        className={cn(interactiveClassName, 'h-full p-4 sm:p-5', contentClassName)}
         onClick={onClick}
         {...props}
       >
         {body}
       </div>
     ) : (
-      <Card className={interactiveClassName} onClick={onClick} {...props}>
-        <CardContent className={cn('p-4 sm:p-5 h-full', contentClassName)}>
+      <Card className={cn(interactiveClassName, 'h-full')} onClick={onClick} {...props}>
+        <CardContent className={cn('h-full p-4 sm:p-5', contentClassName)}>
           {body}
         </CardContent>
       </Card>
