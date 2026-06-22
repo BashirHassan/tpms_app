@@ -172,11 +172,12 @@ const DocumentTemplatesPage = () => {
     try {
       setSaving(true);
 
+      const content = insertPlaceholderRef.current?.getContent?.() || editorContent;
       const data = {
         document_type: activeTab,
         name: templateName,
         description: templateDescription,
-        content: editorContent
+        content,
       };
 
       let savedTemplate;

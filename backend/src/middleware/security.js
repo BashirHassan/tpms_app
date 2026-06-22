@@ -4,6 +4,35 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const createDOMPurify = require('dompurify');
+const { JSDOM } = require('jsdom');
+
+const purify = createDOMPurify(new JSDOM('').window);
+
+// Default: strip all HTML (used for every field that isn't explicitly trusted HTML).
+const STRIP_ALL_OPTS = { ALLOWED_TAGS: [], ALLOWED_ATTR: [] };
+
+// Used for fields that intentionally store rich HTML (e.g. document template content).
+// Still removes <script>, event handlers, and other XSS vectors; only safe formatting
+// tags and style/href attributes are allowed through.
+const SAFE_HTML_OPTS = {
+  ALLOWED_TAGS: [
+    'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'del',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'ul', 'ol', 'li',
+    'blockquote', 'pre', 'code',
+    'a', 'img',
+    'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'colgroup', 'col',
+    'span', 'div', 'hr', 'sub', 'sup',
+  ],
+  ALLOWED_ATTR: [
+    'style', 'class', 'id',
+    'href', 'target', 'rel',
+    'src', 'alt', 'title', 'width', 'height',
+    'colspan', 'rowspan', 'align',
+  ],
+  ALLOW_DATA_ATTR: false,
+};
 
 /**
  * Add unique request ID for tracing
@@ -15,37 +44,48 @@ const addRequestId = (req, res, next) => {
 };
 
 /**
- * Sanitize request body, query, and params
- * Removes common XSS patterns
+ * Sanitize request body and query params using DOMPurify.
+ *
+ * Options:
+ *   htmlFields {string[]} - field names whose values are trusted rich HTML and should
+ *                           be sanitised with SAFE_HTML_OPTS (preserves formatting tags)
+ *                           rather than STRIP_ALL_OPTS (removes all tags).
+ *
+ * All other string fields continue to have every HTML tag stripped.
  */
-const sanitizeRequest = (req, res, next) => {
-  const sanitize = (obj) => {
-    if (!obj || typeof obj !== 'object') return obj;
+const sanitizeRequest = (options = {}) => {
+  const htmlFields = new Set(options.htmlFields || []);
 
-    const sanitized = {};
-    for (const [key, value] of Object.entries(obj)) {
-      if (typeof value === 'string') {
-        // Remove script tags and event handlers
-        sanitized[key] = value
-          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-          .replace(/on\w+\s*=/gi, '')
-          .replace(/javascript:/gi, '');
-      } else if (Array.isArray(value)) {
-        sanitized[key] = value.map((item) =>
-          typeof item === 'string' ? sanitize({ val: item }).val : sanitize(item)
-        );
-      } else if (typeof value === 'object' && value !== null) {
-        sanitized[key] = sanitize(value);
-      } else {
-        sanitized[key] = value;
+  return (req, res, next) => {
+    const sanitizeValue = (key, value) => {
+      const opts = htmlFields.has(key) ? SAFE_HTML_OPTS : STRIP_ALL_OPTS;
+      return purify.sanitize(value, opts);
+    };
+
+    const sanitize = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+
+      const sanitized = {};
+      for (const [key, value] of Object.entries(obj)) {
+        if (typeof value === 'string') {
+          sanitized[key] = sanitizeValue(key, value);
+        } else if (Array.isArray(value)) {
+          sanitized[key] = value.map((item) =>
+            typeof item === 'string' ? sanitizeValue(key, item) : sanitize(item)
+          );
+        } else if (typeof value === 'object' && value !== null) {
+          sanitized[key] = sanitize(value);
+        } else {
+          sanitized[key] = value;
+        }
       }
-    }
-    return sanitized;
-  };
+      return sanitized;
+    };
 
-  req.body = sanitize(req.body);
-  req.query = sanitize(req.query);
-  next();
+    req.body = sanitize(req.body);
+    req.query = sanitize(req.query);
+    next();
+  };
 };
 
 /**

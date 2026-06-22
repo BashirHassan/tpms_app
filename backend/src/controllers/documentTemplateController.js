@@ -1014,7 +1014,8 @@ const getVersions = async (req, res, next) => {
  */
 const rollback = async (req, res, next) => {
   try {
-    const { institutionId, id, version } = req.params;
+    const { institutionId, id } = req.params;
+    const { version } = req.body;
 
     const [template] = await query(
       'SELECT * FROM document_templates WHERE id = ? AND institution_id = ?',

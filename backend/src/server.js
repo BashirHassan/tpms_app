@@ -72,8 +72,13 @@ app.use(
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
-// Request sanitization (after body parsing)
-app.use(sanitizeRequest);
+// Request sanitization (after body parsing).
+// Fields listed in htmlFields are sanitised with a permissive DOMPurify config that
+// keeps safe formatting tags but still strips scripts/event-handlers.
+// All other string fields have every HTML tag stripped (existing behaviour).
+app.use(sanitizeRequest({
+  htmlFields: ['content', 'css_styles', 'header_content', 'footer_content'],
+}));
 
 // ============ Subdomain Resolution ============
 

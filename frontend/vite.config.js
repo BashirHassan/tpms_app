@@ -88,6 +88,9 @@ export default defineConfig(({ mode }) => {
             'vendor-icons': ['@tabler/icons-react'],
             // Forms & validation
             'vendor-forms': ['react-hook-form', 'zod'],
+            // Rich text editor — only loaded for admins on DocumentTemplatesPage
+            // tinymce assets are served from /public/tinymce, not bundled
+            'vendor-tinymce': ['@tinymce/tinymce-react'],
             // HTTP client
             'vendor-http': ['axios'],
           },
