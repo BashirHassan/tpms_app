@@ -19,8 +19,6 @@ import {
   IconSearch,
   IconX,
   IconChevronRight,
-  IconUser,
-  IconPhone,
 } from '@tabler/icons-react';
 import apiClient from '../../api/client';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -48,13 +46,9 @@ export default function StudentLocationUpdatePage() {
   const [gettingLocation, setGettingLocation] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
-  const [showContactInfo, setShowContactInfo] = useState(false);
-
   const [formData, setFormData] = useState({
     proposed_latitude: '',
     proposed_longitude: '',
-    contributor_name: '',
-    contributor_phone: '',
   });
   const [formErrors, setFormErrors] = useState({});
 
@@ -73,9 +67,8 @@ export default function StudentLocationUpdatePage() {
       setSuccess(false);
       setError('');
       setSearch('');
-      setFormData({ proposed_latitude: '', proposed_longitude: '', contributor_name: '', contributor_phone: '' });
+      setFormData({ proposed_latitude: '', proposed_longitude: '' });
       setFormErrors({});
-      setShowContactInfo(false);
     }
   }, [selectedSchool]);
 
@@ -150,10 +143,6 @@ export default function StudentLocationUpdatePage() {
       errors.proposed_longitude = 'Please enter a valid longitude (-180 to 180)';
     }
 
-    if (formData.contributor_phone && !phoneRegex.test(formData.contributor_phone.replace(/\s/g, ''))) {
-      errors.contributor_phone = 'Please enter a valid Nigerian phone number';
-    }
-
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -169,8 +158,6 @@ export default function StudentLocationUpdatePage() {
         school_id: parseInt(selectedSchool),
         proposed_latitude: parseFloat(formData.proposed_latitude),
         proposed_longitude: parseFloat(formData.proposed_longitude),
-        contributor_name: formData.contributor_name || null,
-        contributor_phone: formData.contributor_phone || null,
       });
       setSuccess(true);
       setShowForm(false);
@@ -510,45 +497,6 @@ export default function StudentLocationUpdatePage() {
                       </div>
                     )}
 
-                    {/* Contributor Info */}
-                    <div className="rounded-xl border border-gray-200 overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => setShowContactInfo(!showContactInfo)}
-                        className="w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          <IconUser className="w-5 h-5 text-gray-400" />
-                          <span className="font-medium text-gray-700 text-sm">Your Contact Information</span>
-                          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Optional</span>
-                        </div>
-                        <IconChevronRight className={`w-5 h-5 text-gray-400 transition-transform ${showContactInfo ? 'rotate-90' : ''}`} />
-                      </button>
-                      {showContactInfo && (
-                        <div className="p-4 pt-0 border-t border-gray-100">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                            <Input
-                              label="Your Name"
-                              value={formData.contributor_name}
-                              onChange={(e) => setFormData({ ...formData, contributor_name: e.target.value.toUpperCase() })}
-                              placeholder="Enter your full name"
-                              className="uppercase"
-                              icon={<IconUser className="w-4 h-4" />}
-                            />
-                            <Input
-                              label="Your Phone"
-                              type="tel"
-                              value={formData.contributor_phone}
-                              onChange={(e) => setFormData({ ...formData, contributor_phone: e.target.value })}
-                              error={formErrors.contributor_phone}
-                              placeholder="e.g., 08012345678"
-                              icon={<IconPhone className="w-4 h-4" />}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
                     {/* Form Actions */}
                     <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-2">
                       <Button
@@ -556,8 +504,7 @@ export default function StudentLocationUpdatePage() {
                         variant="outline"
                         onClick={() => {
                           setShowForm(false);
-                          setFormData({ proposed_latitude: '', proposed_longitude: '', contributor_name: '', contributor_phone: '' });
-                          setShowContactInfo(false);
+                          setFormData({ proposed_latitude: '', proposed_longitude: '' });
                         }}
                       >
                         Cancel
