@@ -246,7 +246,14 @@ function AdminLayout() {
                 <IconSchool className="w-5 h-5 text-white" />
               </div>
             )}
-            <span className="text-xl font-bold text-gray-800">{branding.code || 'DigitalTP'}</span>
+            <div className="min-w-0">
+              <span className="text-xl font-bold text-gray-800">{branding.code || 'DigitalTP'}</span>
+              {(effectiveInstitution?.name || branding.name) && (
+                <p className="text-xs text-gray-500 truncate leading-tight">
+                  {effectiveInstitution?.name || branding.name}
+                </p>
+              )}
+            </div>
           </Link>
           <Button
             variant="ghost"
@@ -419,14 +426,7 @@ function AdminLayout() {
             <IconMenu2 className="w-5 h-5" />
           </Button>
 
-          <div className="hidden lg:block min-w-0">
-            <p className="text-sm font-medium text-gray-900 truncate">
-              {effectiveInstitution?.name || branding.name}
-            </p>
-            <p className="text-xs text-gray-500">Staff Portal</p>
-          </div>
-
-          <div className="flex-1 lg:hidden" />
+          <div className="flex-1" />
 
           {/* User menu */}
           <div className="relative">
