@@ -247,12 +247,10 @@ function AdminLayout() {
               </div>
             )}
             <div className="min-w-0">
-              <span className="text-xl font-bold text-gray-800">{branding.code || 'DigitalTP'}</span>
-              {(effectiveInstitution?.name || branding.name) && (
-                <p className="text-xs text-gray-500 truncate leading-tight">
-                  {effectiveInstitution?.name || branding.name}
-                </p>
-              )}
+              <p className="text-sm font-semibold text-gray-800 truncate leading-tight">
+                {effectiveInstitution?.name || branding.name || 'DigitalTP'}
+              </p>
+              <p className="text-xs text-gray-500 leading-tight">Staff Portal</p>
             </div>
           </Link>
           <Button
