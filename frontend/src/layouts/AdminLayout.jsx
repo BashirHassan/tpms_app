@@ -354,34 +354,6 @@ function AdminLayout() {
 
         {/* Footer with logout and powered by */}
         <div className="border-t shrink-0">
-          {/* Institution info - from subdomain context */}
-          <div className="px-4 py-3 border-b">
-            {effectiveInstitution ? (
-              <div className="flex items-center gap-2 text-gray-600">
-                <IconBuilding className="w-4 h-4" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-700 truncate">{effectiveInstitution?.name}</p>
-                  <p className="text-xs text-gray-500">{effectiveInstitution?.code}</p>
-                </div>
-              </div>
-            ) : isSuperAdmin ? (
-              <div className="flex items-center gap-2 text-blue-600">
-                <IconBuilding className="w-4 h-4" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">Global Admin</p>
-                  <p className="text-xs text-blue-500">Platform-wide access</p>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 text-gray-400">
-                <IconBuilding className="w-4 h-4" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-500">No Institution</p>
-                </div>
-              </div>
-            )}
-          </div>
-          
           {/* Action links */}
           <div className="px-3 py-1">
             <Button
