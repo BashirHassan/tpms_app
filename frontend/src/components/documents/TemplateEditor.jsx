@@ -1,8 +1,8 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect } from 'react';
 import { Editor } from '@tinymce/tinymce-react';
 import PropTypes from 'prop-types';
 
-const FONT_SIZES = '10px 12px 14px 16px 18px 20px 24px 28px 32px 36px 48px';
+const FONT_SIZES = '10px 12px 14px 16px 18px 20px 22px 24px 26px 28px 30px 32px 36px 48px';
 const LINE_HEIGHTS = '0.5 1 1.15 1.5 1.75 2 2.5 3';
 
 const CONTENT_STYLE = `
@@ -31,7 +31,7 @@ const CONTENT_STYLE = `
 `;
 
 const TOOLBAR =
-  'undo redo | blocks | fontfamily fontsize lineheight lh0 | ' +
+  'undo redo | blocks | fontfamily fontsize lineheight | ' +
   'bold italic underline strikethrough | forecolor backcolor | removeformat | ' +
   'alignleft aligncenter alignright alignjustify | bullist numlist | outdent indent | ' +
   'link image table | code fullscreen';
@@ -98,8 +98,8 @@ const TemplateEditor = ({
             'Helvetica=helvetica,arial,sans-serif;' +
             'Courier New=courier new,courier,monospace;' +
             'Georgia=georgia,palatino,serif;',
-          fontsize_formats: FONT_SIZES,
-          lineheight_formats: LINE_HEIGHTS,
+          font_size_formats: FONT_SIZES,
+          line_height_formats: LINE_HEIGHTS,
           content_style: CONTENT_STYLE,
           image_advtab: true,
           image_dimensions: true,
@@ -113,24 +113,6 @@ const TemplateEditor = ({
           resize: false,
           statusbar: true,
           elementpath: false,
-          setup: (editor) => {
-            // TinyMCE's built-in lineheight command rejects values <= 0.
-            // Register a dedicated button that sets line-height: 0 directly on the DOM.
-            editor.ui.registry.addButton('lh0', {
-              text: '0',
-              tooltip: 'Line height: 0',
-              onAction: () => {
-                editor.undoManager.transact(() => {
-                  const blocks = editor.selection.getSelectedBlocks();
-                  const targets = blocks.length > 0
-                    ? blocks
-                    : [editor.dom.getParent(editor.selection.getNode(), editor.dom.isBlock)].filter(Boolean);
-                  targets.forEach(block => editor.dom.setStyle(block, 'line-height', '0'));
-                });
-                editor.fire('change');
-              },
-            });
-          },
         }}
       />
     </div>
