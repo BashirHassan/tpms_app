@@ -354,8 +354,21 @@ function AdminLayout() {
 
         {/* Footer with logout and powered by */}
         <div className="border-t shrink-0">
-          {/* Action links */}
+          {/* User profile + logout */}
           <div className="px-3 py-1">
+            <Link
+              to="/admin/profile"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+              onClick={() => setSidebarOpen(false)}
+            >
+              <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center shrink-0">
+                <span className="text-xs font-semibold text-primary-700">{getInitials(user?.name)}</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="truncate font-medium text-gray-700">{user?.name}</p>
+                <p className="text-xs text-gray-500 truncate">{getRoleName(user?.role)}</p>
+              </div>
+            </Link>
             <Button
               variant="ghost"
               onClick={handleLogout}
