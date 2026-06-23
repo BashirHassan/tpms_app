@@ -11,8 +11,7 @@ const path = require('path');
 const fs = require('fs');
 const XLSX = require('xlsx');
 const { query, transaction } = require('../db/database');
-const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
-const { clampLimit, clampOffset } = require('../utils/pagination');
+const { NotFoundError, ValidationError } = require('../utils/errors');
 const { encryptStudentPin, decryptStudentPin } = require('../services/encryptionService');
 const { hashPassword, BULK_BCRYPT_ROUNDS } = require('./authController');
 
@@ -70,8 +69,11 @@ const getAll = async (req, res, next) => {
   try {
     const { institutionId } = req.params;
     const { program_id, session_id, status, payment_status, search } = req.query;
-    const limit = clampLimit(req.query.limit, 100);
-    const offset = clampOffset(req.query.offset);
+    const parsedLimit = Math.max(1, parseInt(req.query.limit, 10) || 100);
+    const parsedPage = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const parsedOffset = req.query.offset !== undefined
+      ? Math.max(0, parseInt(req.query.offset, 10) || 0)
+      : (parsedPage - 1) * parsedLimit;
 
     let sql = `
       SELECT s.id, s.institution_id, s.program_id, s.session_id, s.registration_number,
@@ -115,7 +117,7 @@ const getAll = async (req, res, next) => {
 
     // Add ordering and pagination
     sql += ' ORDER BY s.registration_number ASC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    params.push(parsedLimit, parsedOffset);
 
     const students = await query(sql, params);
 
@@ -131,8 +133,10 @@ const getAll = async (req, res, next) => {
       data: studentsWithDecryptedPins,
       pagination: {
         total,
-        limit: parseInt(limit),
-        offset: parseInt(offset),
+        page: parsedPage,
+        pages: Math.ceil(total / parsedLimit),
+        limit: parsedLimit,
+        offset: parsedOffset,
       },
     });
   } catch (error) {
@@ -191,33 +195,34 @@ const create = async (req, res, next) => {
     const normalizedRegNumber = registration_number.toUpperCase().trim();
     const normalizedFullName = full_name.toUpperCase().trim();
 
-    // Check for duplicate registration number
-    const existing = await query(
-      'SELECT id FROM students WHERE registration_number = ? AND institution_id = ?',
-      [normalizedRegNumber, parseInt(institutionId)]
+    // Require an active session — no session means we cannot enroll students
+    const sessionRows = await query(
+      'SELECT id FROM academic_sessions WHERE institution_id = ? AND is_current = 1',
+      [parseInt(institutionId)]
     );
-    
-    if (existing.length > 0) {
-      throw new ConflictError('A student with this registration number already exists');
+    if (!sessionRows.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'No active academic session found. Please set a current session before adding students.',
+        errorCode: 'NO_ACTIVE_SESSION',
+      });
     }
+    const currentSessionId = sessionRows[0].id;
 
     // Auto-detect program if not provided
-    let finalProgramId = program_id;
+    let finalProgramId = program_id ? parseInt(program_id, 10) : null;
     if (!finalProgramId) {
       const programs = await query(
         `SELECT id, code FROM programs WHERE institution_id = ? AND status = 'active'`,
         [parseInt(institutionId)]
       );
-      
-      // Extract parts from registration number (e.g., NCE/2024/MATH/124 -> ['NCE', '2024', 'MATH', '124'])
+
       const regParts = normalizedRegNumber.split('/').map(p => p.trim().toUpperCase());
-      
+
       for (const program of programs) {
-        // Check if any part of the registration number matches the program code
-        // Program codes can be like 'NCE-MATH' or 'MATH', so check both full code and suffix
         const programCode = program.code.toUpperCase();
         const codeSuffix = programCode.includes('-') ? programCode.split('-').pop() : programCode;
-        
+
         if (regParts.includes(programCode) || regParts.includes(codeSuffix)) {
           finalProgramId = program.id;
           break;
@@ -236,33 +241,34 @@ const create = async (req, res, next) => {
       }
     }
 
-    // Get current session
-    const sessions = await query(
-      'SELECT id FROM academic_sessions WHERE institution_id = ? AND is_current = 1',
-      [parseInt(institutionId)]
-    );
-    const currentSessionId = sessions[0]?.id || null;
-
     // Generate PIN, hash for auth, and encrypt for admin display
     const pin = generatePin();
     const pinHash = await hashPassword(pin);
     const pinEncrypted = encryptStudentPin(pin);
 
-    // Insert student
+    // INSERT IGNORE — silently skips if (institution_id, registration_number, session_id) already exists
     const result = await query(
-      `INSERT INTO students (institution_id, program_id, session_id, registration_number, 
-                             full_name, pin_hash, pin_encrypted, status, payment_status)
+      `INSERT IGNORE INTO students (institution_id, program_id, session_id, registration_number,
+                                    full_name, pin_hash, pin_encrypted, status, payment_status)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 'pending')`,
-      [parseInt(institutionId), finalProgramId, currentSessionId, normalizedRegNumber, 
+      [parseInt(institutionId), finalProgramId, currentSessionId, normalizedRegNumber,
        normalizedFullName, pinHash, pinEncrypted]
     );
 
+    if (result.affectedRows === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'Student already enrolled in the current session — no changes made.',
+        data: null,
+      });
+    }
+
     // Audit log
     await query(
-      `INSERT INTO audit_logs (institution_id, user_id, user_type, action, resource_type, 
+      `INSERT INTO audit_logs (institution_id, user_id, user_type, action, resource_type,
                                resource_id, details, ip_address)
        VALUES (?, ?, 'staff', 'student_created', 'student', ?, ?, ?)`,
-      [parseInt(institutionId), req.user.id, result.insertId, 
+      [parseInt(institutionId), req.user.id, result.insertId,
        JSON.stringify({ registration_number: normalizedRegNumber, full_name: normalizedFullName }),
        req.ip]
     );
@@ -274,9 +280,10 @@ const create = async (req, res, next) => {
         id: result.insertId,
         institution_id: parseInt(institutionId),
         program_id: finalProgramId,
+        session_id: currentSessionId,
         registration_number: normalizedRegNumber,
         full_name: normalizedFullName,
-        pin, // Return PIN only on creation
+        pin,
       },
     });
   } catch (error) {
@@ -514,6 +521,21 @@ const uploadFromExcel = async (req, res, next) => {
 
     const filePath = req.file.path;
 
+    // Require an active session before touching any data
+    const sessionRows = await query(
+      'SELECT id FROM academic_sessions WHERE institution_id = ? AND is_current = 1',
+      [parseInt(institutionId)]
+    );
+    if (!sessionRows.length) {
+      fs.unlinkSync(filePath);
+      return res.status(400).json({
+        success: false,
+        message: 'No active academic session found. Please set a current session before uploading students.',
+        errorCode: 'NO_ACTIVE_SESSION',
+      });
+    }
+    const currentSessionId = sessionRows[0].id;
+
     // Read Excel file
     const workbook = XLSX.readFile(filePath);
     const sheetName = workbook.SheetNames[0];
@@ -596,17 +618,12 @@ const uploadFromExcel = async (req, res, next) => {
       }
     }
 
-    // Check for duplicates in database — only query for the reg numbers in this file
-    const uploadedRegNums = validStudents.map(s => s.registration_number);
-    const existingRegNumbers = new Set();
-    if (uploadedRegNums.length > 0) {
-      const inPlaceholders = uploadedRegNums.map(() => '?').join(', ');
-      const existingStudents = await query(
-        `SELECT registration_number FROM students WHERE institution_id = ? AND registration_number IN (${inPlaceholders})`,
-        [parseInt(institutionId), ...uploadedRegNums]
-      );
-      for (const s of existingStudents) existingRegNumbers.add(s.registration_number.toUpperCase());
-    }
+    // Check for duplicates in the current session only — students from other sessions can re-enrol
+    const existingStudents = await query(
+      'SELECT registration_number FROM students WHERE institution_id = ? AND session_id = ?',
+      [parseInt(institutionId), currentSessionId]
+    );
+    const existingRegNumbers = new Set(existingStudents.map(s => s.registration_number.toUpperCase()));
 
     const newStudents = [];
     for (const student of validStudents) {
@@ -614,7 +631,7 @@ const uploadFromExcel = async (req, res, next) => {
         errors.push({
           row: student.row_number,
           registration_number: student.registration_number,
-          errors: ['Registration number already exists in database'],
+          errors: ['Student already enrolled in the current session'],
         });
       } else if (!duplicatesInFileSet.has(student.registration_number)) {
         newStudents.push(student);
@@ -673,7 +690,8 @@ const uploadFromExcel = async (req, res, next) => {
       programs_detected: studentsWithPrograms.length,
       programs_undetected: 0, // All undetected are now errors
       errors: errors.slice(0, 50),
-      preview: studentsWithPrograms.slice(0, 10).map(s => ({
+      preview: studentsWithPrograms.map(s => ({
+        row_number: s.row_number,
         registration_number: s.registration_number,
         full_name: s.full_name,
         program: programMap.get(s.registration_number),
@@ -690,22 +708,8 @@ const uploadFromExcel = async (req, res, next) => {
       });
     }
 
-    // Get current session
-    const sessions = await query(
-      'SELECT id FROM academic_sessions WHERE institution_id = ? AND is_current = 1',
-      [parseInt(institutionId)]
-    );
-    const currentSessionId = sessions[0]?.id || null;
-
-    if (!currentSessionId) {
-      return res.status(400).json({
-        success: false,
-        message: 'No active academic session found. Please set a current session before uploading students.',
-        warning: true,
-      });
-    }
-
     // Insert students (only those with valid programs)
+    let skippedCount = 0;
     const insertedStudents = [];
     const insertErrors = [];
 
@@ -755,8 +759,9 @@ const uploadFromExcel = async (req, res, next) => {
 
           // MySQL guarantees contiguous auto-increment IDs for a single bulk INSERT.
           // IGNORE silently skips duplicate rows; affectedRows counts only inserted ones.
+          skippedCount = batch.length - result.affectedRows;
           const firstId = result.insertId;
-          return batch.map(({ student, pin, program }, i) => ({
+          return batch.slice(0, result.affectedRows).map(({ student, pin, program }, i) => ({
             id: firstId + i,
             registration_number: student.registration_number,
             full_name: student.full_name,
@@ -799,16 +804,18 @@ const uploadFromExcel = async (req, res, next) => {
     await query(
       `INSERT INTO audit_logs (institution_id, user_id, user_type, action, resource_type, details, ip_address)
        VALUES (?, ?, 'staff', 'students_bulk_upload', 'student', ?, ?)`,
-      [parseInt(institutionId), req.user.id, 
-       JSON.stringify({ total_uploaded: rawData.length, inserted: insertedStudents.length, errors: insertErrors.length }),
+      [parseInt(institutionId), req.user.id,
+       JSON.stringify({ total_uploaded: rawData.length, inserted: insertedStudents.length, skipped: skippedCount, errors: insertErrors.length }),
        req.ip]
     );
 
+    const skipMsg = skippedCount > 0 ? `, ${skippedCount} skipped (already in session)` : '';
     res.json({
       success: true,
-      message: `Successfully uploaded ${insertedStudents.length} students`,
+      message: `Successfully uploaded ${insertedStudents.length} students${skipMsg}`,
       data: {
         inserted: insertedStudents.length,
+        skipped: skippedCount,
         errors: insertErrors,
         students: insertedStudents,
       },

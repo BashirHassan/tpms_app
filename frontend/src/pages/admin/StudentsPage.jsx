@@ -10,7 +10,7 @@ import { studentsApi, programsApi, sessionsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { formatFileSize } from '../../utils/helpers';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { StatsCard } from '../../components/ui/StatsCard';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
@@ -67,6 +67,8 @@ function StudentsPage() {
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
   const [parsedData, setParsedData] = useState([]);
+  const [ignoreErrors, setIgnoreErrors] = useState(false);
+  const [previewFilter, setPreviewFilter] = useState('all'); // 'all' | 'valid' | 'errors'
 
   // Add/Edit student modal
   const [showStudentModal, setShowStudentModal] = useState(false);
@@ -168,6 +170,31 @@ function StudentsPage() {
       fullname: 'full_name',
     };
     return mappings[normalized] || normalized;
+  };
+
+  // Merge server preview rows (valid) and error rows into one sorted list
+  const buildAllRows = (previewRows, errorRows) => {
+    const valid = (previewRows || []).map(r => ({
+      row_number: r.row_number,
+      registration_number: r.registration_number,
+      full_name: r.full_name,
+      program: r.program,
+      status: 'valid',
+      errors: null,
+    }));
+    const errs = (errorRows || []).map(e => ({
+      row_number: e.row,
+      registration_number: e.registration_number,
+      full_name: e.full_name || '',
+      program: null,
+      status: 'error',
+      errors: e.errors,
+    }));
+    return [...valid, ...errs].sort((a, b) => {
+      const aRow = parseInt(String(a.row_number).split(',')[0]) || 0;
+      const bRow = parseInt(String(b.row_number).split(',')[0]) || 0;
+      return aRow - bRow;
+    });
   };
 
   // Parse Excel file and perform client-side validation
@@ -288,6 +315,7 @@ function StudentsPage() {
       // Merge client and server validation results
       const allErrors = serverData.errors?.length ? serverData.errors : clientValidation.clientErrors;
       const hasErrors = allErrors && allErrors.length > 0;
+      const preview = serverData.preview?.length ? serverData.preview : clientValidation.preview;
       setValidationResult({
         totalRows: clientValidation.totalRows,
         validRows: serverData.valid_rows ?? clientValidation.validStudents.length,
@@ -295,8 +323,9 @@ function StudentsPage() {
         programsDetected: serverData.programs_detected || 0,
         programsUndetected: serverData.programs_undetected || 0,
         errors: allErrors,
-        preview: serverData.preview?.length ? serverData.preview : clientValidation.preview,
+        preview,
         canProceed: !hasErrors && serverBody?.can_proceed !== false && clientValidation.validStudents.length > 0,
+        allRows: buildAllRows(preview, allErrors),
       });
 
       setUploadStep('preview');
@@ -310,6 +339,12 @@ function StudentsPage() {
         const clientValidation = await parseAndValidateFile(file);
         setParsedData(clientValidation.validStudents);
         const hasClientErrors = clientValidation.clientErrors && clientValidation.clientErrors.length > 0;
+        const clientPreviewRows = clientValidation.validStudents.map(s => ({
+          row_number: s.row_number,
+          registration_number: s.registration_number,
+          full_name: s.full_name,
+          program: null,
+        }));
         setValidationResult({
           totalRows: clientValidation.totalRows,
           validRows: clientValidation.validStudents.length,
@@ -320,6 +355,7 @@ function StudentsPage() {
           preview: clientValidation.preview,
           canProceed: !hasClientErrors && clientValidation.validStudents.length > 0,
           serverError: errorMessage,
+          allRows: buildAllRows(clientPreviewRows, clientValidation.clientErrors),
         });
         setUploadStep('preview');
       } catch (parseErr) {
@@ -350,14 +386,13 @@ function StudentsPage() {
       fetchStudents();
     } catch (err) {
       const errorData = err.response?.data;
-      if (errorData?.warning) {
+      if (errorData?.errorCode === 'NO_ACTIVE_SESSION') {
         toast.error(errorData.message, { duration: 6000 });
         return;
       }
       if (errorData) {
         setUploadResult(errorData);
         setUploadStep('result');
-        // Still refresh in case some were imported before error
         fetchStudents();
       } else {
         toast.error(err.response?.data?.message || 'Upload failed');
@@ -376,7 +411,8 @@ function StudentsPage() {
     setValidating(false);
     setValidationResult(null);
     setParsedData([]);
-    // Reset file input
+    setIgnoreErrors(false);
+    setPreviewFilter('all');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -388,6 +424,8 @@ function StudentsPage() {
     setUploadFile(null);
     setValidationResult(null);
     setParsedData([]);
+    setIgnoreErrors(false);
+    setPreviewFilter('all');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -406,23 +444,6 @@ function StudentsPage() {
       link.remove();
     } catch (err) {
       toast.error('Failed to download template');
-    }
-  };
-
-  // Export students
-  const handleExport = async () => {
-    try {
-      const response = await studentsApi.export();
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `students_export_${new Date().toISOString().split('T')[0]}.xlsx`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      toast.success('Export downloaded');
-    } catch (err) {
-      toast.error('Failed to export students');
     }
   };
 
@@ -553,6 +574,14 @@ function StudentsPage() {
   // Table columns definition
   const columns = useMemo(() => [
     {
+      accessor: null,
+      header: '#',
+      sortable: false,
+      width: 50,
+      exportFormatter: (_, __, rowIndex) => rowIndex + 1,
+      render: (_, __, index) => (pagination.page - 1) * pagination.limit + index + 1,
+    },
+    {
       accessor: 'full_name',
       header: 'Full Name',
       render: (value) => (
@@ -623,7 +652,7 @@ function StudentsPage() {
         </div>
       ),
     }] : []),
-  ], [canEdit, copiedPin, handleCopyPin, openEditModal, openDeleteConfirm]);
+  ], [canEdit, copiedPin, handleCopyPin, openEditModal, openDeleteConfirm, pagination.page, pagination.limit]);
 
   // Toolbar with filters
   const tableToolbar = (
@@ -747,7 +776,7 @@ function StudentsPage() {
           uploadStep === 'preview' ? 'Upload Students - Review & Confirm' :
           'Upload Students - Results'
         }
-        width="3xl"
+        width="4xl"
       >
         {/* Step Indicator */}
         <div className="flex items-center justify-center mb-4 sm:mb-6">
@@ -839,9 +868,7 @@ function StudentsPage() {
               <IconFileSpreadsheet className="w-6 h-6 sm:w-8 sm:h-8 text-green-600 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-sm sm:text-base text-gray-900 truncate">{uploadFile?.name}</p>
-                <p className="text-xs sm:text-sm text-gray-500">
-                  {formatFileSize(uploadFile?.size)}
-                </p>
+                <p className="text-xs sm:text-sm text-gray-500">{formatFileSize(uploadFile?.size)}</p>
               </div>
               <Button variant="ghost" size="sm" onClick={handleBackToSelect} className="active:scale-95 flex-shrink-0">
                 <IconX className="w-4 h-4 sm:mr-1" />
@@ -864,22 +891,20 @@ function StudentsPage() {
                 </span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 text-center">
-                <div className="bg-white rounded-lg p-2 sm:p-3 shadow-sm">
-                  <div className="text-lg sm:text-2xl font-bold text-gray-900">{validationResult.totalRows}</div>
-                  <div className="text-[10px] sm:text-xs text-gray-500">Total Rows</div>
-                </div>
-                <div className="bg-white rounded-lg p-2 sm:p-3 shadow-sm">
-                  <div className="text-lg sm:text-2xl font-bold text-green-600">{validationResult.validRows}</div>
-                  <div className="text-[10px] sm:text-xs text-gray-500">Valid</div>
-                </div>
-                <div className="bg-white rounded-lg p-2 sm:p-3 shadow-sm">
-                  <div className="text-lg sm:text-2xl font-bold text-red-600">{validationResult.errorRows}</div>
-                  <div className="text-[10px] sm:text-xs text-gray-500">Errors</div>
-                </div>
-                <div className="bg-white rounded-lg p-2 sm:p-3 shadow-sm">
-                  <div className="text-lg sm:text-2xl font-bold text-primary-600">{validationResult.programsDetected}</div>
-                  <div className="text-[10px] sm:text-xs text-gray-500">Programs</div>
-                </div>
+                <StatsCard surface="panel" title="Total Rows" value={validationResult.totalRows} icon={IconFileSpreadsheet} tone="gray" contentClassName="p-2 sm:p-3" />
+                <StatsCard
+                  surface="panel" title="Valid" value={validationResult.validRows} icon={IconCircleCheck} tone="green"
+                  contentClassName="p-2 sm:p-3" valueClassName="text-green-600"
+                  onClick={() => setPreviewFilter(f => f === 'valid' ? 'all' : 'valid')}
+                  className={`cursor-pointer transition-all ${previewFilter === 'valid' ? 'ring-2 ring-green-400' : ''}`}
+                />
+                <StatsCard
+                  surface="panel" title="Errors" value={validationResult.errorRows} icon={IconCircleX} tone="red"
+                  contentClassName="p-2 sm:p-3" valueClassName="text-red-600"
+                  onClick={() => setPreviewFilter(f => f === 'errors' ? 'all' : 'errors')}
+                  className={`cursor-pointer transition-all ${previewFilter === 'errors' ? 'ring-2 ring-red-400' : ''}`}
+                />
+                <StatsCard surface="panel" title="Programs" value={validationResult.programsDetected} icon={IconUsers} tone="primary" contentClassName="p-2 sm:p-3" valueClassName="text-primary-600" />
               </div>
             </div>
 
@@ -897,97 +922,124 @@ function StudentsPage() {
               </div>
             )}
 
-            {/* Errors List */}
-            {validationResult.errors && validationResult.errors.length > 0 && (
-              <div className="border border-red-200 rounded-lg overflow-hidden">
-                <div className="bg-red-50 px-4 py-2 border-b border-red-200">
-                  <h4 className="font-medium text-red-900 flex items-center gap-2">
-                    <IconCircleX className="w-4 h-4" />
-                    Errors ({validationResult.errors.length})
-                  </h4>
-                </div>
-                <div className="max-h-40 overflow-y-auto p-3">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-gray-500">
-                        <th className="pb-2 pr-2">Row</th>
-                        <th className="pb-2 pr-2">Reg. Number</th>
-                        <th className="pb-2">Error</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-red-700">
-                      {validationResult.errors.slice(0, 15).map((error, idx) => (
-                        <tr key={idx} className="border-t border-red-100">
-                          <td className="py-1 pr-2">{error.row}</td>
-                          <td className="py-1 pr-2 font-mono text-xs">{error.registration_number}</td>
-                          <td className="py-1">{Array.isArray(error.errors) ? error.errors.join(', ') : error.message || error.error}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {validationResult.errors.length > 15 && (
-                    <p className="text-gray-500 text-xs mt-2 text-center">
-                      ... and {validationResult.errors.length - 15} more errors
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
+            {/* Unified Preview Table (valid + error rows sorted by row number) */}
+            {validationResult.allRows && validationResult.allRows.length > 0 && (() => {
+              const filteredRows = previewFilter === 'valid'
+                ? validationResult.allRows.filter(r => r.status === 'valid')
+                : previewFilter === 'errors'
+                ? validationResult.allRows.filter(r => r.status === 'error')
+                : validationResult.allRows;
 
-            {/* Preview Table */}
-            {validationResult.preview && validationResult.preview.length > 0 && (
-              <div className="border rounded-lg overflow-hidden">
-                <div className="bg-gray-50 px-4 py-2 border-b flex items-center gap-2">
-                  <IconEye className="w-4 h-4 text-gray-500" />
-                  <h4 className="font-medium text-gray-900">Preview (first 10 rows)</h4>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
-                      <tr className="text-left text-gray-600">
-                        <th className="px-4 py-2 font-medium">Registration Number</th>
-                        <th className="px-4 py-2 font-medium">Full Name</th>
-                        <th className="px-4 py-2 font-medium">Program</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {validationResult.preview.map((student, idx) => (
-                        <tr key={idx} className="border-t hover:bg-gray-50">
-                          <td className="px-4 py-2">
-                            <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">
-                              {student.registration_number}
-                            </code>
-                          </td>
-                          <td className="px-4 py-2 font-medium">{student.full_name}</td>
-                          <td className="px-4 py-2">
-                            {student.program ? (
-                              <Badge variant="success" size="sm">{student.program.name || student.program.code}</Badge>
-                            ) : (
-                              <Badge variant="warning" size="sm">Not detected</Badge>
-                            )}
-                          </td>
+              return (
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="bg-gray-50 px-4 py-2 border-b flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <IconEye className="w-4 h-4 text-gray-500" />
+                      <h4 className="font-medium text-gray-900 text-sm">
+                        All Records
+                        <span className="ml-1 text-gray-500 font-normal">
+                          ({filteredRows.length}{previewFilter !== 'all' ? ` ${previewFilter}` : ''} of {validationResult.allRows.length})
+                        </span>
+                      </h4>
+                    </div>
+                    {previewFilter !== 'all' && (
+                      <button
+                        onClick={() => setPreviewFilter('all')}
+                        className="text-xs text-gray-500 hover:text-gray-700 underline"
+                      >
+                        Show all
+                      </button>
+                    )}
+                  </div>
+                  <div className="overflow-y-auto" style={{ maxHeight: '320px' }}>
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 sticky top-0 z-10">
+                        <tr className="text-left text-gray-600 border-b">
+                          <th className="px-3 py-2 font-medium w-12">Row</th>
+                          <th className="px-3 py-2 font-medium">Reg. Number</th>
+                          <th className="px-3 py-2 font-medium hidden sm:table-cell">Full Name</th>
+                          <th className="px-3 py-2 font-medium hidden sm:table-cell">Program</th>
+                          <th className="px-3 py-2 font-medium">Status</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Error Warning - Must fix before proceeding */}
-            {validationResult.errors && validationResult.errors.length > 0 && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <div className="flex items-center gap-2">
-                  <IconCircleX className="w-5 h-5 text-red-600 flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-red-800">
-                      Cannot proceed with upload
-                    </p>
-                    <p className="text-xs text-red-700 mt-0.5">
-                      Please fix all {validationResult.errors.length} error(s) in your Excel file and re-upload.
-                    </p>
+                      </thead>
+                      <tbody>
+                        {filteredRows.map((row, idx) => (
+                          <tr
+                            key={idx}
+                            className={`border-t ${row.status === 'error' ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}`}
+                          >
+                            <td className="px-3 py-1.5 text-gray-400 text-xs">{row.row_number}</td>
+                            <td className="px-3 py-1.5">
+                              <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">
+                                {row.registration_number}
+                              </code>
+                            </td>
+                            <td className="px-3 py-1.5 font-medium hidden sm:table-cell">{row.full_name}</td>
+                            <td className="px-3 py-1.5 hidden sm:table-cell">
+                              {row.program ? (
+                                <Badge variant="success" size="sm">{row.program.name || row.program.code}</Badge>
+                              ) : row.status === 'valid' ? (
+                                <span className="text-gray-400 text-xs">—</span>
+                              ) : null}
+                            </td>
+                            <td className="px-3 py-1.5">
+                              {row.status === 'valid' ? (
+                                <span className="inline-flex items-center gap-1 text-green-700 text-xs font-medium">
+                                  <IconCircleCheck className="w-3.5 h-3.5" /> Valid
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-start gap-1 text-red-700 text-xs">
+                                  <IconCircleX className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                                  <span>{Array.isArray(row.errors) ? row.errors.join(', ') : row.errors}</span>
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
+              );
+            })()}
+
+            {/* Error Warning + Skip Option */}
+            {validationResult.errors && validationResult.errors.length > 0 && (
+              <div className="border border-red-200 rounded-lg overflow-hidden">
+                <div className="bg-red-50 px-4 py-3">
+                  <div className="flex items-start gap-2">
+                    <IconCircleX className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-red-800">
+                        {validationResult.errors.length} row(s) have errors
+                      </p>
+                      <p className="text-xs text-red-700 mt-0.5">
+                        Fix these in your Excel file and re-upload, or skip them below.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {validationResult.validRows > 0 && (
+                  <div className="bg-white border-t border-red-100 px-4 py-3">
+                    <label className="flex items-start gap-3 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={ignoreErrors}
+                        onChange={(e) => setIgnoreErrors(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300 accent-primary-600"
+                      />
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">
+                          Skip invalid rows and upload {validationResult.validRows} valid student(s) only
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {validationResult.errorRows} row(s) with errors will be ignored.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1001,18 +1053,24 @@ function StudentsPage() {
                 <Button variant="outline" size="sm" onClick={resetUploadModal} className="active:scale-95 flex-1 sm:flex-none">
                   Cancel
                 </Button>
-                <Button 
+                <Button
                   size="sm"
-                  onClick={handleUpload} 
-                  disabled={!validationResult.canProceed || uploading || (validationResult.errors && validationResult.errors.length > 0)}
+                  onClick={handleUpload}
+                  disabled={
+                    uploading ||
+                    (ignoreErrors
+                      ? validationResult.validRows === 0
+                      : (!validationResult.canProceed || (validationResult.errors && validationResult.errors.length > 0)))
+                  }
                   loading={uploading}
                   className="active:scale-95 flex-1 sm:flex-none"
-                  title={validationResult.errors && validationResult.errors.length > 0 ? 'Fix all errors before uploading' : ''}
                 >
                   {uploading ? 'Uploading...' : (
                     <>
                       <IconUpload className="w-4 h-4 sm:mr-2 flex-shrink-0" />
-                      <span className="hidden sm:inline">Upload {validationResult.validRows} Students</span>
+                      <span className="hidden sm:inline">
+                        Upload {validationResult.validRows} {ignoreErrors && validationResult.errorRows > 0 ? 'Valid ' : ''}Students
+                      </span>
                       <span className="sm:hidden">Upload ({validationResult.validRows})</span>
                     </>
                   )}
