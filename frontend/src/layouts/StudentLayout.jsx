@@ -14,6 +14,7 @@ import { cn, getInitials, getRoleName } from '../utils/helpers';
 import { portalApi } from '../api';
 import {
   IconChevronDown,
+  IconClipboardList,
   IconCreditCard,
   IconEdit,
   IconFileCheck,
@@ -55,6 +56,7 @@ const navigationGroups = [
     items: [
       { name: 'Principal Update', href: '/student/principal-update', icon: IconEdit },
       { name: 'Location Update', href: '/student/location-update', icon: IconMapPin },
+      { name: 'Evaluation Form', href: '/student/evaluation-form', icon: IconClipboardList },
     ],
   },
 ];
@@ -115,7 +117,7 @@ function StudentLayout() {
     if (href === '/student/dashboard') {
       return location.pathname === '/student' || location.pathname === '/student/dashboard';
     }
-    return location.pathname.startsWith(href);
+    return location.pathname === href || location.pathname.startsWith(href + '/');
   };
 
   const closeMenus = () => {

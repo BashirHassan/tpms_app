@@ -229,7 +229,7 @@ function StudentDashboard() {
       </div>
 
       {/* Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
         {/* Quick Actions */}
         <Card>
           <CardHeader className="p-4 sm:p-6 pb-2 sm:pb-3">
