@@ -39,6 +39,7 @@ const DOCUMENT_TYPES = [
   { value: 'introduction_letter', label: 'Introduction Letter', description: 'Letter introducing student to schools' },
   { value: 'acceptance_form', label: 'Acceptance Form', description: 'Form for school to accept student' },
   { value: 'posting_letter', label: 'Posting Letter', description: 'Official posting assignment letter' },
+  { value: 'evaluation_form', label: 'Evaluation Form', description: 'School evaluation form carried with posting letter' },
   { value: 'supervisor_invitation_letter', label: 'Supervisor Invitation Letter', description: 'Letter to supervisors' },
   { value: 'completion_certificate', label: 'Completion Certificate', description: 'TP completion certificate' }
 ];
