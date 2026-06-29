@@ -229,14 +229,14 @@ function StudentDashboard() {
       </div>
 
       {/* Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* Quick Actions */}
         <Card>
           <CardHeader className="p-4 sm:p-6 pb-2 sm:pb-3">
             <CardTitle className="text-base sm:text-lg">Quick Actions</CardTitle>
           </CardHeader>
           <CardContent className="p-4 sm:p-6 pt-2 sm:pt-3">
-            <div className="space-y-2 sm:space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3">
               {/* Payment Action - only shown when payment is required */}
               {isPaymentRequired && payment.status !== 'completed' && (() => {
                 const canPay = payment.can_pay && windows.acceptance?.is_open;

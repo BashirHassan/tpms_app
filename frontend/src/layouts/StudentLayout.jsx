@@ -49,6 +49,7 @@ const navigationGroups = [
       { name: 'Introduction Letter', href: '/student/introduction-letter', icon: IconFileText },
       { name: 'Acceptance Document', href: '/student/acceptance-document', icon: IconFileCertificate },
       { name: 'Posting Letter', href: '/student/posting-letter', icon: IconSignature },
+      { name: 'Evaluation Form', href: '/student/evaluation-form', icon: IconClipboardList },
     ],
   },
   {
@@ -56,7 +57,6 @@ const navigationGroups = [
     items: [
       { name: 'Principal Update', href: '/student/principal-update', icon: IconEdit },
       { name: 'Location Update', href: '/student/location-update', icon: IconMapPin },
-      { name: 'Evaluation Form', href: '/student/evaluation-form', icon: IconClipboardList },
     ],
   },
 ];
