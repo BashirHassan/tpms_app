@@ -957,6 +957,7 @@ const renderDocument = async (req, res, next) => {
       'posting_letter': 'posting_letter',
       'introduction_letter': 'introduction_letter',
       'acceptance_form': 'acceptance_form',
+      'evaluation_form': 'evaluation_form',
     };
 
     const dbDocumentType = typeMap[documentType];
@@ -991,7 +992,7 @@ const renderDocument = async (req, res, next) => {
       
       // Check if student has submitted acceptance form
       const [acceptance] = await query(
-        `SELECT * FROM student_acceptances 
+        `SELECT * FROM student_acceptances
          WHERE student_id = ? AND session_id = ?`,
         [studentId, session.id]
       );
@@ -999,6 +1000,35 @@ const renderDocument = async (req, res, next) => {
         return res.status(404).json({
           success: false,
           message: 'You must submit your acceptance form to view the posting letter'
+        });
+      }
+    }
+
+    // Evaluation form uses the same gate as posting_letter (available_date + acceptance)
+    if (documentType === 'evaluation_form') {
+      if (!session.posting_letter_available_date) {
+        return res.status(403).json({
+          success: false,
+          message: 'Evaluation form is not yet available',
+        });
+      }
+      const availableDate = new Date(session.posting_letter_available_date);
+      if (new Date() < availableDate) {
+        return res.status(403).json({
+          success: false,
+          message: 'Evaluation form is not yet available',
+          data: { available_from: session.posting_letter_available_date }
+        });
+      }
+      const [acceptance] = await query(
+        `SELECT * FROM student_acceptances
+         WHERE student_id = ? AND session_id = ?`,
+        [studentId, session.id]
+      );
+      if (!acceptance) {
+        return res.status(404).json({
+          success: false,
+          message: 'You must submit your acceptance form to view the evaluation form'
         });
       }
     }

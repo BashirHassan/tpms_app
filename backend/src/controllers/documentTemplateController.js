@@ -19,7 +19,7 @@ const schemas = {
     body: z.object({
       document_type: z.enum([
         'introduction_letter', 'acceptance_form', 'posting_letter',
-        'supervisor_invitation_letter', 'completion_certificate'
+        'supervisor_invitation_letter', 'completion_certificate', 'evaluation_form'
       ]),
       name: z.string().min(2, 'Name must be at least 2 characters').max(255),
       description: z.string().max(1000).optional().nullable(),
