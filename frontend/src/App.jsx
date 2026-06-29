@@ -102,6 +102,7 @@ const AcceptanceFormPage = lazy(() => import('./pages/student/AcceptanceFormPage
 const PostingLetterPage = lazy(() => import('./pages/student/PostingLetterPage'));
 const IntroductionLetterPage = lazy(() => import('./pages/student/IntroductionLetterPage'));
 const AcceptanceDocumentPage = lazy(() => import('./pages/student/AcceptanceDocumentPage'));
+const EvaluationFormPage = lazy(() => import('./pages/student/EvaluationFormPage'));
 const StudentPrincipalUpdatePage = lazy(() => import('./pages/student/PrincipalUpdatePage'));
 const StudentLocationUpdatePage = lazy(() => import('./pages/student/LocationUpdatePage'));
 const DocsPage = lazy(() => import('./pages/public/DocsPage'));
@@ -473,6 +474,7 @@ function AppRoutes() {
               <Route path="introduction-letter" element={<IntroductionLetterPage />} />
               <Route path="acceptance-document" element={<AcceptanceDocumentPage />} />
               <Route path="posting-letter" element={<PostingLetterPage />} />
+              <Route path="evaluation-form" element={<EvaluationFormPage />} />
               <Route path="principal-update" element={<SuspensePage><StudentPrincipalUpdatePage /></SuspensePage>} />
               <Route path="location-update" element={<SuspensePage><StudentLocationUpdatePage /></SuspensePage>} />
             </Route>

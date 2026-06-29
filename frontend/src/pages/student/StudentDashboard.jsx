@@ -24,6 +24,7 @@ import {
   IconDownload,
   IconChevronRight,
   IconRefresh,
+  IconClipboardList,
 } from '@tabler/icons-react';
 
 function StudentDashboard() {
@@ -349,6 +350,32 @@ function StudentDashboard() {
                   </p>
                 </div>
                 {posting_letter.can_download && <IconChevronRight className="w-5 h-5 text-blue-600 flex-shrink-0" />}
+              </button>
+
+              {/* Evaluation Form Action */}
+              <button
+                onClick={() => navigate('/student/evaluation-form')}
+                disabled={!posting_letter.can_download}
+                className={`w-full flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-lg border transition-colors text-left active:scale-[0.99] ${
+                  posting_letter.can_download
+                    ? 'border-purple-200 bg-purple-50 hover:bg-purple-100 active:bg-purple-100'
+                    : 'border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed'
+                }`}
+              >
+                <IconClipboardList className={`w-5 h-5 flex-shrink-0 ${posting_letter.can_download ? 'text-purple-600' : 'text-gray-400'}`} />
+                <div className="flex-1 min-w-0">
+                  <p className={`font-medium text-sm sm:text-base ${posting_letter.can_download ? 'text-purple-900' : 'text-gray-500'}`}>
+                    Download Evaluation Form
+                  </p>
+                  <p className={`text-xs sm:text-sm truncate ${posting_letter.can_download ? 'text-purple-700' : 'text-gray-400'}`}>
+                    {posting_letter.can_download
+                      ? 'Your evaluation form is ready'
+                      : !posting_letter.available
+                      ? windows.posting_letter?.message || 'Not yet available'
+                      : 'Complete acceptance first'}
+                  </p>
+                </div>
+                {posting_letter.can_download && <IconChevronRight className="w-5 h-5 text-purple-600 flex-shrink-0" />}
               </button>
             </div>
           </CardContent>
