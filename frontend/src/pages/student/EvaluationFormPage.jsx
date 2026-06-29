@@ -362,7 +362,7 @@ function EvaluationFormPage() {
             </>
           )}
 
-          <DocumentFooter institution={institution} session={session} showCoordinator={false} />
+          <DocumentFooter institution={institution} session={session} showCoordinator={true} />
         </DocumentContainer>
       </div>
     </div>
