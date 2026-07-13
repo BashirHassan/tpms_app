@@ -75,6 +75,7 @@ const getAll = async (req, res, next) => {
       SELECT sa.*,
              st.registration_number, st.full_name as student_name,
              ms.name as school_name, ms.official_code as school_code, ms.ward, ms.lga,
+             isv.location_category,
              r.name as route_name,
              p.name as program_name,
              sess.name as session_name,
@@ -155,6 +156,7 @@ const getById = async (req, res, next) => {
               p.name as program_name, p.code as program_code,
               ms.name as school_name, ms.official_code as school_code, ms.address, ms.ward, ms.lga, ms.state,
               ms.principal_name, ms.principal_phone,
+              isv.location_category,
               r.name as route_name,
               sess.name as session_name,
               u.name as reviewed_by_name

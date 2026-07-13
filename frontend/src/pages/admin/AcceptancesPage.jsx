@@ -256,6 +256,16 @@ function AcceptancesPage() {
       ),
     },
     {
+      accessor: 'location_category',
+      header: 'Location',
+      render: (value) => value ? (
+        <Badge variant={value === 'inside' ? 'success' : 'warning'} className="capitalize">
+          {value}
+        </Badge>
+      ) : 'N/A',
+      exportFormatter: (value) => value ? value.charAt(0).toUpperCase() + value.slice(1) : 'N/A',
+    },
+    {
       accessor: 'group_number',
       header: 'Group',
       render: (value) => <Badge variant="outline">Group {value}</Badge>,
