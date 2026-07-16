@@ -63,6 +63,7 @@ function ProtectedRoute({ children, allowedRoles = [], requireInstitution = true
     '/admin/global-features',
     '/admin/global-payments',
     '/admin/master-schools',
+    '/admin/school-registration-requests',
   ];
   const isOnPlatformPath = platformOnlyPaths.some(path => location.pathname.startsWith(path));
   

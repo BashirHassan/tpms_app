@@ -9,6 +9,7 @@ const portalController = require('../controllers/portalController');
 const acceptanceController = require('../controllers/acceptanceController');
 const paymentController = require('../controllers/paymentController');
 const publicController = require('../controllers/publicController');
+const schoolRegistrationRequestController = require('../controllers/schoolRegistrationRequestController');
 const { authenticate } = require('../middleware/auth');
 const { studentOnly, requireInstitutionAccess, staffOnly } = require('../middleware/rbac');
 const { requireFeature } = require('../middleware/featureToggle');
@@ -43,6 +44,11 @@ router.put('/portal/profile', authenticate, studentOnly, validate(portalControll
 router.get('/portal/acceptance/status', authenticate, studentOnly, acceptanceController.getStudentStatus);
 router.get('/portal/acceptance/schools', authenticate, studentOnly, acceptanceController.getAvailableSchools);
 router.post('/portal/acceptance/submit', authenticate, studentOnly, upload.single('signed_form'), acceptanceController.submitAcceptance);
+
+// Student school registration request endpoints (request a brand-new school be added)
+router.get('/portal/school-registration-requests/status', authenticate, studentOnly, schoolRegistrationRequestController.getStudentRequestStatus);
+router.get('/portal/school-registration-requests/search-master', authenticate, studentOnly, schoolRegistrationRequestController.searchMasterSchools);
+router.post('/portal/school-registration-requests', authenticate, studentOnly, validate(schoolRegistrationRequestController.schemas.submit), schoolRegistrationRequestController.submitRequest);
 
 // Student payment endpoints
 router.get('/portal/payments/status', authenticate, studentOnly, paymentController.getStudentPaymentStatus);

@@ -26,6 +26,7 @@ const emailQueueService = require('../services/emailQueueService');
 const paystackService = require('../services/paystackService');
 const { encryptionService } = require('../services');
 const masterSchoolController = require('../controllers/masterSchoolController');
+const schoolRegistrationRequestController = require('../controllers/schoolRegistrationRequestController');
 const validate = require('../middleware/validate');
 
 const BCRYPT_ROUNDS = 12;
@@ -1239,6 +1240,16 @@ router.delete('/global/master-schools/:id/force', authenticate, isSuperAdmin, ma
 // Actions
 router.post('/global/master-schools/:id/verify', authenticate, isSuperAdmin, masterSchoolController.verify);
 router.post('/global/master-schools/merge', authenticate, isSuperAdmin, validate(masterSchoolController.schemas.merge), masterSchoolController.merge);
+
+// =============================================================================
+// SCHOOL REGISTRATION REQUESTS
+// =============================================================================
+
+router.get('/global/school-registration-requests/stats', authenticate, isSuperAdmin, schoolRegistrationRequestController.getStats);
+router.get('/global/school-registration-requests', authenticate, isSuperAdmin, schoolRegistrationRequestController.getAll);
+router.get('/global/school-registration-requests/:id', authenticate, isSuperAdmin, schoolRegistrationRequestController.getById);
+router.post('/global/school-registration-requests/:id/approve', authenticate, isSuperAdmin, schoolRegistrationRequestController.approve);
+router.post('/global/school-registration-requests/:id/reject', authenticate, isSuperAdmin, validate(schoolRegistrationRequestController.schemas.reject), schoolRegistrationRequestController.reject);
 
 // =============================================================================
 // DATABASE BACKUPS (Super Admin only)

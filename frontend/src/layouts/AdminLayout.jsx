@@ -133,6 +133,7 @@ const settingsNavigation = [
 const globalNavigation = [
   { name: 'Institutions', href: '/admin/institutions', icon: IconBuildingSkyscraper },
   { name: 'Master Schools', href: '/admin/master-schools', icon: IconSchool },
+  { name: 'Registration Requests', href: '/admin/school-registration-requests', icon: IconClipboardList },
   { name: 'Global Users', href: '/admin/global-users', icon: IconUsers },
   { name: 'Global Features', href: '/admin/global-features', icon: IconToggleLeft },
   { name: 'Global Payments', href: '/admin/global-payments', icon: IconCreditCard },

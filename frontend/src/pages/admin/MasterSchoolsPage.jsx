@@ -117,6 +117,15 @@ function MasterSchoolsPage() {
   const [selectedForMerge, setSelectedForMerge] = useState([]);
   const [mergeTarget, setMergeTarget] = useState(null);
 
+  // Individual (per-row) merge dialog
+  const [showRowMergeDialog, setShowRowMergeDialog] = useState(false);
+  const [mergeSourceRow, setMergeSourceRow] = useState(null);
+  const [rowMergeSearch, setRowMergeSearch] = useState('');
+  const [rowMergeResults, setRowMergeResults] = useState([]);
+  const [loadingRowMergeResults, setLoadingRowMergeResults] = useState(false);
+  const [rowMergeTarget, setRowMergeTarget] = useState(null);
+  const [mergingRow, setMergingRow] = useState(false);
+
   // Upload modal
   const fileInputRef = useRef(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -789,6 +798,51 @@ function MasterSchoolsPage() {
     await fetchDuplicates();
   };
 
+  const openRowMergeDialog = useCallback((school) => {
+    setMergeSourceRow(school);
+    setRowMergeSearch('');
+    setRowMergeResults([]);
+    setRowMergeTarget(null);
+    setShowRowMergeDialog(true);
+  }, []);
+
+  // Debounced live search as the admin types in the row-merge dialog
+  useEffect(() => {
+    if (!showRowMergeDialog || rowMergeSearch.trim().length < 2) {
+      setRowMergeResults([]);
+      return;
+    }
+    setLoadingRowMergeResults(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await masterSchoolsApi.getAll({ search: rowMergeSearch.trim(), limit: 10 });
+        const all = res.data.data || res.data || [];
+        setRowMergeResults(all.filter((s) => s.id !== mergeSourceRow?.id));
+      } catch {
+        toast.error('Failed to search schools');
+      } finally {
+        setLoadingRowMergeResults(false);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [rowMergeSearch, showRowMergeDialog, mergeSourceRow]);
+
+  const handleRowMerge = async () => {
+    if (!mergeSourceRow || !rowMergeTarget) return;
+    setMergingRow(true);
+    try {
+      await masterSchoolsApi.merge([mergeSourceRow.id], rowMergeTarget.id);
+      toast.success(`Merged "${mergeSourceRow.name}" into "${rowMergeTarget.name}" successfully`);
+      setShowRowMergeDialog(false);
+      fetchSchools();
+      fetchStats();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Merge failed');
+    } finally {
+      setMergingRow(false);
+    }
+  };
+
   const clearFilters = () => {
     setSearch('');
     setTypeFilter('');
@@ -915,6 +969,15 @@ function MasterSchoolsPage() {
           <Button
             variant="ghost"
             size="sm"
+            onClick={(e) => { e.stopPropagation(); openRowMergeDialog(row); }}
+            className="hover:text-blue-600 hover:bg-blue-50"
+            title="Merge into another school"
+          >
+            <IconGitMerge className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={(e) => { e.stopPropagation(); handleDelete(row.id); }}
             className="hover:text-red-600 hover:bg-red-50"
             title="Delete (only if unlinked)"
@@ -935,7 +998,7 @@ function MasterSchoolsPage() {
         </div>
       ),
     },
-  ], [handleViewSchool, openEditModal]);
+  ], [handleViewSchool, openEditModal, openRowMergeDialog]);
 
   return (
     <div className="space-y-4 px-2 sm:px-0">
@@ -1550,6 +1613,86 @@ function MasterSchoolsPage() {
             </>
           )}
         </div>
+      </Dialog>
+
+      {/* Individual (per-row) Merge Dialog */}
+      <Dialog
+        isOpen={showRowMergeDialog}
+        onClose={() => setShowRowMergeDialog(false)}
+        title="Merge School"
+        width="lg"
+        footer={
+          <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3">
+            <Button variant="outline" onClick={() => setShowRowMergeDialog(false)} className="w-full sm:w-auto">
+              Cancel
+            </Button>
+            <Button onClick={handleRowMerge} disabled={!rowMergeTarget || mergingRow} className="w-full sm:w-auto">
+              {mergingRow ? 'Merging...' : 'Merge'}
+            </Button>
+          </div>
+        }
+      >
+        {mergeSourceRow && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Search for the school you want to merge <strong>{mergeSourceRow.name}</strong> into.
+            </p>
+
+            <div className="relative">
+              <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                value={rowMergeSearch}
+                onChange={(e) => setRowMergeSearch(e.target.value)}
+                placeholder="Search schools by name..."
+                className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              />
+            </div>
+
+            {loadingRowMergeResults && <p className="text-xs text-gray-400">Searching...</p>}
+
+            {rowMergeResults.length > 0 && !rowMergeTarget && (
+              <div className="border rounded-lg max-h-56 overflow-y-auto divide-y">
+                {rowMergeResults.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setRowMergeTarget(s)}
+                    className="w-full text-left p-3 hover:bg-gray-50"
+                  >
+                    <div className="font-medium text-gray-900 truncate">{s.name}</div>
+                    <div className="text-sm text-gray-500">{s.ward}, {s.lga}, {s.state}</div>
+                    <div className="text-xs text-gray-400">{s.linked_institutions_count || 0} institution(s) linked</div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {rowMergeTarget && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                    <p className="text-xs text-red-600 font-medium mb-1">Source (will be marked merged)</p>
+                    <p className="font-medium text-sm truncate">{mergeSourceRow.name}</p>
+                    <p className="text-xs text-gray-500">{mergeSourceRow.linked_institutions_count || 0} institution(s)</p>
+                  </div>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <p className="text-xs text-green-700 font-medium mb-1">Target (will be kept)</p>
+                    <p className="font-medium text-sm truncate">{rowMergeTarget.name}</p>
+                    <p className="text-xs text-gray-500">{rowMergeTarget.linked_institutions_count || 0} institution(s)</p>
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setRowMergeTarget(null)}>
+                  Choose a different target
+                </Button>
+              </div>
+            )}
+
+            <div className="bg-amber-50 rounded-lg p-3 text-sm text-amber-800">
+              <p><strong>Warning:</strong> This is permanent. All institution links from "{mergeSourceRow.name}" will move to the target school.</p>
+            </div>
+          </div>
+        )}
       </Dialog>
 
       {/* Upload Modal - Multi-step */}

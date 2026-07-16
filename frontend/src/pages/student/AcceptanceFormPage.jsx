@@ -9,18 +9,22 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { acceptancesApi } from '../../api';
+import { schoolRegistrationRequestsApi } from '../../api/schoolRegistrationRequests';
+import { nigeriaGeoData } from '../../data/nigeria';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { formatFileSize } from '../../utils/helpers';
-import { 
-  Card, 
-  CardHeader, 
-  CardTitle, 
+import {
+  Card,
+  CardHeader,
+  CardTitle,
   CardContent,
 } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
+import { Select } from '../../components/ui/Select';
+import { Dialog } from '../../components/ui/Dialog';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Stepper, Step, StepContent, StepActions } from '../../components/ui/Stepper';
 import { useNavigate } from 'react-router-dom';
@@ -45,6 +49,8 @@ import {
   IconPhoto,
   IconRefresh,
   IconX,
+  IconPlus,
+  IconClock,
 } from '@tabler/icons-react';
 
 // Form steps configuration
@@ -67,6 +73,12 @@ const SCHOOL_TYPE_LABELS = {
 
 const getSchoolTypeLabel = (schoolType) => SCHOOL_TYPE_LABELS[schoolType] || schoolType;
 
+const SCHOOL_CATEGORY_LABELS = {
+  public: 'Public',
+  private: 'Private',
+  others: 'Others',
+};
+
 const getSchoolDisplayName = (school) => {
   if (!school) return '';
   return school.school_code ? `${school.school_code} | ${school.name}` : school.name;
@@ -86,6 +98,8 @@ function AcceptanceFormPage() {
   const [schools, setSchools] = useState([]);
   const [search, setSearch] = useState('');
   const [selectedSchool, setSelectedSchool] = useState(null);
+  const [registrationRequest, setRegistrationRequest] = useState(null);
+  const [showRegistrationModal, setShowRegistrationModal] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -104,13 +118,15 @@ function AcceptanceFormPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [statusRes, schoolsRes] = await Promise.all([
+      const [statusRes, schoolsRes, registrationRes] = await Promise.all([
         acceptancesApi.getStudentStatus(),
         acceptancesApi.getAvailableSchools(),
+        schoolRegistrationRequestsApi.getStatus().catch(() => ({ data: { data: null } })),
       ]);
 
       setStatus(statusRes.data.data);
       setSchools(schoolsRes.data.data);
+      setRegistrationRequest(registrationRes.data.data);
     } catch (err) {
       toast.error('Failed to load acceptance form data');
     } finally {
@@ -362,6 +378,9 @@ function AcceptanceFormPage() {
               selectedSchool={selectedSchool}
               onSelectSchool={setSelectedSchool}
               filteredSchools={filteredSchools}
+              schools={schools}
+              registrationRequest={registrationRequest}
+              onOpenRegistrationModal={() => setShowRegistrationModal(true)}
             />
           </StepContent>
 
@@ -424,6 +443,21 @@ function AcceptanceFormPage() {
           </StepActions>
         </CardContent>
       </Card>
+
+      {/* Request a new school modal */}
+      <SchoolRegistrationRequestModal
+        isOpen={showRegistrationModal}
+        onClose={() => setShowRegistrationModal(false)}
+        schools={schools}
+        onSelectSchool={(school) => {
+          setSelectedSchool(school);
+          setShowRegistrationModal(false);
+        }}
+        onSubmitted={(request) => {
+          setRegistrationRequest(request);
+          setShowRegistrationModal(false);
+        }}
+      />
     </div>
   );
 }
@@ -515,6 +549,8 @@ function ContactAndSchoolStep({
   selectedSchool,
   onSelectSchool,
   filteredSchools,
+  registrationRequest,
+  onOpenRegistrationModal,
 }) {
   return (
     <div className="space-y-4 sm:space-y-4">
@@ -685,12 +721,343 @@ function ContactAndSchoolStep({
           </div>
         )}
 
-        <p className="text-xs sm:text-sm text-gray-500 flex items-start sm:items-center gap-2">
-          <IconInfoCircle className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" />
-          <span>If your school is not listed, please contact the TP office.</span>
-        </p>
+        <SchoolRegistrationBanner
+          registrationRequest={registrationRequest}
+          onOpenRequestModal={onOpenRegistrationModal}
+        />
       </div>
     </div>
+  );
+}
+
+/**
+ * Status-aware banner shown under the school list, letting a student request
+ * a brand-new school be added when it isn't in the list.
+ */
+function SchoolRegistrationBanner({ registrationRequest, onOpenRequestModal }) {
+  if (!registrationRequest) {
+    return (
+      <p className="text-xs sm:text-sm text-gray-500 flex items-start sm:items-center gap-2">
+        <IconInfoCircle className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" />
+        <span>
+          If your school is not listed,{' '}
+          <button
+            type="button"
+            onClick={onOpenRequestModal}
+            className="text-primary-600 hover:text-primary-700 font-medium underline"
+          >
+            click here to request for a new school to be registered
+          </button>
+          .
+        </span>
+      </p>
+    );
+  }
+
+  if (registrationRequest.status === 'pending') {
+    return (
+      <div className="flex items-start gap-2 sm:gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+        <IconClock className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+        <p className="text-xs sm:text-sm text-amber-800">
+          Your request to register <strong>{registrationRequest.name}</strong> is pending review.
+        </p>
+      </div>
+    );
+  }
+
+  if (registrationRequest.status === 'approved') {
+    return (
+      <div className="flex items-start gap-2 sm:gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+        <IconCheck className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+        <p className="text-xs sm:text-sm text-green-800">
+          Your request for <strong>{registrationRequest.name}</strong> was approved — search for it above to select it.
+        </p>
+      </div>
+    );
+  }
+
+  // rejected
+  return (
+    <div className="flex items-start gap-2 sm:gap-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+      <IconX className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+      <div className="text-xs sm:text-sm text-red-800">
+        <p>Your request to register <strong>{registrationRequest.name}</strong> was rejected{registrationRequest.rejection_reason ? `: ${registrationRequest.rejection_reason}` : '.'}</p>
+        <button
+          type="button"
+          onClick={onOpenRequestModal}
+          className="text-primary-600 hover:text-primary-700 font-medium underline mt-1"
+        >
+          Submit a new request
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Modal for a student to request that a brand-new school (not in the
+ * institution's list) be added to the central registry.
+ */
+function SchoolRegistrationRequestModal({ isOpen, onClose, schools, onSelectSchool, onSubmitted }) {
+  const { toast } = useToast();
+
+  const emptyForm = {
+    name: '',
+    official_code: '',
+    school_type: '',
+    category: '',
+    state: '',
+    lga: '',
+    ward: '',
+    address: '',
+  };
+
+  const [form, setForm] = useState(emptyForm);
+  const [states] = useState(() => nigeriaGeoData.getStates());
+  const [lgas, setLgas] = useState([]);
+  const [wards, setWards] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setForm(emptyForm);
+      setSuggestions([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!form.state) {
+      setLgas([]);
+      return;
+    }
+    setLgas(nigeriaGeoData.getLGAs(form.state));
+  }, [form.state]);
+
+  useEffect(() => {
+    if (!form.state || !form.lga) {
+      setWards([]);
+      return;
+    }
+    let cancelled = false;
+    nigeriaGeoData.getWards(form.state, form.lga).then((data) => {
+      if (!cancelled) setWards(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.state, form.lga]);
+
+  // Debounced live similarity search as the student types the school name
+  useEffect(() => {
+    if (!isOpen || form.name.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await schoolRegistrationRequestsApi.searchMaster(form.name.trim());
+        setSuggestions(res.data.data || []);
+      } catch {
+        setSuggestions([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [form.name, isOpen]);
+
+  const handleChange = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSelectSuggestion = (suggestion) => {
+    if (!suggestion.linked_to_institution) return;
+    const match = schools.find((s) => s.id === suggestion.institution_school_id);
+    if (match) {
+      onSelectSchool(match);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!form.name.trim()) return toast.warning('School name is required');
+    if (!form.school_type) return toast.warning('Please select the school type');
+    if (!form.category) return toast.warning('Please select the school category');
+    if (!form.state) return toast.warning('Please select a state');
+    if (!form.lga) return toast.warning('Please select an LGA');
+    if (!form.address.trim()) return toast.warning('Address is required');
+
+    setSubmitting(true);
+    try {
+      const res = await schoolRegistrationRequestsApi.submit({
+        name: form.name.trim(),
+        official_code: form.official_code.trim() || null,
+        school_type: form.school_type,
+        category: form.category,
+        state: form.state,
+        lga: form.lga,
+        ward: form.ward || null,
+        address: form.address.trim(),
+      });
+      toast.success('School registration request submitted for review');
+      onSubmitted(res.data.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to submit request');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Request a New School"
+      width="lg"
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} loading={submitting}>
+            <IconPlus className="w-4 h-4" />
+            Submit Request
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-sm text-gray-600">
+          Fill in the details of your Place of Primary Assignment. A super admin will review this request before it becomes selectable.
+        </p>
+
+        <div>
+          <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+            School Name <span className="text-red-500">*</span>
+          </label>
+          <Input
+            value={form.name}
+            onChange={(e) => handleChange('name', e.target.value.toUpperCase())}
+            placeholder="e.g. GOVERNMENT SECONDARY SCHOOL, WUDIL"
+          />
+          {searching && <p className="text-xs text-gray-400 mt-1">Searching registry...</p>}
+          {suggestions.length > 0 && (
+            <div className="mt-2 border rounded-lg divide-y overflow-hidden">
+              {suggestions.map((s) => (
+                <div key={s.id} className="p-2 text-xs sm:text-sm flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-800 truncate">{s.name}</p>
+                    <p className="text-gray-500 truncate">{[s.ward, s.lga, s.state].filter(Boolean).join(', ')}</p>
+                  </div>
+                  {s.linked_to_institution ? (
+                    <Button size="sm" variant="outline" onClick={() => handleSelectSuggestion(s)}>
+                      Select this school
+                    </Button>
+                  ) : (
+                    <span className="text-gray-400 flex-shrink-0">In central registry</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Official Code</label>
+          <Input
+            value={form.official_code}
+            onChange={(e) => handleChange('official_code', e.target.value.toUpperCase())}
+            placeholder="Optional"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+              School Type <span className="text-red-500">*</span>
+            </label>
+            <Select value={form.school_type} onChange={(e) => handleChange('school_type', e.target.value)}>
+              <option value="">Select type</option>
+              {Object.entries(SCHOOL_TYPE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+              Category <span className="text-red-500">*</span>
+            </label>
+            <Select value={form.category} onChange={(e) => handleChange('category', e.target.value)}>
+              <option value="">Select category</option>
+              {Object.entries(SCHOOL_CATEGORY_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </Select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+              State <span className="text-red-500">*</span>
+            </label>
+            <Select
+              value={form.state}
+              onChange={(e) => setForm((prev) => ({ ...prev, state: e.target.value, lga: '', ward: '' }))}
+            >
+              <option value="">Select state</option>
+              {states.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+              LGA <span className="text-red-500">*</span>
+            </label>
+            <Select
+              value={form.lga}
+              onChange={(e) => setForm((prev) => ({ ...prev, lga: e.target.value, ward: '' }))}
+              disabled={!form.state}
+            >
+              <option value="">Select LGA</option>
+              {lgas.map((l) => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Ward</label>
+            <Select
+              value={form.ward}
+              onChange={(e) => handleChange('ward', e.target.value)}
+              disabled={!form.lga}
+            >
+              <option value="">Select ward</option>
+              {wards.map((w, idx) => (
+                <option key={`${w.name}-${idx}`} value={w.name}>{w.name}</option>
+              ))}
+            </Select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+            Address <span className="text-red-500">*</span>
+          </label>
+          <textarea
+            value={form.address}
+            onChange={(e) => handleChange('address', e.target.value)}
+            placeholder="Street address / directions"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm"
+            rows={3}
+          />
+        </div>
+      </div>
+    </Dialog>
   );
 }
 

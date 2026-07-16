@@ -13,6 +13,20 @@ const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 const { normalizeLocationValue, normalizeOptionalLocationValue } = require('../utils/locationNormalizer');
 
+// Tables carrying an institution_school_id FK that must be repointed to the
+// surviving link when a merge deletes a conflicting institution_schools row
+// (i.e. the institution was already linked to both the source and the target).
+const CHILD_TABLES_BY_INSTITUTION_SCHOOL = [
+  'student_acceptances',
+  'supervisor_postings',
+  'student_results',
+  'school_groups',
+  'monitor_assignments',
+  'monitoring_reports',
+  'school_location_update_requests',
+  'school_principal_update_requests',
+];
+
 // Validation schemas
 const schemas = {
   create: z.object({
@@ -524,30 +538,37 @@ const merge = async (req, res, next) => {
     }
 
     await transaction(async (conn) => {
-      // Update all institution_schools to point to target
       for (const sourceId of source_ids) {
-        // Check for conflicts (institution already linked to target)
-        const [conflicts] = await conn.execute(
-          `SELECT isv_source.id, isv_source.institution_id
-           FROM institution_schools isv_source
-           JOIN institution_schools isv_target ON isv_source.institution_id = isv_target.institution_id
-           WHERE isv_source.master_school_id = ? AND isv_target.master_school_id = ?`,
-          [sourceId, target_id]
+        const [sourceLinks] = await conn.execute(
+          'SELECT id, institution_id FROM institution_schools WHERE master_school_id = ?',
+          [sourceId]
         );
 
-        if (conflicts.length > 0) {
-          // Delete the conflicting source links (keep target)
-          await conn.execute(
-            'DELETE FROM institution_schools WHERE master_school_id = ? AND institution_id IN (?)',
-            [sourceId, conflicts.map(c => c.institution_id)]
+        for (const sourceLink of sourceLinks) {
+          const [targetLinks] = await conn.execute(
+            'SELECT id FROM institution_schools WHERE master_school_id = ? AND institution_id = ?',
+            [target_id, sourceLink.institution_id]
           );
-        }
 
-        // Update remaining to point to target
-        await conn.execute(
-          'UPDATE institution_schools SET master_school_id = ? WHERE master_school_id = ?',
-          [target_id, sourceId]
-        );
+          if (targetLinks.length === 0) {
+            // No conflict — just repoint this institution's link to the target
+            await conn.execute(
+              'UPDATE institution_schools SET master_school_id = ? WHERE id = ?',
+              [target_id, sourceLink.id]
+            );
+          } else {
+            // Conflict: institution already linked to target. Move child records
+            // off the source link before deleting it, so nothing is silently lost.
+            const targetLinkId = targetLinks[0].id;
+            for (const table of CHILD_TABLES_BY_INSTITUTION_SCHOOL) {
+              await conn.execute(
+                `UPDATE ${table} SET institution_school_id = ? WHERE institution_school_id = ?`,
+                [targetLinkId, sourceLink.id]
+              );
+            }
+            await conn.execute('DELETE FROM institution_schools WHERE id = ?', [sourceLink.id]);
+          }
+        }
 
         // Mark source as merged
         await conn.execute(

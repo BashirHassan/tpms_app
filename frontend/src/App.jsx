@@ -66,6 +66,7 @@ const RanksPage = lazy(() => import('./pages/admin/RanksPage'));
 const RoutesPage = lazy(() => import('./pages/admin/RoutesPage'));
 const SchoolsPage = lazy(() => import('./pages/admin/SchoolsPage'));
 const MasterSchoolsPage = lazy(() => import('./pages/admin/MasterSchoolsPage'));
+const SchoolRegistrationRequestsPage = lazy(() => import('./pages/admin/SchoolRegistrationRequestsPage'));
 const SessionsPage = lazy(() => import('./pages/admin/SessionsPage'));
 const PaymentsPage = lazy(() => import('./pages/admin/PaymentsPage'));
 const AcceptancesPage = lazy(() => import('./pages/admin/AcceptancesPage'));
@@ -446,15 +447,25 @@ function AppRoutes() {
               />
 
               {/* Master Schools - Central Registry Management - Super Admin on admin subdomain */}
-              <Route 
-                path="master-schools" 
+              <Route
+                path="master-schools"
                 element={
                   <GlobalRoute>
                     <MasterSchoolsPage />
                   </GlobalRoute>
-                } 
+                }
               />
-              
+
+              {/* School Registration Requests - Super Admin on admin subdomain */}
+              <Route
+                path="school-registration-requests"
+                element={
+                  <GlobalRoute>
+                    <SchoolRegistrationRequestsPage />
+                  </GlobalRoute>
+                }
+              />
+
               {/* Profile - Available to all authenticated users */}
               <Route path="profile" element={<ProfilePage />} />
             </Route>
