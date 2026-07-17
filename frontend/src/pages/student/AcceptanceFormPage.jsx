@@ -916,7 +916,7 @@ function SchoolRegistrationRequestModal({ isOpen, onClose, schools, onSelectScho
       isOpen={isOpen}
       onClose={onClose}
       title="Request a New School"
-      width="lg"
+      width="2xl"
       footer={
         <>
           <Button variant="outline" onClick={onClose} disabled={submitting}>
