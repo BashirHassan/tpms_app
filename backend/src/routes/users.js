@@ -5,7 +5,7 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireValidSession } = require('../middleware/auth');
 const { requireInstitutionAccess, isHeadOfTP, staffOnly } = require('../middleware/rbac');
 const validate = require('../middleware/validate');
 
@@ -72,6 +72,7 @@ router.post(
 router.post(
   '/:institutionId/users/:id/hard-reset-password',
   authenticate,
+  requireValidSession,
   requireInstitutionAccess(),
   isHeadOfTP,
   authController.hardResetPassword
