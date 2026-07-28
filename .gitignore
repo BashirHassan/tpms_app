@@ -17,6 +17,11 @@ out/
 .env.production.local
 *.env
 
+# Credentials / secrets - never commit
+cred.md
+*.credentials
+credentials.*
+
 # Logs
 logs/
 *.log

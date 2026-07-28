@@ -41,7 +41,22 @@ const AUTH_TYPES = {
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
-const JWT_EXPIRES_IN_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+/**
+ * Parse a jsonwebtoken-style expiry string ('7d', '24h', '15m', '30s') into milliseconds.
+ * Keeps user_sessions.expires_at in sync with the actual JWT expiry instead of drifting
+ * from a separately hardcoded value.
+ */
+function parseExpiryToMs(value, fallbackMs) {
+  if (typeof value === 'number') return value * 1000;
+  const match = /^(\d+)\s*(s|m|h|d)?$/i.exec(String(value).trim());
+  if (!match) return fallbackMs;
+  const amount = parseInt(match[1], 10);
+  const unitMs = { s: 1000, m: 60 * 1000, h: 60 * 60 * 1000, d: 24 * 60 * 60 * 1000 };
+  return amount * unitMs[(match[2] || 's').toLowerCase()];
+}
+
+const JWT_EXPIRES_IN_MS = parseExpiryToMs(JWT_EXPIRES_IN, 24 * 60 * 60 * 1000);
 const BCRYPT_ROUNDS = 12;
 const BULK_BCRYPT_ROUNDS = 10; // auto-generated PINs expected to be changed on first login
 const RESET_TOKEN_EXPIRES_HOURS = 1;

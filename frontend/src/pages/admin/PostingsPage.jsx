@@ -642,10 +642,10 @@ function PostingsPage() {
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog
-        open={!!deletingPosting}
-        onOpenChange={() => setDeletingPosting(null)}
+        isOpen={!!deletingPosting}
+        onClose={() => setDeletingPosting(null)}
         title="Delete Posting"
-        description={`Are you sure you want to delete this posting for "${deletingPosting?.school_name}" by "${deletingPosting?.supervisor_name}"? This action cannot be undone.`}
+        message={`Are you sure you want to delete this posting for "${deletingPosting?.school_name}" by "${deletingPosting?.supervisor_name}"? This action cannot be undone.`}
         confirmText="Delete"
         cancelText="Cancel"
         variant="danger"
