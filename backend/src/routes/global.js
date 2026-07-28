@@ -217,7 +217,7 @@ router.get(
 
       // Remove sensitive fields
       const user = users[0];
-      delete user.password;
+      delete user.password_hash;
 
       res.json({
         success: true,
@@ -277,7 +277,7 @@ router.post(
 
       // Insert user
       const result = await query(
-        `INSERT INTO users (name, email, phone, password, role, institution_id, rank_id, faculty_id, file_number, is_dean, status)
+        `INSERT INTO users (name, email, phone, password_hash, role, institution_id, rank_id, faculty_id, file_number, is_dean, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
         [
           name,
@@ -462,7 +462,7 @@ router.post(
       const plainPassword = generateRandomPassword();
       const hashedPassword = await bcrypt.hash(plainPassword, BCRYPT_ROUNDS);
 
-      await query('UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?', [hashedPassword, parseInt(id)]);
+      await query('UPDATE users SET password_hash = ?, updated_at = NOW() WHERE id = ?', [hashedPassword, parseInt(id)]);
 
       // Send password reset email
       try {
