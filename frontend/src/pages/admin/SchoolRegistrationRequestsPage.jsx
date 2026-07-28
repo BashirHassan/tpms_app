@@ -4,7 +4,7 @@
  * brand-new school in the central registry.
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   IconCheck,
   IconX,
@@ -13,12 +13,20 @@ import {
   IconClock,
   IconFilter,
   IconSchool,
+  IconUser,
+  IconBuilding,
+  IconSearch,
+  IconShieldCheck,
+  IconShieldOff,
+  IconUsers,
 } from '@tabler/icons-react';
 import { schoolRegistrationRequestsApi } from '../../api/schoolRegistrationRequests';
+import { masterSchoolsApi } from '../../api/masterSchools';
 import { sessionsApi } from '../../api';
 import { useToast } from '../../context/ToastContext';
 import { formatDateTime } from '../../utils/helpers';
 import { Card, CardContent } from '../../components/ui/Card';
+import { StatsCard } from '../../components/ui/StatsCard';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
@@ -66,6 +74,16 @@ export default function SchoolRegistrationRequestsPage() {
 
   const [showApproveConfirm, setShowApproveConfirm] = useState(false);
   const [approvingRequest, setApprovingRequest] = useState(null);
+
+  // Synchronous in-flight guards — block re-entrant submits from a burst of
+  // clicks before React commits the `processing`/disabled state to the DOM.
+  const approveInFlightRef = useRef(false);
+  const rejectInFlightRef = useRef(false);
+
+  // Master school search (informational — check registry before approving)
+  const [masterSearchTerm, setMasterSearchTerm] = useState('');
+  const [masterSearchResults, setMasterSearchResults] = useState([]);
+  const [loadingMasterSearch, setLoadingMasterSearch] = useState(false);
 
   const [filters, setFilters] = useState({
     session_id: '',
@@ -142,7 +160,8 @@ export default function SchoolRegistrationRequestsPage() {
   };
 
   const confirmApprove = async () => {
-    if (!approvingRequest) return;
+    if (!approvingRequest || approveInFlightRef.current) return;
+    approveInFlightRef.current = true;
     try {
       setProcessing(true);
       await schoolRegistrationRequestsApi.approve(approvingRequest.id);
@@ -156,12 +175,14 @@ export default function SchoolRegistrationRequestsPage() {
       toast.error(err.response?.data?.message || 'Failed to approve request');
     } finally {
       setProcessing(false);
+      approveInFlightRef.current = false;
     }
   };
 
   const handleReject = (request) => {
     setRejectingRequest(request);
     setRejectionReason('');
+    setShowDetailModal(false);
     setShowRejectModal(true);
   };
 
@@ -170,6 +191,8 @@ export default function SchoolRegistrationRequestsPage() {
       toast.error('Please provide a rejection reason');
       return;
     }
+    if (rejectInFlightRef.current) return;
+    rejectInFlightRef.current = true;
     try {
       setProcessing(true);
       await schoolRegistrationRequestsApi.reject(rejectingRequest.id, rejectionReason);
@@ -183,10 +206,41 @@ export default function SchoolRegistrationRequestsPage() {
       toast.error(err.response?.data?.message || 'Failed to reject request');
     } finally {
       setProcessing(false);
+      rejectInFlightRef.current = false;
     }
   };
 
+  const handleMasterSearch = useCallback(async (term) => {
+    setMasterSearchTerm(term);
+    if (term.trim().length < 2) {
+      setMasterSearchResults([]);
+      return;
+    }
+    setLoadingMasterSearch(true);
+    try {
+      const res = await masterSchoolsApi.getAll({ search: term.trim(), limit: 10 });
+      setMasterSearchResults(res.data.data || res.data || []);
+    } catch {
+      toast.error('Failed to search master schools');
+    } finally {
+      setLoadingMasterSearch(false);
+    }
+  }, [toast]);
+
+  const openDetailModal = useCallback((request) => {
+    setSelectedRequest(request);
+    setShowDetailModal(true);
+    handleMasterSearch(request?.name || '');
+  }, [handleMasterSearch]);
+
   const columns = useMemo(() => [
+    {
+      accessor: null,
+      header: '#',
+      sortable: false,
+      width: 50,
+      render: (_, __, index) => (pagination.page - 1) * pagination.limit + index + 1,
+    },
     {
       accessor: 'student_name',
       header: 'Student',
@@ -240,8 +294,7 @@ export default function SchoolRegistrationRequestsPage() {
             size="icon"
             onClick={(e) => {
               e.stopPropagation();
-              setSelectedRequest(row);
-              setShowDetailModal(true);
+              openDetailModal(row);
             }}
             title="View Details"
           >
@@ -278,7 +331,7 @@ export default function SchoolRegistrationRequestsPage() {
         </div>
       ),
     },
-  ], []);
+  ], [pagination.page, pagination.limit, openDetailModal]);
 
   return (
     <div className="space-y-3 sm:space-y-4">
@@ -304,45 +357,9 @@ export default function SchoolRegistrationRequestsPage() {
 
       {/* Statistics Cards */}
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
-        <Card>
-          <CardContent className="p-3 sm:p-4">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-yellow-100 flex items-center justify-center flex-shrink-0">
-                <IconClock className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-lg sm:text-2xl font-bold">{statistics.pending || 0}</p>
-                <p className="text-[10px] sm:text-sm text-gray-500 truncate">Pending</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3 sm:p-4">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
-                <IconCheck className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-lg sm:text-2xl font-bold">{statistics.approved || 0}</p>
-                <p className="text-[10px] sm:text-sm text-gray-500 truncate">Approved</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3 sm:p-4">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
-                <IconX className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-lg sm:text-2xl font-bold">{statistics.rejected || 0}</p>
-                <p className="text-[10px] sm:text-sm text-gray-500 truncate">Rejected</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <StatsCard title="Pending" value={statistics.pending} icon={IconClock} tone="yellow" />
+        <StatsCard title="Approved" value={statistics.approved} icon={IconCheck} tone="green" />
+        <StatsCard title="Rejected" value={statistics.rejected} icon={IconX} tone="red" />
       </div>
 
       {/* Filters */}
@@ -410,10 +427,7 @@ export default function SchoolRegistrationRequestsPage() {
               onPageChange: (page) => setPagination((p) => ({ ...p, page })),
               onLimitChange: (limit) => setPagination((p) => ({ ...p, limit, page: 1 })),
             }}
-            onRowClick={(row) => {
-              setSelectedRequest(row);
-              setShowDetailModal(true);
-            }}
+            onRowClick={(row) => openDetailModal(row)}
           />
         </CardContent>
       </Card>
@@ -448,93 +462,155 @@ export default function SchoolRegistrationRequestsPage() {
         }
       >
         {selectedRequest && (
-          <div className="space-y-4">
-            {/* Student & Institution */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-1">Student</h3>
-                <p className="font-medium text-gray-900">{selectedRequest.student_name}</p>
-                <p className="text-sm text-gray-500">{selectedRequest.registration_number}</p>
+          <div className="space-y-4 text-sm">
+            {/* Master Registry Check — inline at top for quick duplicate validation */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <IconSearch className="w-4 h-4 text-blue-600" />
+                <h3 className="font-medium text-blue-900">Check Master Registry</h3>
               </div>
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-1">Institution</h3>
-                <p className="font-medium text-gray-900">{selectedRequest.institution_name}</p>
-                <p className="text-sm text-gray-500">{selectedRequest.session_name}</p>
+              <div className="relative">
+                <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Input
+                  placeholder="Search by name, code, ward, or LGA…"
+                  value={masterSearchTerm}
+                  onChange={(e) => handleMasterSearch(e.target.value)}
+                  className="pl-10 bg-white"
+                />
+              </div>
+
+              {loadingMasterSearch && (
+                <div className="flex items-center justify-center py-3 text-gray-500 text-sm">
+                  <IconRefresh className="w-4 h-4 animate-spin mr-2" /> Searching…
+                </div>
+              )}
+
+              {!loadingMasterSearch && masterSearchTerm.trim().length >= 2 && masterSearchResults.length === 0 && (
+                <p className="text-sm text-gray-500 py-3 text-center">No matching schools found in the registry</p>
+              )}
+
+              {masterSearchTerm.trim().length > 0 && masterSearchTerm.trim().length < 2 && (
+                <p className="text-sm text-gray-400 text-center py-2">Type at least 2 characters to search</p>
+              )}
+
+              {masterSearchResults.length > 0 && (
+                <div className="mt-2 border rounded-lg divide-y bg-white max-h-52 overflow-y-auto">
+                  {masterSearchResults.map((school) => (
+                    <div key={school.id} className="p-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium text-gray-900">{school.name}</span>
+                        {school.is_verified ? (
+                          <IconShieldCheck className="w-4 h-4 text-green-600 flex-shrink-0" title="Verified" />
+                        ) : (
+                          <IconShieldOff className="w-4 h-4 text-gray-400 flex-shrink-0" title="Unverified" />
+                        )}
+                        {school.official_code && (
+                          <span className="font-mono text-xs text-blue-600">{school.official_code}</span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-500">{school.ward ? `${school.ward}, ` : ''}{school.lga}, {school.state}</p>
+                      <div className="flex gap-3 mt-1 text-xs text-gray-500">
+                        <span className="flex items-center gap-1"><IconBuilding className="w-3.5 h-3.5" /> {school.linked_institutions_count || 0} institutions</span>
+                        <span className="flex items-center gap-1"><IconUsers className="w-3.5 h-3.5" /> {school.current_session_students ?? 0} students</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Student & Institution */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <IconUser className="w-4 h-4 text-gray-500" />
+                  <h3 className="font-medium text-gray-700">Student</h3>
+                </div>
+                <p className="font-semibold text-gray-900">{selectedRequest.student_name}</p>
+                <p className="text-gray-500 text-xs">{selectedRequest.registration_number}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <IconSchool className="w-4 h-4 text-gray-500" />
+                  <h3 className="font-medium text-gray-700">Institution</h3>
+                </div>
+                <p className="font-semibold text-gray-900">{selectedRequest.institution_name}</p>
+                <p className="text-gray-500 text-xs">Session: {selectedRequest.session_name}</p>
               </div>
             </div>
 
             {/* Proposed School */}
             <div>
-              <h3 className="text-sm font-medium text-gray-500 mb-2 flex items-center gap-1.5">
-                <IconSchool className="w-4 h-4" /> Proposed School
-              </h3>
+              <div className="flex items-center gap-2 mb-3">
+                <IconSchool className="w-4 h-4 text-gray-500" />
+                <h3 className="font-medium text-gray-700">Proposed School</h3>
+              </div>
               <table className="w-full border border-gray-200 rounded-lg overflow-hidden">
-                <tbody className="divide-y divide-gray-200">
+                <tbody className="divide-y divide-gray-100">
                   <tr>
-                    <td className="px-4 py-2 text-sm text-gray-600 w-1/3">Name</td>
-                    <td className="px-4 py-2 text-sm font-medium text-gray-900">{selectedRequest.name}</td>
+                    <td className="px-3 py-2 text-gray-500 bg-gray-50 w-36 font-medium">Name</td>
+                    <td className="px-3 py-2 font-semibold text-gray-900">{selectedRequest.name}</td>
+                  </tr>
+                  {selectedRequest.official_code && (
+                    <tr>
+                      <td className="px-3 py-2 text-gray-500 bg-gray-50 font-medium">Official Code</td>
+                      <td className="px-3 py-2">{selectedRequest.official_code}</td>
+                    </tr>
+                  )}
+                  <tr>
+                    <td className="px-3 py-2 text-gray-500 bg-gray-50 font-medium">Type</td>
+                    <td className="px-3 py-2">{SCHOOL_TYPE_LABELS[selectedRequest.school_type] || selectedRequest.school_type}</td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-2 text-sm text-gray-600">Official Code</td>
-                    <td className="px-4 py-2 text-sm">{selectedRequest.official_code || '-'}</td>
+                    <td className="px-3 py-2 text-gray-500 bg-gray-50 font-medium">Category</td>
+                    <td className="px-3 py-2">{CATEGORY_LABELS[selectedRequest.category] || selectedRequest.category}</td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-2 text-sm text-gray-600">Type</td>
-                    <td className="px-4 py-2 text-sm">{SCHOOL_TYPE_LABELS[selectedRequest.school_type] || selectedRequest.school_type}</td>
+                    <td className="px-3 py-2 text-gray-500 bg-gray-50 font-medium">State</td>
+                    <td className="px-3 py-2">{selectedRequest.state}</td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-2 text-sm text-gray-600">Category</td>
-                    <td className="px-4 py-2 text-sm">{CATEGORY_LABELS[selectedRequest.category] || selectedRequest.category}</td>
+                    <td className="px-3 py-2 text-gray-500 bg-gray-50 font-medium">LGA</td>
+                    <td className="px-3 py-2">{selectedRequest.lga}</td>
                   </tr>
+                  {selectedRequest.ward && (
+                    <tr>
+                      <td className="px-3 py-2 text-gray-500 bg-gray-50 font-medium">Ward</td>
+                      <td className="px-3 py-2">{selectedRequest.ward}</td>
+                    </tr>
+                  )}
                   <tr>
-                    <td className="px-4 py-2 text-sm text-gray-600">State</td>
-                    <td className="px-4 py-2 text-sm">{selectedRequest.state}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-4 py-2 text-sm text-gray-600">LGA</td>
-                    <td className="px-4 py-2 text-sm">{selectedRequest.lga}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-4 py-2 text-sm text-gray-600">Ward</td>
-                    <td className="px-4 py-2 text-sm">{selectedRequest.ward || '-'}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-4 py-2 text-sm text-gray-600">Address</td>
-                    <td className="px-4 py-2 text-sm">{selectedRequest.address || '-'}</td>
+                    <td className="px-3 py-2 text-gray-500 bg-gray-50 font-medium">Address</td>
+                    <td className="px-3 py-2">{selectedRequest.address || '-'}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
-            {/* Status & Timestamps */}
-            <div className="flex items-center gap-4 text-sm text-gray-500">
-              <div className="flex items-center gap-1">
-                <IconClock className="w-4 h-4" />
-                Submitted: {formatDateTime(selectedRequest.created_at, '-')}
-              </div>
-              <Badge variant={getStatusVariant(selectedRequest.status)}>
-                {selectedRequest.status.charAt(0).toUpperCase() + selectedRequest.status.slice(1)}
-              </Badge>
-            </div>
-
             {/* Approved outcome */}
             {selectedRequest.status === 'approved' && (
-              <Card className="border-green-200 bg-green-50">
-                <CardContent className="p-4 text-sm text-green-800">
-                  <p>Added to the central registry (master school #{selectedRequest.created_master_school_id}) and linked to {selectedRequest.institution_name} (institution school #{selectedRequest.created_institution_school_id}).</p>
-                </CardContent>
-              </Card>
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                <p className="text-green-800 font-medium text-xs">
+                  Added to the central registry (master school #{selectedRequest.created_master_school_id}) and linked to {selectedRequest.institution_name} (institution school #{selectedRequest.created_institution_school_id}).
+                </p>
+              </div>
             )}
 
             {/* Rejection Reason */}
             {selectedRequest.status === 'rejected' && selectedRequest.rejection_reason && (
-              <Card className="border-red-200 bg-red-50">
-                <CardContent className="p-4">
-                  <p className="text-sm font-medium text-red-800">Rejection Reason:</p>
-                  <p className="text-sm text-red-700">{selectedRequest.rejection_reason}</p>
-                </CardContent>
-              </Card>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-red-800 font-medium text-xs mb-1">Rejection Reason:</p>
+                <p className="text-red-700 text-sm">{selectedRequest.rejection_reason}</p>
+              </div>
             )}
+
+            {/* Meta */}
+            <div className="flex items-center gap-4 text-xs text-gray-400">
+              <span>Submitted: {formatDateTime(selectedRequest.created_at, '-')}</span>
+              <Badge variant={getStatusVariant(selectedRequest.status)}>
+                {selectedRequest.status.charAt(0).toUpperCase() + selectedRequest.status.slice(1)}
+              </Badge>
+            </div>
           </div>
         )}
       </Dialog>

@@ -116,7 +116,16 @@ const getAll = async (req, res, next) => {
         ms.created_at, ms.updated_at,
         ms.created_by_institution_id, ms.merged_into_id,
         i.name as created_by_institution_name,
-        (SELECT COUNT(*) FROM institution_schools WHERE master_school_id = ms.id) as linked_institutions_count
+        (SELECT COUNT(*) FROM institution_schools WHERE master_school_id = ms.id) as linked_institutions_count,
+        (
+          SELECT COUNT(DISTINCT sa.student_id)
+          FROM institution_schools isc
+          INNER JOIN student_acceptances sa ON isc.id = sa.institution_school_id
+          INNER JOIN academic_sessions sess ON sa.session_id = sess.id AND sess.institution_id = isc.institution_id
+          WHERE isc.master_school_id = ms.id
+            AND sess.is_current = 1
+            AND sa.status = 'approved'
+        ) AS current_session_students
       FROM master_schools ms
       LEFT JOIN institutions i ON ms.created_by_institution_id = i.id
       WHERE 1=1

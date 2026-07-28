@@ -327,19 +327,23 @@ const getById = async (req, res, next) => {
 const approve = async (req, res, next) => {
   try {
     const { id } = req.params;
-
-    const request = await queryOne(`SELECT * FROM school_registration_requests WHERE id = ?`, [parseInt(id)]);
-    if (!request) {
-      throw new NotFoundError('School registration request not found');
-    }
-    if (request.status !== 'pending') {
-      throw new ValidationError(`Request is already ${request.status}`);
-    }
-
-    let masterSchoolId;
-    let institutionSchoolId;
+    let requestId;
 
     await transaction(async (conn) => {
+      // Lock the row for the duration of the transaction so concurrent
+      // approve/reject calls for the same request can't both pass the
+      // pending check before either one commits.
+      const [rows] = await conn.execute(
+        `SELECT * FROM school_registration_requests WHERE id = ? FOR UPDATE`,
+        [parseInt(id)]
+      );
+      const request = rows[0];
+      if (!request) throw new NotFoundError('School registration request not found');
+      if (request.status !== 'pending') {
+        throw new ValidationError(`Request is already ${request.status}`);
+      }
+
+      let masterSchoolId;
       const [existingMaster] = await conn.execute(
         `SELECT id FROM master_schools WHERE name = ? AND UPPER(state) = ? AND UPPER(lga) = ? AND status = 'active'`,
         [request.name, request.state, request.lga]
@@ -366,6 +370,7 @@ const approve = async (req, res, next) => {
         masterSchoolId = insertResult.insertId;
       }
 
+      let institutionSchoolId;
       const [existingLink] = await conn.execute(
         `SELECT id FROM institution_schools WHERE institution_id = ? AND master_school_id = ?`,
         [request.institution_id, masterSchoolId]
@@ -381,16 +386,23 @@ const approve = async (req, res, next) => {
         institutionSchoolId = linkResult.insertId;
       }
 
-      await conn.execute(
+      // Guard repeated in case the row lock semantics ever change — keeps
+      // this update from silently re-approving.
+      const [updateResult] = await conn.execute(
         `UPDATE school_registration_requests
          SET status = 'approved', reviewed_by = ?, reviewed_at = NOW(),
              created_master_school_id = ?, created_institution_school_id = ?
-         WHERE id = ?`,
+         WHERE id = ? AND status = 'pending'`,
         [req.user.id, masterSchoolId, institutionSchoolId, request.id]
       );
+      if (updateResult.affectedRows === 0) {
+        throw new ValidationError(`Request is already ${request.status}`);
+      }
+
+      requestId = request.id;
     });
 
-    const updated = await queryOne(`SELECT * FROM school_registration_requests WHERE id = ?`, [request.id]);
+    const updated = await queryOne(`SELECT * FROM school_registration_requests WHERE id = ?`, [requestId]);
 
     res.json({ success: true, data: updated });
   } catch (error) {
@@ -405,23 +417,33 @@ const reject = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { rejection_reason } = req.body;
+    let requestId;
 
-    const request = await queryOne(`SELECT * FROM school_registration_requests WHERE id = ?`, [parseInt(id)]);
-    if (!request) {
-      throw new NotFoundError('School registration request not found');
-    }
-    if (request.status !== 'pending') {
-      throw new ValidationError(`Request is already ${request.status}`);
-    }
+    await transaction(async (conn) => {
+      const [rows] = await conn.execute(
+        `SELECT id, status FROM school_registration_requests WHERE id = ? FOR UPDATE`,
+        [parseInt(id)]
+      );
+      const request = rows[0];
+      if (!request) throw new NotFoundError('School registration request not found');
+      if (request.status !== 'pending') {
+        throw new ValidationError(`Request is already ${request.status}`);
+      }
 
-    await query(
-      `UPDATE school_registration_requests
-       SET status = 'rejected', rejection_reason = ?, reviewed_by = ?, reviewed_at = NOW()
-       WHERE id = ?`,
-      [rejection_reason, req.user.id, request.id]
-    );
+      const [updateResult] = await conn.execute(
+        `UPDATE school_registration_requests
+         SET status = 'rejected', rejection_reason = ?, reviewed_by = ?, reviewed_at = NOW()
+         WHERE id = ? AND status = 'pending'`,
+        [rejection_reason, req.user.id, request.id]
+      );
+      if (updateResult.affectedRows === 0) {
+        throw new ValidationError(`Request is already ${request.status}`);
+      }
 
-    const updated = await queryOne(`SELECT * FROM school_registration_requests WHERE id = ?`, [request.id]);
+      requestId = request.id;
+    });
+
+    const updated = await queryOne(`SELECT * FROM school_registration_requests WHERE id = ?`, [requestId]);
 
     res.json({ success: true, data: updated });
   } catch (error) {
