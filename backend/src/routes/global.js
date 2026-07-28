@@ -297,7 +297,7 @@ router.post(
       try {
         await emailQueueService.enqueue(institution_id || null, {
           to: email.toLowerCase(),
-          template: 'staffWelcome',
+          template: 'userCredentials',
           data: {
             name,
             email: email.toLowerCase(),
@@ -468,13 +468,14 @@ router.post(
       try {
         await emailQueueService.enqueue(user.institution_id, {
           to: user.email,
-          template: 'passwordReset',
+          template: 'passwordResetByAdmin',
           data: {
             name: user.name,
             email: user.email,
             password: plainPassword,
             role: getRoleDisplayName(user.role),
             loginUrl: process.env.FRONTEND_URL || 'https://sitpms.com',
+            resetBy: req.user.name,
           },
         }, { priority: 'high' });
       } catch (emailErr) {
