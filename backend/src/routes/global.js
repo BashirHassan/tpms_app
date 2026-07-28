@@ -24,7 +24,7 @@ const { authenticate } = require('../middleware/auth');
 const { isSuperAdmin } = require('../middleware/rbac');
 const emailQueueService = require('../services/emailQueueService');
 const paystackService = require('../services/paystackService');
-const { encryptionService } = require('../services');
+const { encryptionService, emailService } = require('../services');
 const masterSchoolController = require('../controllers/masterSchoolController');
 const schoolRegistrationRequestController = require('../controllers/schoolRegistrationRequestController');
 const validate = require('../middleware/validate');
@@ -293,6 +293,11 @@ router.post(
         ]
       );
 
+      // Login URL: admin subdomain for super admins, tenant subdomain for institution users
+      const loginUrl = role === 'super_admin'
+        ? emailService.getSuperAdminFrontendUrl() + '/login'
+        : await emailService.getFrontendUrl(parseInt(institution_id)) + '/login';
+
       // Send welcome email (queue it)
       try {
         await emailQueueService.enqueue(institution_id || null, {
@@ -303,7 +308,7 @@ router.post(
             email: email.toLowerCase(),
             password: plainPassword,
             role: getRoleDisplayName(role),
-            loginUrl: process.env.FRONTEND_URL || 'https://sitpms.com',
+            loginUrl,
           },
         }, { priority: 'high' });
       } catch (emailErr) {
@@ -464,6 +469,11 @@ router.post(
 
       await query('UPDATE users SET password_hash = ?, updated_at = NOW() WHERE id = ?', [hashedPassword, parseInt(id)]);
 
+      // Login URL: admin subdomain for super admins, tenant subdomain for institution users
+      const loginUrl = user.role === 'super_admin'
+        ? emailService.getSuperAdminFrontendUrl() + '/login'
+        : await emailService.getFrontendUrl(user.institution_id) + '/login';
+
       // Send password reset email
       try {
         await emailQueueService.enqueue(user.institution_id, {
@@ -474,7 +484,7 @@ router.post(
             email: user.email,
             password: plainPassword,
             role: getRoleDisplayName(user.role),
-            loginUrl: process.env.FRONTEND_URL || 'https://sitpms.com',
+            loginUrl,
             resetBy: req.user.name,
           },
         }, { priority: 'high' });
@@ -488,6 +498,7 @@ router.post(
         data: {
           name: user.name,
           email: user.email,
+          role: user.role,
           password: plainPassword,
         },
       });

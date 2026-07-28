@@ -373,6 +373,7 @@ function GlobalUsersPage() {
         ...resetData,
         name: resetData.name || userToReset.name,
         email: resetData.email || userToReset.email,
+        role: resetData.role || userToReset.role,
       });
       setShowResetConfirm(false);
       setUserToReset(null);
