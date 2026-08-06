@@ -258,15 +258,16 @@ const exportToExcel = async (data, columns, filename = 'export') => {
   const XLSX = await import('xlsx');
 
   // Get visible columns for export
-  const exportColumns = columns.filter((col) => col.exportable !== false && col.accessor !== 'actions');
-  
+  const exportColumns = columns.filter((col) => col.exportable !== false && (col.accessor || col.key) !== 'actions');
+
   // Build worksheet data
-  const headers = exportColumns.map((col) => col.header || col.accessor);
-  
+  const headers = exportColumns.map((col) => col.header || col.accessor || col.key);
+
   const rows = data.map((row) => {
     return exportColumns.map((col) => {
-      let value = col.accessor ? getNestedValue(row, col.accessor) : '';
-      
+      const field = col.accessor || col.key;
+      let value = field ? getNestedValue(row, field) : '';
+
       // Use export formatter if provided, otherwise use regular formatter
       if (col.exportFormatter) {
         value = col.exportFormatter(value, row);
@@ -310,15 +311,16 @@ const exportToPdf = async (data, columns, filename = 'export', options = {}) => 
   ]);
 
   // Get visible columns for export
-  const exportColumns = columns.filter((col) => col.exportable !== false && col.accessor !== 'actions');
-  
+  const exportColumns = columns.filter((col) => col.exportable !== false && (col.accessor || col.key) !== 'actions');
+
   // Build table data
-  const headers = exportColumns.map((col) => col.header || col.accessor);
-  
+  const headers = exportColumns.map((col) => col.header || col.accessor || col.key);
+
   const rows = data.map((row) => {
     return exportColumns.map((col) => {
-      let value = col.accessor ? getNestedValue(row, col.accessor) : '';
-      
+      const field = col.accessor || col.key;
+      let value = field ? getNestedValue(row, field) : '';
+
       // Use export formatter if provided
       if (col.exportFormatter) {
         value = col.exportFormatter(value, row);
