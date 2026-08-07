@@ -7,7 +7,7 @@
  * - POST /api/:institutionId/students (create student)
  * - PUT /api/:institutionId/students/:id (update student)
  * - DELETE /api/:institutionId/students/:id (delete student)
- * - POST /api/:institutionId/students/import (bulk import)
+ * - POST /api/:institutionId/students/upload (bulk import from Excel)
  */
 
 const request = require('supertest');
@@ -236,27 +236,27 @@ describe('DELETE /api/:institutionId/students/:id', () => {
 // BULK IMPORT
 // ============================================================================
 
-describe('POST /api/:institutionId/students/import', () => {
+describe('POST /api/:institutionId/students/upload', () => {
   const institutionId = 1;
-  
+
   it('should reject request without token', async () => {
     const response = await request(app)
-      .post(`/api/${institutionId}/students/import`);
-    
+      .post(`/api/${institutionId}/students/upload`);
+
     expect(response.status).toBe(401);
   });
-  
+
   it('should reject request without file', async () => {
-    const token = generateTestToken({ 
-      userId: 1, 
-      institutionId: 1, 
-      role: 'head_of_teaching_practice' 
+    const token = generateTestToken({
+      userId: 1,
+      institutionId: 1,
+      role: 'head_of_teaching_practice'
     });
-    
+
     const response = await request(app)
-      .post(`/api/${institutionId}/students/import`)
+      .post(`/api/${institutionId}/students/upload`)
       .set('Authorization', `Bearer ${token}`);
-    
+
     expect([400, 401]).toContain(response.status);
   });
 });

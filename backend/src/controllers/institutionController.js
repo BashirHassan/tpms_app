@@ -82,22 +82,6 @@ const schemas = {
     }),
   }),
 
-  updateSettings: z.object({
-    body: z.object({
-      default_allowance_rate: z.coerce.number().min(0).optional(),
-      base_distance_km: z.coerce.number().min(0).optional(),
-      max_distance_km: z.coerce.number().min(0).optional(),
-      scoring_type: z.enum(['percentage', 'grades', 'points']).optional(),
-      result_decimal_places: z.coerce.number().int().min(0).max(4).optional(),
-      enable_student_portal: z.boolean().optional(),
-      enable_supervisor_mobile: z.boolean().optional(),
-      enable_auto_posting: z.boolean().optional(),
-      auto_posting_algorithm: z.enum(['nearest', 'balanced', 'random']).optional(),
-      max_students_per_school: z.coerce.number().int().min(1).optional(),
-      max_schools_per_supervisor: z.coerce.number().int().min(1).optional(),
-    }),
-  }),
-
   updateSmtp: z.object({
     body: z.object({
       smtp_host: z.string().min(1, 'SMTP host is required'),
@@ -463,104 +447,6 @@ const remove = async (req, res, next) => {
     res.json({
       success: true,
       message: `Institution "${existing.name}" deleted successfully`,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Get institution settings
- * GET /api/:institutionId/settings
- */
-const getSettings = async (req, res, next) => {
-  try {
-    const { institutionId } = req.params;
-
-    const [institution] = await query(
-      `SELECT id, name, code,
-              default_allowance_rate, base_distance_km, max_distance_km,
-              scoring_type, result_decimal_places,
-              enable_student_portal, enable_supervisor_mobile, enable_auto_posting,
-              auto_posting_algorithm, max_students_per_school, max_schools_per_supervisor
-       FROM institutions
-       WHERE id = ?`,
-      [parseInt(institutionId)]
-    );
-
-    if (!institution) {
-      throw new NotFoundError('Institution not found');
-    }
-
-    // Get feature toggles for this institution
-    const features = await query(
-      `SELECT ft.feature_key, COALESCE(ift.is_enabled, ft.default_enabled, 0) as is_enabled
-       FROM feature_toggles ft
-       LEFT JOIN institution_feature_toggles ift 
-         ON ft.id = ift.feature_toggle_id AND ift.institution_id = ?`,
-      [parseInt(institutionId)]
-    );
-
-    const featureMap = {};
-    for (const f of features) {
-      featureMap[f.feature_key] = f.is_enabled === 1;
-    }
-
-    res.json({
-      success: true,
-      data: {
-        ...institution,
-        features: featureMap,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Update institution settings
- * PUT /api/:institutionId/settings
- */
-const updateSettings = async (req, res, next) => {
-  try {
-    const { institutionId } = req.params;
-    const validation = schemas.updateSettings.safeParse({ body: req.body });
-
-    if (!validation.success) {
-      throw new ValidationError('Validation failed', validation.error.flatten().fieldErrors);
-    }
-
-    const data = validation.data.body;
-
-    // Check institution exists
-    const [existing] = await query('SELECT id FROM institutions WHERE id = ?', [parseInt(institutionId)]);
-    if (!existing) {
-      throw new NotFoundError('Institution not found');
-    }
-
-    // Build update query
-    const updates = [];
-    const params = [];
-
-    for (const [key, value] of Object.entries(data)) {
-      updates.push(`${key} = ?`);
-      params.push(value);
-    }
-
-    if (updates.length > 0) {
-      updates.push('updated_at = NOW()');
-      params.push(parseInt(institutionId));
-
-      await query(
-        `UPDATE institutions SET ${updates.join(', ')} WHERE id = ?`,
-        params
-      );
-    }
-
-    res.json({
-      success: true,
-      message: 'Settings updated successfully',
     });
   } catch (error) {
     next(error);
@@ -1231,8 +1117,6 @@ module.exports = {
   remove,
   provision,
   uploadLogo,
-  getSettings,
-  updateSettings,
   getSmtpSettings,
   updateSmtpSettings,
   testSmtpConnection,

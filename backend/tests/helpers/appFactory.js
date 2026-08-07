@@ -23,7 +23,11 @@ function createTestApp() {
     req.requestId = `test-${Date.now()}`;
     next();
   });
-  
+
+  // Resolve subdomain (production parity - see src/server.js)
+  const { resolveSubdomain } = require('../../src/middleware/subdomainResolver');
+  app.use(resolveSubdomain);
+
   // Load routes
   const routes = require('../../src/routes');
   app.use('/api', routes);

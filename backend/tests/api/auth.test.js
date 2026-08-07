@@ -434,13 +434,16 @@ describe('POST /api/auth/refresh-token', () => {
 
 describe('POST /api/auth/verify-token', () => {
   it('should accept valid verify request', async () => {
+    // verify-token reads the JWT from the Authorization header, not the body
+    const token = generateTestToken({ userId: 1, institutionId: 1, role: 'head_of_teaching_practice' });
     const response = await request(app)
       .post('/api/auth/verify-token')
-      .send({ token: 'some-token' });
-    
-    // This endpoint returns success by default
+      .set('Authorization', `Bearer ${token}`)
+      .send();
+
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
+    expect(response.body.valid).toBe(true);
   });
 });
 

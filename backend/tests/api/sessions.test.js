@@ -7,7 +7,7 @@
  * - POST /api/:institutionId/sessions (create session)
  * - PUT /api/:institutionId/sessions/:id (update session)
  * - DELETE /api/:institutionId/sessions/:id (delete session)
- * - POST /api/:institutionId/sessions/:id/activate (set as current)
+ * - POST /api/:institutionId/sessions/:id/set-current (set as current)
  */
 
 const request = require('supertest');
@@ -147,13 +147,13 @@ describe('DELETE /api/:institutionId/sessions/:id', () => {
 // ACTIVATE SESSION
 // ============================================================================
 
-describe('POST /api/:institutionId/sessions/:id/activate', () => {
+describe('POST /api/:institutionId/sessions/:id/set-current', () => {
   const institutionId = 1;
-  
+
   it('should reject request without token', async () => {
     const response = await request(app)
-      .post(`/api/${institutionId}/sessions/1/activate`);
-    
+      .post(`/api/${institutionId}/sessions/1/set-current`);
+
     expect(response.status).toBe(401);
   });
 });

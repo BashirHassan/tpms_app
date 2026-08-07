@@ -17,9 +17,11 @@ describe('DigitalTP System Tests', () => {
   beforeAll(async () => {
     app = createTestApp();
     
-    // Get staff token
+    // Get staff token (institution 1 / "demo" subdomain - required since staff
+    // logins are subdomain-scoped, see src/middleware/subdomainResolver.js)
     const staffLogin = await request(app)
       .post('/api/auth/login')
+      .set('X-Subdomain', 'demo')
       .send({
         email: 'jest-test@sitpms.test',
         password: 'TestPassword123!'
@@ -58,6 +60,7 @@ describe('DigitalTP System Tests', () => {
     test('POST /api/auth/login - should login with valid credentials', async () => {
       const response = await request(app)
         .post('/api/auth/login')
+        .set('X-Subdomain', 'demo')
         .send({
           email: 'jest-test@sitpms.test',
           password: 'TestPassword123!'
@@ -72,6 +75,7 @@ describe('DigitalTP System Tests', () => {
     test('POST /api/auth/login - should fail with invalid credentials', async () => {
       const response = await request(app)
         .post('/api/auth/login')
+        .set('X-Subdomain', 'demo')
         .send({
           email: 'jest-test@sitpms.test',
           password: 'wrongpassword'
@@ -112,10 +116,9 @@ describe('DigitalTP System Tests', () => {
       expect(response.body.message).toContain('DigitalTP');
     });
 
-    test('GET /api/public/institution/lookup - should lookup institution by subdomain', async () => {
+    test('GET /api/public/institution/:subdomain - should lookup institution by subdomain', async () => {
       const response = await request(app)
-        .get('/api/public/institution/lookup')
-        .set('X-Subdomain', 'demo');
+        .get('/api/public/institution/demo');
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -167,13 +170,13 @@ describe('DigitalTP System Tests', () => {
       expect(response.body.success).toBe(true);
     });
 
-    test('GET /:institutionId/sessions/active - should get active session', async () => {
+    test('GET /:institutionId/sessions/current - should get current session', async () => {
       const response = await request(app)
-        .get(`/api/${institutionId}/sessions/active`)
+        .get(`/api/${institutionId}/sessions/current`)
         .set('Authorization', `Bearer ${staffToken}`);
 
-      // May be 200 with data or 404 if no active session
-      expect([200, 404]).toContain(response.status);
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
     });
   });
 
@@ -224,9 +227,9 @@ describe('DigitalTP System Tests', () => {
       expect(response.body.success).toBe(true);
     });
 
-    test('GET /:institutionId/schools/summary - should get schools summary', async () => {
+    test('GET /:institutionId/schools/with-capacity - should get schools with capacity', async () => {
       const response = await request(app)
-        .get(`/api/${institutionId}/schools/summary`)
+        .get(`/api/${institutionId}/schools/with-capacity`)
         .set('Authorization', `Bearer ${staffToken}`);
 
       expect(response.status).toBe(200);
@@ -299,12 +302,21 @@ describe('DigitalTP System Tests', () => {
       expect(response.body.success).toBe(true);
     });
 
-    test('GET /:institutionId/postings/overview - should get postings overview', async () => {
-      const response = await request(app)
-        .get(`/api/${institutionId}/postings/overview`)
+    test('GET /:institutionId/postings/statistics - should get posting statistics', async () => {
+      const sessionResponse = await request(app)
+        .get(`/api/${institutionId}/sessions/current`)
         .set('Authorization', `Bearer ${staffToken}`);
 
-      expect([200, 404]).toContain(response.status);
+      const sessionId = sessionResponse.body.data?.id;
+      if (!sessionId) return;
+
+      const response = await request(app)
+        .get(`/api/${institutionId}/postings/statistics`)
+        .query({ session_id: sessionId })
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
     });
   });
 
@@ -340,9 +352,17 @@ describe('DigitalTP System Tests', () => {
   // ALLOWANCES TESTS
   // ============================================================================
   describe('Allowances', () => {
-    test('GET /:institutionId/allowances - should get allowances list', async () => {
+    test('GET /:institutionId/allowances/by-supervisor - should get allowances grouped by supervisor', async () => {
+      const sessionsResponse = await request(app)
+        .get(`/api/${institutionId}/sessions`)
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      const sessions = sessionsResponse.body.data || [];
+      if (sessions.length === 0) return;
+
       const response = await request(app)
-        .get(`/api/${institutionId}/allowances`)
+        .get(`/api/${institutionId}/allowances/by-supervisor`)
+        .query({ session_id: sessions[0].id })
         .set('Authorization', `Bearer ${staffToken}`);
 
       expect(response.status).toBe(200);
@@ -382,9 +402,9 @@ describe('DigitalTP System Tests', () => {
   // SETTINGS TESTS
   // ============================================================================
   describe('Settings', () => {
-    test('GET /:institutionId/settings - should get institution settings', async () => {
+    test('GET /:institutionId/settings/smtp - should get SMTP settings', async () => {
       const response = await request(app)
-        .get(`/api/${institutionId}/settings`)
+        .get(`/api/${institutionId}/settings/smtp`)
         .set('Authorization', `Bearer ${staffToken}`);
 
       expect(response.status).toBe(200);

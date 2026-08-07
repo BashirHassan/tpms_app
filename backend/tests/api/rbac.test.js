@@ -129,7 +129,7 @@ describe('Student Access Restrictions', () => {
 
     it('should deny student access to settings endpoints', async () => {
       const response = await request(app)
-        .get('/api/1/settings')
+        .get('/api/1/settings/smtp')
         .set('Authorization', `Bearer ${studentToken}`);
       
       expect([401, 403]).toContain(response.status);
@@ -209,7 +209,7 @@ describe('Field Monitor Access Restrictions', () => {
 
   it('should deny field monitor from accessing settings', async () => {
     const response = await request(app)
-      .get('/api/1/settings')
+      .get('/api/1/settings/smtp')
       .set('Authorization', `Bearer ${fieldMonitorToken}`);
     
     expect([401, 403]).toContain(response.status);
@@ -263,7 +263,7 @@ describe('Supervisor Access Restrictions', () => {
 
   it('should deny supervisor from managing settings', async () => {
     const response = await request(app)
-      .put('/api/1/settings')
+      .put('/api/1/settings/smtp')
       .set('Authorization', `Bearer ${supervisorToken}`)
       .send({ setting_key: 'value' });
     
@@ -289,8 +289,9 @@ describe('Head of Teaching Practice Access', () => {
         session_id: 1
       });
     
-    // 201 if created, 400/401/404 if validation/auth/not found issues
-    expect([201, 400, 401, 404, 409]).toContain(response.status);
+    // 201 if created, 200 if already enrolled (idempotent INSERT IGNORE - see
+    // studentController.create), 400/401/404 if validation/auth/not found issues
+    expect([200, 201, 400, 401, 404, 409]).toContain(response.status);
   });
 
   it('should allow head of TP to update students', async () => {
@@ -305,11 +306,11 @@ describe('Head of Teaching Practice Access', () => {
 
   it('should allow head of TP to manage settings', async () => {
     const response = await request(app)
-      .get('/api/1/settings')
+      .get('/api/1/settings/smtp')
       .set('Authorization', `Bearer ${headOfTPToken}`);
-    
-    // 200 if OK, 401 if user not in DB, 404 if not found, 500 if DB schema issue
-    expect([200, 401, 404, 500]).toContain(response.status);
+
+    // 200 if OK, 401 if user not in DB, 404 if not found
+    expect([200, 401, 404]).toContain(response.status);
   });
 
   it('should allow head of TP to manage postings', async () => {
@@ -443,7 +444,7 @@ describe('Role Hierarchy', () => {
       '/api/1/schools',
       '/api/1/postings',
       '/api/1/monitoring',
-      '/api/1/settings',
+      '/api/1/settings/smtp',
     ];
     
     for (const endpoint of endpoints) {

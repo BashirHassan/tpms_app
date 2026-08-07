@@ -66,7 +66,7 @@ router.get(
   '/:institutionId/students/export',
   authenticate,
   requireInstitutionAccess(),
-  staffOnly,
+  isHeadOfTP,
   requireFeature('student_management'),
   studentController.exportStudents
 );
@@ -96,7 +96,7 @@ router.post(
   '/:institutionId/students',
   authenticate,
   requireInstitutionAccess(),
-  staffOnly,
+  isHeadOfTP,
   requireFeature('student_management'),
   validate(studentController.schemas.create),
   studentController.create
@@ -107,7 +107,7 @@ router.put(
   '/:institutionId/students/:id',
   authenticate,
   requireInstitutionAccess(),
-  staffOnly,
+  isHeadOfTP,
   requireFeature('student_management'),
   validate(studentController.schemas.update),
   studentController.update
@@ -118,7 +118,7 @@ router.delete(
   '/:institutionId/students/:id',
   authenticate,
   requireInstitutionAccess(),
-  staffOnly,
+  isHeadOfTP,
   requireFeature('student_management'),
   studentController.remove
 );
@@ -128,7 +128,7 @@ router.post(
   '/:institutionId/students/:id/reset-pin',
   authenticate,
   requireInstitutionAccess(),
-  staffOnly,
+  isHeadOfTP,
   requireFeature('student_management'),
   studentController.resetPin
 );
@@ -149,7 +149,7 @@ router.post(
   '/:institutionId/students/upload',
   authenticate,
   requireInstitutionAccess(),
-  staffOnly,
+  isHeadOfTP,
   requireFeature('student_management'),
   uploadRateLimiter,
   upload.single('file'),

@@ -141,11 +141,11 @@ describe('Cross-Institution Access Denial', () => {
 
     it('should deny cross-institution access to settings', async () => {
       const token = institution1User();
-      
+
       const response = await request(app)
-        .get('/api/2/settings')
+        .get('/api/2/settings/smtp')
         .set('Authorization', `Bearer ${token}`);
-      
+
       expect([401, 403]).toContain(response.status);
       expect(response.body.success).toBe(false);
     });
@@ -259,13 +259,13 @@ describe('Super Admin Cross-Institution Access', () => {
 
   it('should allow super admin to access any institution settings', async () => {
     const token = superAdminUser();
-    
+
     const response = await request(app)
-      .get('/api/1/settings')
+      .get('/api/1/settings/smtp')
       .set('Authorization', `Bearer ${token}`);
-    
-    // 200 if OK, 401 if user not in DB, 404 if not found, 500 if DB schema issue
-    expect([200, 401, 404, 500]).toContain(response.status);
+
+    // 200 if OK, 401 if user not in DB, 404 if not found
+    expect([200, 401, 404]).toContain(response.status);
   });
 
   it('should allow super admin to create resources in any institution', async () => {
@@ -281,8 +281,9 @@ describe('Super Admin Cross-Institution Access', () => {
         session_id: 1,
       });
     
-    // 201 created, 400/404 validation error, or 401 (super admin not in DB) - but not 403
-    expect([201, 400, 401, 404, 409]).toContain(response.status);
+    // 201 created, 200 if already enrolled (idempotent INSERT IGNORE - see studentController.create),
+    // 400/404 validation error, or 401 (super admin not in DB) - but not 403
+    expect([200, 201, 400, 401, 404, 409]).toContain(response.status);
   });
 });
 
@@ -395,11 +396,11 @@ describe('Error Message Security', () => {
 
   it('should not reveal other institution details', async () => {
     const token = institution1User();
-    
+
     const response = await request(app)
-      .get('/api/2/settings')
+      .get('/api/2/settings/smtp')
       .set('Authorization', `Bearer ${token}`);
-    
+
     expect([401, 403]).toContain(response.status);
     // Should not include any institution-specific information
     expect(JSON.stringify(response.body)).not.toMatch(/institution_name|subdomain/i);
@@ -422,7 +423,7 @@ describe('Cross-Institution Denial - All Endpoints', () => {
     { method: 'get', path: '/api/2/sessions' },
     { method: 'get', path: '/api/2/academic/faculties' },
     { method: 'get', path: '/api/2/academic/programs' },
-    { method: 'get', path: '/api/2/settings' },
+    { method: 'get', path: '/api/2/settings/smtp' },
     { method: 'get', path: '/api/2/monitoring' },
     { method: 'get', path: '/api/2/groups' },
     { method: 'get', path: '/api/2/results' },

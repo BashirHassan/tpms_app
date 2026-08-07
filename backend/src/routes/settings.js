@@ -11,8 +11,6 @@ const { authenticate } = require('../middleware/auth');
 const { requireInstitutionAccess, isHeadOfTP } = require('../middleware/rbac');
 
 // Settings routes - restricted to HeadOfTP and SuperAdmin only
-router.get('/:institutionId/settings', authenticate, requireInstitutionAccess(), isHeadOfTP, institutionController.getSettings);
-router.put('/:institutionId/settings', authenticate, requireInstitutionAccess(), isHeadOfTP, institutionController.updateSettings);
 router.get('/:institutionId/settings/smtp', authenticate, requireInstitutionAccess(), isHeadOfTP, institutionController.getSmtpSettings);
 router.put('/:institutionId/settings/smtp', authenticate, requireInstitutionAccess(), isHeadOfTP, institutionController.updateSmtpSettings);
 router.post('/:institutionId/settings/smtp/test', authenticate, requireInstitutionAccess(), isHeadOfTP, institutionController.testSmtpConnection);
