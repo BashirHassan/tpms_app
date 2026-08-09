@@ -10,7 +10,7 @@ import { nigeriaGeoData } from '../../data/nigeria';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { formatCoordinate, formatFileSize } from '../../utils/helpers';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
@@ -39,7 +39,6 @@ import {
   IconCurrentLocation,
   IconMap2,
   IconGitMerge,
-  IconChartBar,
   IconBuilding,
   IconFileSpreadsheet,
   IconCircleCheck,
@@ -56,17 +55,11 @@ function MasterSchoolsPage() {
   const { hasRole } = useAuth();
   const { toast } = useToast();
 
-  // Ensure only super_admin can access
-  if (!hasRole(['super_admin'])) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <IconShieldOff className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-          <p className="text-gray-500">This page is only accessible to Super Admins</p>
-        </div>
-      </div>
-    );
-  }
+  // Only super_admin may use this page. The guard is rendered near the bottom of
+  // this component, after every hook has run — returning early from here would
+  // make all the hooks below conditional and crash with "rendered fewer hooks
+  // than expected" the moment the role changes (e.g. on logout).
+  const isSuperAdmin = hasRole(['super_admin']);
 
   // State
   const [loading, setLoading] = useState(true);
@@ -138,7 +131,7 @@ function MasterSchoolsPage() {
   const [parsedData, setParsedData] = useState([]);
 
   // Fetch data
-  const fetchSchools = async () => {
+  const fetchSchools = useCallback(async () => {
     setLoading(true);
     try {
       const params = {
@@ -159,22 +152,33 @@ function MasterSchoolsPage() {
         total: response.data.meta?.total || response.data.pagination?.total || 0,
       }));
     } catch (err) {
+      console.error('Failed to load schools:', err);
       toast.error('Failed to load schools');
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    pagination.page,
+    pagination.limit,
+    search,
+    typeFilter,
+    categoryFilter,
+    stateFilter,
+    lgaFilter,
+    verifiedFilter,
+    toast,
+  ]);
 
-  const fetchStates = () => {
+  const fetchStates = useCallback(() => {
     try {
       const data = nigeriaGeoData.getStates();
       setStates(data);
     } catch (err) {
       console.error('Failed to load states:', err);
     }
-  };
+  }, []);
 
-  const fetchLgas = (state) => {
+  const fetchLgas = useCallback((state) => {
     if (!state) {
       setLgas([]);
       return;
@@ -185,7 +189,7 @@ function MasterSchoolsPage() {
     } catch (err) {
       console.error('Failed to load LGAs:', err);
     }
-  };
+  }, []);
 
   // Fetch LGAs for form (dependent on selected state)
   const fetchFormLgas = (state) => {
@@ -241,14 +245,14 @@ function MasterSchoolsPage() {
     }
   };
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     try {
       const response = await masterSchoolsApi.getStats();
       setStats(response.data.data || response.data);
     } catch (err) {
       console.error('Failed to load stats:', err);
     }
-  };
+  }, []);
 
   const fetchDuplicates = async () => {
     setLoadingDuplicates(true);
@@ -592,17 +596,19 @@ function MasterSchoolsPage() {
   };
 
   useEffect(() => {
+    if (!isSuperAdmin) return;
     fetchStates();
     fetchStats();
-  }, []);
+  }, [isSuperAdmin, fetchStates, fetchStats]);
 
   useEffect(() => {
+    if (!isSuperAdmin) return;
     fetchSchools();
-  }, [pagination.page, pagination.limit, search, typeFilter, categoryFilter, stateFilter, lgaFilter, verifiedFilter]);
+  }, [isSuperAdmin, fetchSchools]);
 
   useEffect(() => {
     fetchLgas(stateFilter);
-  }, [stateFilter]);
+  }, [stateFilter, fetchLgas]);
 
   // Modal handlers
   const getDefaultFormData = () => ({
@@ -707,10 +713,10 @@ function MasterSchoolsPage() {
     }
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = useCallback((id) => {
     setSchoolToDelete(id);
     setShowDeleteConfirm(true);
-  };
+  }, []);
 
   const confirmDelete = async () => {
     if (!schoolToDelete) return;
@@ -730,10 +736,10 @@ function MasterSchoolsPage() {
     }
   };
 
-  const handleForceDelete = (school) => {
+  const handleForceDelete = useCallback((school) => {
     setSchoolToForceDelete(school);
     setShowForceDeleteConfirm(true);
-  };
+  }, []);
 
   const confirmForceDelete = async () => {
     if (!schoolToForceDelete) return;
@@ -754,7 +760,7 @@ function MasterSchoolsPage() {
     }
   };
 
-  const handleVerify = async (school) => {
+  const handleVerify = useCallback(async (school) => {
     try {
       await masterSchoolsApi.verify(school.id);
       toast.success(`${school.name} verified successfully`);
@@ -763,7 +769,7 @@ function MasterSchoolsPage() {
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to verify school');
     }
-  };
+  }, [fetchSchools, fetchStats, toast]);
 
   const handleMerge = async () => {
     if (!mergeTarget || selectedForMerge.length === 0) {
@@ -825,7 +831,7 @@ function MasterSchoolsPage() {
       }
     }, 350);
     return () => clearTimeout(timer);
-  }, [rowMergeSearch, showRowMergeDialog, mergeSourceRow]);
+  }, [rowMergeSearch, showRowMergeDialog, mergeSourceRow, toast]);
 
   const handleRowMerge = async () => {
     if (!mergeSourceRow || !rowMergeTarget) return;
@@ -998,7 +1004,19 @@ function MasterSchoolsPage() {
         </div>
       ),
     },
-  ], [handleViewSchool, openEditModal, openRowMergeDialog]);
+  ], [handleViewSchool, openEditModal, openRowMergeDialog, handleVerify, handleDelete, handleForceDelete]);
+
+  // Access guard — placed after every hook so hook order stays stable across renders
+  if (!isSuperAdmin) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <IconShieldOff className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+          <p className="text-gray-500">This page is only accessible to Super Admins</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 px-2 sm:px-0">
@@ -1689,7 +1707,7 @@ function MasterSchoolsPage() {
             )}
 
             <div className="bg-amber-50 rounded-lg p-3 text-sm text-amber-800">
-              <p><strong>Warning:</strong> This is permanent. All institution links from "{mergeSourceRow.name}" will move to the target school.</p>
+              <p><strong>Warning:</strong> This is permanent. All institution links from &quot;{mergeSourceRow.name}&quot; will move to the target school.</p>
             </div>
           </div>
         )}
@@ -1772,8 +1790,8 @@ function MasterSchoolsPage() {
                 <li>• <strong>lga</strong> (required) - Local Government Area</li>
                 <li>• <strong>ward</strong> (optional) - Ward name</li>
                 <li>• <strong>address</strong> (optional) - Full address</li>
-                <li>• <strong>principal_name</strong> (optional) - Principal's name</li>
-                <li>• <strong>principal_phone</strong> (optional) - Principal's phone</li>
+                <li>• <strong>principal_name</strong> (optional) - Principal&apos;s name</li>
+                <li>• <strong>principal_phone</strong> (optional) - Principal&apos;s phone</li>
                 <li>• <strong>latitude</strong> (optional) - GPS latitude</li>
                 <li>• <strong>longitude</strong> (optional) - GPS longitude</li>
               </ul>

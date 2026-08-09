@@ -3,7 +3,7 @@
  * Provides toast notifications throughout the app
  */
 
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { IconX, IconCircleCheck, IconAlertCircle, IconInfoCircle, IconAlertTriangle } from '@tabler/icons-react';
 import { Button } from '../components/ui';
@@ -57,15 +57,26 @@ export function ToastProvider({ children }) {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
   }, []);
 
-  const toast = {
-    success: (message, duration) => addToast(message, 'success', duration),
-    error: (message, duration) => addToast(message, 'error', duration),
-    warning: (message, duration) => addToast(message, 'warning', duration),
-    info: (message, duration) => addToast(message, 'info', duration),
-  };
+  // Memoized so consumers can safely list `toast` in hook dependency arrays —
+  // an object literal here would be a new reference on every provider render
+  // (i.e. every time a toast is shown or dismissed) and would retrigger effects.
+  const toast = useMemo(
+    () => ({
+      success: (message, duration) => addToast(message, 'success', duration),
+      error: (message, duration) => addToast(message, 'error', duration),
+      warning: (message, duration) => addToast(message, 'warning', duration),
+      info: (message, duration) => addToast(message, 'info', duration),
+    }),
+    [addToast]
+  );
+
+  const contextValue = useMemo(
+    () => ({ toast, addToast, removeToast }),
+    [toast, addToast, removeToast]
+  );
 
   return (
-    <ToastContext.Provider value={{ toast, addToast, removeToast }}>
+    <ToastContext.Provider value={contextValue}>
       {children}
 
       {/* Toast Container - z-[200] ensures it's above dialogs (z-[100]) */}

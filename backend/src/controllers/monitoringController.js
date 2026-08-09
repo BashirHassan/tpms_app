@@ -1006,17 +1006,28 @@ const getUnassignedSchools = async (req, res, next) => {
 
     const schools = await query(
       `SELECT isv.id, ms.name, ms.official_code as code, ms.ward, ms.lga, ms.state, ms.address, ms.principal_name,
-              r.name as route_name
+              r.name as route_name,
+              COALESCE(sc.student_count, 0) AS student_count
        FROM institution_schools isv
        JOIN master_schools ms ON isv.master_school_id = ms.id
        LEFT JOIN routes r ON isv.route_id = r.id
+       LEFT JOIN (
+         SELECT institution_school_id, COUNT(DISTINCT student_id) AS student_count
+         FROM student_acceptances
+         WHERE institution_id = ? AND session_id = ? AND status = 'approved'
+         GROUP BY institution_school_id
+       ) sc ON sc.institution_school_id = isv.id
        WHERE isv.institution_id = ? AND isv.status = 'active'
          AND isv.id NOT IN (
-           SELECT institution_school_id FROM monitor_assignments 
+           SELECT institution_school_id FROM monitor_assignments
            WHERE institution_id = ? AND session_id = ? AND monitoring_type = ? AND status = 'active'
          )
        ORDER BY ms.name`,
-      [parseInt(institutionId), parseInt(institutionId), parseInt(session_id), monitoring_type]
+      [
+        parseInt(institutionId), parseInt(session_id),
+        parseInt(institutionId),
+        parseInt(institutionId), parseInt(session_id), monitoring_type,
+      ]
     );
 
     res.json({

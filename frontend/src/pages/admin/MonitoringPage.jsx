@@ -57,6 +57,7 @@ function MonitoringPage() {
   const [selectedReport, setSelectedReport] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [schoolSearch, setSchoolSearch] = useState('');
+  const [schoolStateFilter, setSchoolStateFilter] = useState('');
   const [loadingSchools, setLoadingSchools] = useState(false);
 
   // Forms
@@ -102,9 +103,38 @@ function MonitoringPage() {
       // Clear selected schools when type changes since available schools changed
       setAssignForm(prev => ({ ...prev, school_ids: [] }));
       setSchoolSearch('');
+      setSchoolStateFilter('');
     } catch (err) {
       console.error('Failed to fetch unassigned schools:', err);
       toast.error('Failed to load available schools');
+    } finally {
+      setLoadingSchools(false);
+    }
+  }, [selectedSession, toast]);
+
+  // Open the assign dialog with a clean form. The Assign button lives in the page
+  // header so it can be pressed from any tab, but fetchData only loads monitors and
+  // unassigned schools on the assignments tab — load them here so the dialog is never
+  // empty.
+  const openAssignModal = useCallback(async () => {
+    const monitoringType = 'supervision_evaluation';
+    setAssignForm({ monitor_id: '', school_ids: [], monitoring_type: monitoringType });
+    setSchoolSearch('');
+    setSchoolStateFilter('');
+    setShowAssignModal(true);
+
+    if (!selectedSession) return;
+    setLoadingSchools(true);
+    try {
+      const [monitorsRes, schoolsRes] = await Promise.all([
+        monitoringApi.getAvailableMonitors(selectedSession),
+        monitoringApi.getUnassignedSchools(selectedSession, monitoringType),
+      ]);
+      setMonitors(monitorsRes.data.data || []);
+      setUnassignedSchools(schoolsRes.data.data || []);
+    } catch (err) {
+      console.error('Failed to load assignment options:', err);
+      toast.error('Failed to load available monitors and schools');
     } finally {
       setLoadingSchools(false);
     }
@@ -188,8 +218,8 @@ function MonitoringPage() {
       });
 
       const responseData = response.data.data || response.data || {};
-      const { successful, failed } = responseData;
-      
+      const { successful = [], failed = [] } = responseData;
+
       if (successful.length > 0) {
         toast.success(`Created ${successful.length} assignment(s)`);
       }
@@ -200,6 +230,7 @@ function MonitoringPage() {
       setShowAssignModal(false);
       setAssignForm({ monitor_id: '', school_ids: [], monitoring_type: 'supervision_evaluation' });
       setSchoolSearch('');
+      setSchoolStateFilter('');
       fetchData();
     } catch (err) {
       console.error('Create assignment error:', err);
@@ -228,7 +259,8 @@ function MonitoringPage() {
       setConfirmDialog({ isOpen: false, type: null, data: null, loading: false });
       fetchData();
     } catch (err) {
-      toast.error('Failed to delete assignment');
+      console.error('Delete assignment error:', err);
+      toast.error(err.response?.data?.message || 'Failed to delete assignment');
       setConfirmDialog(prev => ({ ...prev, loading: false }));
     }
   };
@@ -285,7 +317,8 @@ function MonitoringPage() {
       setSelectedReport(null);
       fetchData();
     } catch (err) {
-      toast.error('Failed to update report');
+      console.error('Update report error:', err);
+      toast.error(err.response?.data?.message || 'Failed to update report');
     } finally {
       setProcessing(false);
     }
@@ -310,7 +343,8 @@ function MonitoringPage() {
       setConfirmDialog({ isOpen: false, type: null, data: null, loading: false });
       fetchData();
     } catch (err) {
-      toast.error('Failed to delete report');
+      console.error('Delete report error:', err);
+      toast.error(err.response?.data?.message || 'Failed to delete report');
       setConfirmDialog(prev => ({ ...prev, loading: false }));
     }
   };
@@ -769,16 +803,25 @@ function MonitoringPage() {
         { id: 'reports', label: 'My Reports', icon: IconFileDescription },
       ];
 
+  // States that actually have unassigned schools (for the assignment modal filter)
+  const availableStates = useMemo(
+    () => [...new Set(unassignedSchools.map(s => s.state).filter(Boolean))].sort(),
+    [unassignedSchools]
+  );
+
   // Filter schools for assignment modal
   const filteredSchools = useMemo(() => {
-    const search = schoolSearch.toLowerCase();
-    return unassignedSchools.filter(s => 
-      s.name?.toLowerCase().includes(search) ||
-      s.code?.toLowerCase().includes(search) ||
-      s.route_name?.toLowerCase().includes(search) ||
-      s.lga?.toLowerCase().includes(search)
-    ).slice(0, 50);
-  }, [unassignedSchools, schoolSearch]);
+    const search = schoolSearch.trim().toLowerCase();
+    return unassignedSchools.filter(s => {
+      if (schoolStateFilter && s.state !== schoolStateFilter) return false;
+      if (!search) return true;
+      return [s.name, s.code, s.route_name, s.lga, s.state, s.ward]
+        .some(field => field?.toLowerCase().includes(search));
+    });
+  }, [unassignedSchools, schoolSearch, schoolStateFilter]);
+
+  // Only the first 50 matches are rendered; the full count drives the truncation hint
+  const visibleSchools = useMemo(() => filteredSchools.slice(0, 50), [filteredSchools]);
 
   return (
     <div className="space-y-4 sm:space-y-4">
@@ -804,7 +847,7 @@ function MonitoringPage() {
             ))}
           </Select>
           {isTPHead && (
-            <Button onClick={() => setShowAssignModal(true)} className="active:scale-95 flex-shrink-0">
+            <Button onClick={openAssignModal} className="active:scale-95 flex-shrink-0">
               <IconPlus className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">Assign</span>
             </Button>
@@ -1040,15 +1083,29 @@ function MonitoringPage() {
               </div>
             ) : (
               <>
-                <input
-                  type="text"
-                  className="w-full border rounded-lg px-3 py-2 mb-2"
-                  placeholder="Search schools..."
-                  value={schoolSearch}
-                  onChange={(e) => setSchoolSearch(e.target.value)}
-                />
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 mb-2">
+                  <input
+                    type="text"
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="Search by name, code, route, LGA or state..."
+                    value={schoolSearch}
+                    onChange={(e) => setSchoolSearch(e.target.value)}
+                  />
+                  {availableStates.length > 1 && (
+                    <Select
+                      className="sm:w-48"
+                      value={schoolStateFilter}
+                      onChange={(e) => setSchoolStateFilter(e.target.value)}
+                    >
+                      <option value="">All States ({availableStates.length})</option>
+                      {availableStates.map(state => (
+                        <option key={state} value={state}>{state}</option>
+                      ))}
+                    </Select>
+                  )}
+                </div>
                 <div className="border rounded-lg max-h-48 overflow-y-auto">
-                  {filteredSchools.map(school => (
+                  {visibleSchools.map(school => (
                     <label
                       key={school.id}
                       className={`flex items-start gap-3 p-3 border-b last:border-b-0 cursor-pointer hover:bg-gray-50 ${
@@ -1068,8 +1125,21 @@ function MonitoringPage() {
                           }
                         }}
                       />
-                      <div className="flex-1">
-                        <div className="font-medium text-gray-900">{school.name}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="font-medium text-gray-900">{school.name}</div>
+                          <span
+                            className={`inline-flex items-center gap-1 shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                              school.student_count > 0
+                                ? 'bg-primary-50 text-primary-700'
+                                : 'bg-gray-100 text-gray-400'
+                            }`}
+                            title="Students posted to this school this session"
+                          >
+                            <IconUsers className="w-3.5 h-3.5" />
+                            {school.student_count || 0}
+                          </span>
+                        </div>
                         <div className="text-xs text-gray-500">
                           {school.code && <span className="font-semibold text-primary-800">{school.code}</span>}
                           {school.code && ' • '}
@@ -1082,10 +1152,26 @@ function MonitoringPage() {
                       </div>
                     </label>
                   ))}
-                  {filteredSchools.length === 0 && schoolSearch && (
-                    <div className="p-4 text-center text-gray-500">No schools found matching your search</div>
+                  {filteredSchools.length === 0 && (schoolSearch || schoolStateFilter) && (
+                    <div className="p-4 text-center text-gray-500">
+                      <p>No schools match your filters</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="mt-1"
+                        onClick={() => { setSchoolSearch(''); setSchoolStateFilter(''); }}
+                      >
+                        Clear filters
+                      </Button>
+                    </div>
                   )}
                 </div>
+                {filteredSchools.length > visibleSchools.length && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Showing {visibleSchools.length} of {filteredSchools.length} matches — refine your search to narrow the list.
+                  </p>
+                )}
                 {assignForm.school_ids.length > 0 && (
                   <div className="flex items-center justify-between mt-2">
                     <span className="text-sm text-gray-500">

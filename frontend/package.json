@@ -4,7 +4,7 @@
   "description": "DigitalTP - Teaching Practice Management System Frontend",
   "type": "module",
   "scripts": {
-    "copy:tinymce": "cp -r node_modules/tinymce public/tinymce",
+    "copy:tinymce": "node -e \"require('fs').cpSync('node_modules/tinymce','public/tinymce',{recursive:true})\"",
     "dev": "npm run copy:tinymce && vite --port 5173",
     "build": "npm run copy:tinymce && vite build",
     "preview": "vite preview",
