@@ -673,9 +673,10 @@ const getAvailableSchools = async (req, res, next) => {
  * GET /:institutionId/postings/available-supervisors
  * Returns staff with their posting counts and allowance totals for the session
  * 
- * All staff roles are eligible EXCEPT super_admin (legacy: getEligibleSupervisors)
- * Includes: supervisor, head_of_teaching_practice, field_monitor
- * 
+ * All staff roles are eligible EXCEPT super_admin and field_monitor
+ * Includes: supervisor, head_of_teaching_practice
+ * Field monitors do monitoring visits, not supervision postings, so they are excluded
+ *
  * For deans: Only returns supervisors from the dean's faculty
  * Query params:
  *   - session_id: Required session ID
@@ -708,7 +709,7 @@ const getAvailableSupervisors = async (req, res, next) => {
     }
 
     // Get all staff with posting counts, allowances, and rank info
-    // All roles except super_admin and student are eligible for posting
+    // All roles except super_admin, student and field_monitor are eligible for posting
     // Only PRIMARY postings count toward the limit (secondary postings have zero payment)
     // This matches what MultipostingPage.jsx expects
     const supervisors = await query(
@@ -746,8 +747,8 @@ const getAvailableSupervisors = async (req, res, next) => {
            AND is_primary_posting = 1 AND merged_with_posting_id IS NULL
          GROUP BY supervisor_id
        ) posting_stats ON u.id = posting_stats.supervisor_id
-       WHERE u.institution_id = ? 
-             AND u.role NOT IN ('super_admin', 'student')
+       WHERE u.institution_id = ?
+             AND u.role NOT IN ('super_admin', 'student', 'field_monitor')
              AND u.status = 'active'
              AND (? - COALESCE(posting_stats.posting_count, 0)) > 0
              ${facultyFilter}
@@ -2280,7 +2281,7 @@ const getSchoolsWithSupervisors = async (req, res, next) => {
 /**
  * Validate a posting before creation
  * POST /:institutionId/postings/validate
- * Checks: duplicate posting (school+group+visit), supervisor limits, school group exists
+ * Checks: supervisor role, duplicate posting (school+group+visit), supervisor limits, school group exists
  * 
  * DUPLICATE LOGIC: A posting is considered duplicate if the same institution + session +
  * school + group + visit already has an active posting. Each group can have its own
@@ -2292,6 +2293,16 @@ const validatePosting = async (req, res, next) => {
     const { supervisor_id, school_id, group_number, visit_number, session_id } = req.body;
 
     const errors = [];
+
+    // Field monitors do monitoring visits, not supervision postings
+    const [supervisor] = await query(
+      'SELECT name, role FROM users WHERE id = ? AND institution_id = ?',
+      [parseInt(supervisor_id), parseInt(institutionId)]
+    );
+
+    if (supervisor?.role === 'field_monitor') {
+      errors.push(`${supervisor.name} is a field monitor and cannot be assigned postings`);
+    }
 
     // Check for duplicate posting - same school + group + visit is a duplicate
     // Each group can have its own supervisor for each visit
@@ -2581,6 +2592,15 @@ const createMultiPostings = async (req, res, next) => {
 
         if (!supervisor) {
           failed.push({ ...posting, error: 'Supervisor not found' });
+          continue;
+        }
+
+        // Field monitors do monitoring visits, not supervision postings
+        if (supervisor.role === 'field_monitor') {
+          failed.push({
+            ...posting,
+            error: `${supervisor.name} is a field monitor and cannot be posted`
+          });
           continue;
         }
 

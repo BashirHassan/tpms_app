@@ -136,6 +136,9 @@ function calculateAllowances(supervisor, school, session, isSecondary = false) {
 /**
  * Get eligible supervisors for auto-posting
  * Ordered by priority (if enabled) then by existing postings count
+ *
+ * Eligible roles: supervisor, head_of_teaching_practice.
+ * Field monitors do monitoring visits, not supervision postings, so they are excluded.
  */
 async function getEligibleSupervisors(institutionId, sessionId, priorityEnabled, facultyId = null) {
   const maxPostings = await getMaxPostingsPerSupervisor(institutionId, sessionId);
@@ -160,7 +163,7 @@ async function getEligibleSupervisors(institutionId, sessionId, priorityEnabled,
       GROUP BY supervisor_id
     ) ps ON u.id = ps.supervisor_id
     WHERE u.institution_id = ?
-          AND u.role NOT IN ('super_admin', 'student')
+          AND u.role NOT IN ('super_admin', 'student', 'field_monitor')
           AND u.status = 'active'
           AND (? - COALESCE(ps.posting_count, 0)) > 0
   `;
