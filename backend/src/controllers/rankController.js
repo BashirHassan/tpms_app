@@ -15,15 +15,13 @@ const schemas = {
     body: z.object({
       name: z.string().min(2, 'Rank name must be at least 2 characters'),
       code: z.string().min(1, 'Rank code is required').max(20),
-      local_running_allowance: z.number().min(0).optional(),
-      transport_per_km: z.number().min(0).optional(),
-      dsa: z.number().min(0).optional(),
-      dta: z.number().min(0).optional(),
-      tetfund: z.number().min(0).optional(),
-      other_allowances: z.array(z.object({
-        name: z.string(),
-        amount: z.number().min(0),
-      })).optional().nullable(),
+      local_running_allowance: z.coerce.number().min(0).optional(),
+      transport_per_km: z.coerce.number().min(0).optional(),
+      dsa: z.coerce.number().min(0).optional(),
+      dta: z.coerce.number().min(0).optional(),
+      tetfund: z.coerce.number().min(0).optional(),
+      // Object map keyed by allowance name: { "Hazard": 500 }
+      other_allowances: z.record(z.coerce.number().min(0)).optional().nullable(),
       status: z.enum(['active', 'inactive']).optional(),
     }),
   }),
@@ -32,15 +30,13 @@ const schemas = {
     body: z.object({
       name: z.string().min(2).optional(),
       code: z.string().min(1).max(20).optional(),
-      local_running_allowance: z.number().min(0).optional(),
-      transport_per_km: z.number().min(0).optional(),
-      dsa: z.number().min(0).optional(),
-      dta: z.number().min(0).optional(),
-      tetfund: z.number().min(0).optional(),
-      other_allowances: z.array(z.object({
-        name: z.string(),
-        amount: z.number().min(0),
-      })).optional().nullable(),
+      local_running_allowance: z.coerce.number().min(0).optional(),
+      transport_per_km: z.coerce.number().min(0).optional(),
+      dsa: z.coerce.number().min(0).optional(),
+      dta: z.coerce.number().min(0).optional(),
+      tetfund: z.coerce.number().min(0).optional(),
+      // Object map keyed by allowance name: { "Hazard": 500 }
+      other_allowances: z.record(z.coerce.number().min(0)).optional().nullable(),
       status: z.enum(['active', 'inactive']).optional(),
     }),
     params: z.object({
@@ -48,6 +44,29 @@ const schemas = {
       id: z.string(),
     }),
   }),
+};
+
+/**
+ * Serialize other_allowances for storage
+ * An empty map is stored as NULL so the UI doesn't render an empty section
+ */
+const serializeOtherAllowances = (value) => {
+  if (!value || Object.keys(value).length === 0) return null;
+  return JSON.stringify(value);
+};
+
+/**
+ * Sum an other_allowances value into a single amount
+ * Canonical shape is an object map ({ "Hazard": 500 }); legacy rows may hold
+ * an array of { name, amount } objects, so both are accepted
+ */
+const sumOtherAllowances = (value) => {
+  if (!value) return 0;
+  const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+  if (Array.isArray(parsed)) {
+    return parsed.reduce((sum, item) => sum + (parseFloat(item?.amount) || 0), 0);
+  }
+  return Object.values(parsed).reduce((sum, amount) => sum + (parseFloat(amount) || 0), 0);
 };
 
 /**
@@ -186,7 +205,7 @@ const create = async (req, res, next) => {
         parseFloat(dsa) || 0,
         parseFloat(dta) || 0,
         parseFloat(tetfund) || 0,
-        other_allowances ? JSON.stringify(other_allowances) : null,
+        serializeOtherAllowances(other_allowances),
         status,
       ]
     );
@@ -262,7 +281,7 @@ const update = async (req, res, next) => {
     // Handle other_allowances separately (JSON field)
     if (updates.other_allowances !== undefined) {
       updateFields.push('other_allowances = ?');
-      updateParams.push(updates.other_allowances ? JSON.stringify(updates.other_allowances) : null);
+      updateParams.push(serializeOtherAllowances(updates.other_allowances));
     }
 
     if (updateFields.length === 0) {
@@ -424,13 +443,7 @@ const calculateAllowance = async (req, res, next) => {
     }
 
     // Add other allowances if any
-    let otherTotal = 0;
-    if (rank.other_allowances) {
-      const others = JSON.parse(rank.other_allowances);
-      if (Array.isArray(others)) {
-        otherTotal = others.reduce((sum, a) => sum + (parseFloat(a.amount) || 0), 0);
-      }
-    }
+    const otherTotal = sumOtherAllowances(rank.other_allowances);
     allowance.other_allowances = otherTotal;
     allowance.total += otherTotal;
 

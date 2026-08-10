@@ -138,14 +138,16 @@ function RanksPage() {
 
   const openEditModal = (rank) => {
     setEditRank(rank);
+    // DECIMAL columns come back as strings - parse them so untouched fields
+    // aren't submitted as strings
     setFormData({
       name: rank.name,
       code: rank.code,
-      local_running_allowance: rank.local_running_allowance || 0,
-      transport_per_km: rank.transport_per_km || 0,
-      dsa: rank.dsa || 0,
-      dta: rank.dta || 0,
-      tetfund: rank.tetfund || 0,
+      local_running_allowance: parseFloat(rank.local_running_allowance) || 0,
+      transport_per_km: parseFloat(rank.transport_per_km) || 0,
+      dsa: parseFloat(rank.dsa) || 0,
+      dta: parseFloat(rank.dta) || 0,
+      tetfund: parseFloat(rank.tetfund) || 0,
       other_allowances: rank.other_allowances || {},
     });
     setShowModal(true);
@@ -278,15 +280,17 @@ function RanksPage() {
     }
 
     // Calculate other allowances
+    // Canonical shape is an object map ({ "Hazard": 500 }); legacy rows may hold
+    // an array of { name, amount } objects, so both are accepted
     if (calcRank.other_allowances) {
       const others =
         typeof calcRank.other_allowances === 'string'
           ? JSON.parse(calcRank.other_allowances)
           : calcRank.other_allowances;
 
-      if (Array.isArray(others)) {
-        otherAmount = others.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-      }
+      otherAmount = Array.isArray(others)
+        ? others.reduce((sum, item) => sum + (parseFloat(item?.amount) || 0), 0)
+        : Object.values(others).reduce((sum, amount) => sum + (parseFloat(amount) || 0), 0);
     }
 
     // Per-visit subtotal
