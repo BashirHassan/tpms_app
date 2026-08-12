@@ -1,18 +1,24 @@
 /**
  * Auto-Posting Controller (MedeePay Pattern)
- * 
- * Handles automated supervisor posting with configurable criteria:
- * - Number of postings per supervisor
- * - Posting type (random, route_based, lga_based)
- * - Priority-based distribution (higher ranked supervisors get longer distances)
- * - Round-robin allocation for fairness
- * 
+ *
+ * Fetches the data the allocation engine needs, runs it, and persists the result.
+ * The allocation strategy itself lives in services/autoPostingEngine.js.
+ *
+ * Responsibilities here:
+ * - Resolve eligible supervisors, available slots and existing school history
+ * - Enforce the dean posting allocation (ceiling on assignments + usage counter)
+ * - Report data-quality problems that would produce financially wrong postings
+ * - Persist postings, including dependent postings for merged groups
+ *
  * @see docs/AUTOMATED_POSTING_SYSTEM.md for full specification
  */
 
 const { z } = require('zod');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError } = require('../utils/errors');
+
+const { calculateAllowances } = require('../services/allowanceCalculator');
+const { runAutoPostingAlgorithm } = require('../services/autoPostingEngine');
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -25,6 +31,7 @@ const schemas = {
       number_of_postings: z.coerce.number().int().min(1).max(10).default(1),
       posting_type: z.enum(['random', 'route_based', 'lga_based']).default('random'),
       priority_enabled: z.coerce.boolean().default(true),
+      avoid_repeat_schools: z.coerce.boolean().default(true), // Don't send a supervisor to the same school twice
       faculty_id: z.coerce.number().int().positive().optional().nullable(), // For dean filtering
       dry_run: z.coerce.boolean().default(false), // Preview without creating
     }),
@@ -54,83 +61,6 @@ async function getMaxPostingsPerSupervisor(institutionId, sessionId) {
   const session = await getSession(institutionId, sessionId);
   // Use max_posting_per_supervisor if set, otherwise fall back to max_supervision_visits
   return session?.max_posting_per_supervisor || session?.max_supervision_visits || 3;
-}
-
-/**
- * Calculate distance-based location category
- */
-function getLocationCategory(distanceKm, thresholdKm = 10) {
-  return distanceKm <= thresholdKm ? 'inside' : 'outside';
-}
-
-/**
- * Calculate allowances based on rank and distance
- * Matches the calculation in postingController.js
- */
-function calculateAllowances(supervisor, school, session, isSecondary = false) {
-  const distanceKm = parseFloat(school.distance_km) || 0;
-  const insideThreshold = parseFloat(session.inside_distance_threshold_km) || 10;
-  const locationCategory = getLocationCategory(distanceKm, insideThreshold);
-
-  // Secondary/dependent postings for merged groups get ZERO allowances
-  if (isSecondary) {
-    return {
-      transport: 0,
-      dsa: 0,
-      dta: 0,
-      local_running: 0,
-      tetfund: 0,
-      total: 0,
-      location_category: locationCategory,
-      distance_km: distanceKm,
-      is_secondary: true,
-    };
-  }
-
-  // Get supervisor rank rates
-  const localRunningRate = parseFloat(supervisor.local_running_allowance) || 0;
-  const transportPerKm = parseFloat(supervisor.transport_per_km) || 0;
-  const dtaRate = parseFloat(supervisor.dta) || 0;
-  const tetfundRate = parseFloat(supervisor.tetfund) || 0;
-
-  // Get session DSA settings
-  const dsaEnabled = session.dsa_enabled === 1 || session.dsa_enabled === true;
-  const dsaMinDistance = parseFloat(session.dsa_min_distance_km) || 11;
-  const dsaMaxDistance = parseFloat(session.dsa_max_distance_km) || 30;
-  const dsaPercentage = parseFloat(session.dsa_percentage) || 50;
-
-  let transport = 0;
-  let dsa = 0;
-  let dta = 0;
-  let localRunning = 0;
-  let tetfund = 0;
-
-  if (locationCategory === 'inside') {
-    // RULE 1: Inside distance threshold - LOCAL RUNNING ONLY
-    localRunning = localRunningRate;
-  } else if (dsaEnabled && distanceKm >= dsaMinDistance && distanceKm <= dsaMaxDistance) {
-    // RULE 2: DSA enabled AND distance within DSA range
-    transport = transportPerKm * distanceKm;
-    dsa = (dtaRate * dsaPercentage) / 100;
-    tetfund = tetfundRate;
-  } else {
-    // RULE 3: Outside + (DSA disabled OR distance > dsa_max_distance_km)
-    transport = transportPerKm * distanceKm;
-    dta = dtaRate;
-    tetfund = tetfundRate;
-  }
-
-  return {
-    transport,
-    dsa,
-    dta,
-    local_running: localRunning,
-    tetfund,
-    total: transport + dsa + dta + localRunning + tetfund,
-    location_category: locationCategory,
-    distance_km: distanceKm,
-    is_secondary: false,
-  };
 }
 
 /**
@@ -199,7 +129,7 @@ async function getEligibleSupervisors(institutionId, sessionId, priorityEnabled,
  * Groups are determined by counting approved student acceptances per school per group_number.
  * Secondary/merged groups are excluded as they get dependent postings automatically.
  */
-async function getAvailableSlots(institutionId, sessionId, postingType) {
+async function getAvailableSlots(institutionId, sessionId) {
   // Get session settings
   const [session] = await query(
     'SELECT max_supervision_visits FROM academic_sessions WHERE id = ?',
@@ -281,333 +211,112 @@ async function getAvailableSlots(institutionId, sessionId, postingType) {
 }
 
 /**
- * Group slots by route
+ * Get the schools each supervisor is already covering for this session
+ *
+ * Returns Map<supervisor_id, Set<institution_school_id>>. Includes manual postings,
+ * postings from earlier auto-posting batches, and merged/dependent postings - anything
+ * that already puts the supervisor at that school.
  */
-function groupSlotsByRoute(slots) {
-  const groups = {};
-  for (const slot of slots) {
-    const key = slot.route_id || 'unassigned';
-    if (!groups[key]) {
-      groups[key] = {
-        id: slot.route_id,
-        name: slot.route_name || 'Unassigned Route',
-        slots: [],
-        totalDistance: 0,
-      };
+async function getSupervisorSchoolHistory(institutionId, sessionId) {
+  const rows = await query(
+    `SELECT DISTINCT supervisor_id, institution_school_id
+     FROM supervisor_postings
+     WHERE institution_id = ? AND session_id = ? AND status != 'cancelled'`,
+    [parseInt(institutionId), parseInt(sessionId)]
+  );
+
+  const history = new Map();
+  for (const row of rows) {
+    if (!history.has(row.supervisor_id)) {
+      history.set(row.supervisor_id, new Set());
     }
-    groups[key].slots.push(slot);
-    groups[key].totalDistance += slot.distance_km;
+    history.get(row.supervisor_id).add(row.institution_school_id);
   }
-  return groups;
+  return history;
 }
 
 /**
- * Group slots by LGA
+ * Flag inputs that would silently produce financially wrong postings.
+ *
+ * A supervisor with no rank has no allowance rates, so every posting they receive
+ * pays zero. A school with no distance is treated as "inside" the threshold and
+ * pays local running only. Neither is an error - the admin may know better - but
+ * neither should happen without being told.
  */
-function groupSlotsByLGA(slots) {
-  const groups = {};
+function collectDataQuality(supervisors, slots) {
+  const rankless = supervisors.filter((s) => !s.rank_id);
+
+  const distancelessSchools = new Map();
   for (const slot of slots) {
-    const key = slot.lga || 'Unknown';
-    if (!groups[key]) {
-      groups[key] = {
-        id: key,
-        name: key,
-        slots: [],
-        totalDistance: 0,
-      };
-    }
-    groups[key].slots.push(slot);
-    groups[key].totalDistance += slot.distance_km;
-  }
-  return groups;
-}
-
-/**
- * Core auto-posting algorithm - SLOT-BASED with ROUND-ROBIN distribution
- * 
- * LOGIC: 
- * 1. Sort slots by VISIT NUMBER FIRST - all Visit 1s before Visit 2s, etc.
- * 2. Within each visit, schools are processed in order (round-robin style)
- * 3. Supervisors are assigned round-robin across all slots
- * 
- * This ensures:
- * - All schools get their Visit 1 postings before any Visit 2 postings
- * - Schools are distributed fairly (each school gets one posting before any school gets two)
- * - Supervisors are distributed round-robin (each supervisor gets one posting before any gets two)
- * 
- * @param {Array} supervisors - Available supervisors with remaining_slots
- * @param {Array} slots - Available slots (school+group+visit combinations)
- * @param {number} numberOfPostings - Max postings per supervisor (not visits!)
- * @param {string} postingType - 'random', 'route_based', or 'lga_based'
- * @param {boolean} priorityEnabled - Whether to sort by rank priority
- */
-function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingType, priorityEnabled) {
-  const assignments = [];
-  const warnings = [];
-  const supervisorPostings = new Map(); // supervisor_id -> current posting count
-  const usedSlots = new Set();
-
-  if (supervisors.length === 0) {
-    warnings.push('No eligible supervisors available');
-    return { assignments, warnings, statistics: calculateStatistics([], supervisors, numberOfPostings) };
-  }
-
-  if (slots.length === 0) {
-    warnings.push('No available slots to assign');
-    return { assignments, warnings, statistics: calculateStatistics([], supervisors, numberOfPostings) };
-  }
-
-  // Filter slots to only include visits 1 through numberOfPostings
-  // numberOfPostings = 1 means only Visit 1, numberOfPostings = 2 means Visit 1 & 2, etc.
-  const filteredSlots = slots.filter(slot => slot.visit_number <= numberOfPostings);
-
-  if (filteredSlots.length === 0) {
-    warnings.push(`No available slots for Visit 1${numberOfPostings > 1 ? ` through ${numberOfPostings}` : ''}`);
-    return { assignments, warnings, statistics: calculateStatistics([], supervisors, numberOfPostings) };
-  }
-
-  // Sort slots: VISIT NUMBER FIRST (round-robin by visit), then by secondary criteria
-  // This ensures all Visit 1s are exhausted before Visit 2s, etc.
-  let sortedSlots = [...filteredSlots];
-  
-  if (postingType === 'route_based') {
-    // Visit first, then route, then school, then group
-    sortedSlots.sort((a, b) => {
-      // PRIMARY: Visit number (all Visit 1s first, then Visit 2s, etc.)
-      const visitCompare = a.visit_number - b.visit_number;
-      if (visitCompare !== 0) return visitCompare;
-      // SECONDARY: Route (for geographic grouping within same visit)
-      const routeCompare = String(a.route_id || '').localeCompare(String(b.route_id || ''));
-      if (routeCompare !== 0) return routeCompare;
-      // TERTIARY: Distance descending (longer distances first for priority)
-      if (priorityEnabled) {
-        const distCompare = b.distance_km - a.distance_km;
-        if (distCompare !== 0) return distCompare;
-      }
-      // Then by school and group for consistent ordering
-      const schoolCompare = a.school_id - b.school_id;
-      if (schoolCompare !== 0) return schoolCompare;
-      return a.group_number - b.group_number;
-    });
-  } else if (postingType === 'lga_based') {
-    // Visit first, then LGA, then school, then group
-    sortedSlots.sort((a, b) => {
-      // PRIMARY: Visit number (all Visit 1s first, then Visit 2s, etc.)
-      const visitCompare = a.visit_number - b.visit_number;
-      if (visitCompare !== 0) return visitCompare;
-      // SECONDARY: LGA (for geographic grouping within same visit)
-      const lgaCompare = String(a.lga || '').localeCompare(String(b.lga || ''));
-      if (lgaCompare !== 0) return lgaCompare;
-      // TERTIARY: Distance descending (longer distances first for priority)
-      if (priorityEnabled) {
-        const distCompare = b.distance_km - a.distance_km;
-        if (distCompare !== 0) return distCompare;
-      }
-      // Then by school and group for consistent ordering
-      const schoolCompare = a.school_id - b.school_id;
-      if (schoolCompare !== 0) return schoolCompare;
-      return a.group_number - b.group_number;
-    });
-  } else {
-    // Random/default: Visit first, then distance (if priority), then school/group
-    sortedSlots.sort((a, b) => {
-      // PRIMARY: Visit number (all Visit 1s first, then Visit 2s, etc.)
-      const visitCompare = a.visit_number - b.visit_number;
-      if (visitCompare !== 0) return visitCompare;
-      // SECONDARY: Distance descending if priority enabled (longer distances get higher-ranked supervisors)
-      if (priorityEnabled) {
-        const distCompare = b.distance_km - a.distance_km;
-        if (distCompare !== 0) return distCompare;
-      }
-      // Then by school and group for consistent ordering
-      const schoolCompare = a.school_id - b.school_id;
-      if (schoolCompare !== 0) return schoolCompare;
-      return a.group_number - b.group_number;
-    });
-  }
-
-  // Sort supervisors: by priority (if enabled), then by current postings (fewest first)
-  let sortedSupervisors = [...supervisors];
-  if (priorityEnabled) {
-    // Higher priority (lower number) supervisors get assigned first for longer distances
-    sortedSupervisors.sort((a, b) => {
-      const priorityCompare = (a.priority_number || 99) - (b.priority_number || 99);
-      if (priorityCompare !== 0) return priorityCompare;
-      return (a.current_postings || 0) - (b.current_postings || 0);
-    });
-  } else {
-    // Fair distribution: sort by fewest existing postings
-    sortedSupervisors.sort((a, b) => (a.current_postings || 0) - (b.current_postings || 0));
-  }
-
-  // Round-robin supervisor index
-  let supervisorIndex = 0;
-
-  // Iterate through each slot and assign ONE supervisor (legacy pattern)
-  for (const slot of sortedSlots) {
-    // Skip if slot already used (shouldn't happen, but safety check)
-    if (usedSlots.has(slot.id)) continue;
-
-    // Find next available supervisor (round-robin)
-    let assigned = false;
-    let attempts = 0;
-    const maxAttempts = sortedSupervisors.length;
-
-    while (!assigned && attempts < maxAttempts) {
-      const supervisor = sortedSupervisors[supervisorIndex];
-      const currentCount = supervisorPostings.get(supervisor.id) || 0;
-
-      // Check if supervisor has capacity (can still receive more postings up to session max)
-      // numberOfPostings only filters which visits to include, not total postings per supervisor
-      const hasCapacity = currentCount < supervisor.remaining_slots;
-
-      if (hasCapacity) {
-        // Assign this slot to this supervisor
-        assignments.push({
-          supervisor_id: supervisor.id,
-          supervisor_name: supervisor.name,
-          rank_code: supervisor.rank_code,
-          priority_number: supervisor.priority_number,
-          school_id: slot.school_id,
-          school_name: slot.school_name,
-          group_number: slot.group_number,
-          visit_number: slot.visit_number,
-          distance_km: slot.distance_km,
-          route_id: slot.route_id,
-          route_name: slot.route_name,
-          lga: slot.lga,
-        });
-
-        usedSlots.add(slot.id);
-        supervisorPostings.set(supervisor.id, currentCount + 1);
-        assigned = true;
-      }
-
-      // Move to next supervisor (round-robin)
-      supervisorIndex = (supervisorIndex + 1) % sortedSupervisors.length;
-      attempts++;
-    }
-
-    if (!assigned) {
-      // Only add warning if we have supervisors but they're all at capacity
-      // (This is informational - not an error if slots exceed available supervisor capacity)
-      warnings.push(
-        `Could not assign slot: ${slot.school_name} Group ${slot.group_number} Visit ${slot.visit_number} - all supervisors at capacity`
-      );
-    }
-  }
-
-  // If all supervisors got at least one posting, reduce noise by summarizing capacity warnings
-  const capacityWarnings = warnings.filter(w => w.includes('all supervisors at capacity'));
-  const otherWarnings = warnings.filter(w => !w.includes('all supervisors at capacity'));
-  
-  // Keep capacity warnings only if there were unassigned slots AND supervisors got 0 postings
-  // Otherwise, summarize them since this is expected behavior when slots > capacity
-  let finalWarnings = [...otherWarnings];
-  if (capacityWarnings.length > 0) {
-    const supervisorsWithPostings = new Set(assignments.map(a => a.supervisor_id)).size;
-    if (supervisorsWithPostings < supervisors.length) {
-      // Some supervisors got nothing - this is a real issue, keep warnings
-      finalWarnings = [...finalWarnings, ...capacityWarnings];
-    } else if (capacityWarnings.length > 0) {
-      // All supervisors got postings, just summarize
-      finalWarnings.push(`${capacityWarnings.length} slots could not be assigned (more slots than total supervisor capacity)`);
-    }
-  }
-
-  // Calculate statistics
-  const statistics = calculateStatistics(assignments, supervisors, numberOfPostings);
-
-  // Validate no duplicates in assignments (same slot assigned to multiple supervisors)
-  const slotAssignments = new Map();
-  const duplicates = [];
-  for (const a of assignments) {
-    const slotKey = `${a.school_id}-${a.group_number}-${a.visit_number}`;
-    if (slotAssignments.has(slotKey)) {
-      duplicates.push({
-        slot: slotKey,
-        first_supervisor: slotAssignments.get(slotKey),
-        second_supervisor: a.supervisor_name,
+    if (slot.distance_km > 0) continue;
+    if (!distancelessSchools.has(slot.school_id)) {
+      distancelessSchools.set(slot.school_id, {
+        school_id: slot.school_id,
+        school_name: slot.school_name,
+        slots: 0,
       });
-    } else {
-      slotAssignments.set(slotKey, a.supervisor_name);
     }
+    distancelessSchools.get(slot.school_id).slots++;
   }
 
-  if (duplicates.length > 0) {
-    finalWarnings.push(`Algorithm error: ${duplicates.length} duplicate slot assignments detected`);
-    statistics.duplicate_errors = duplicates;
-  }
-
-  // Add metadata about the filtering
-  statistics.visits_included = numberOfPostings;
-  statistics.filtered_slots_count = sortedSlots.length;
-
-  return { assignments, warnings: finalWarnings, statistics };
+  return {
+    supervisors_without_rank_count: rankless.length,
+    supervisors_without_rank: rankless
+      .slice(0, 20)
+      .map((s) => ({ id: s.id, name: s.name })),
+    schools_without_distance_count: distancelessSchools.size,
+    schools_without_distance: [...distancelessSchools.values()].slice(0, 20),
+  };
 }
 
 /**
- * Calculate statistics for the posting result
- * @param {Array} assignments - List of created assignments
- * @param {Array} supervisors - List of eligible supervisors
- * @param {number} visitsIncluded - Number of visits included (1 = Visit 1 only, etc.)
+ * Resolve the acting user's dean posting allocation, if one applies.
+ *
+ * Mirrors the check in postingController.createMultiPostings so auto-posting is
+ * bound by the same quota as manual multiposting. Admin-level users are exempt.
+ *
+ * @returns {Object|null} The allocation row plus `remaining`, or null when exempt
  */
-function calculateStatistics(assignments, supervisors, visitsIncluded) {
-  const byVisit = {};
-  const bySupervisor = {};
-  const bySchool = {};
-  
-  for (const a of assignments) {
-    // By visit number
-    const visitKey = `visit_${a.visit_number}`;
-    byVisit[visitKey] = (byVisit[visitKey] || 0) + 1;
-    
-    // By supervisor
-    if (!bySupervisor[a.supervisor_id]) {
-      bySupervisor[a.supervisor_id] = { count: 0, name: a.supervisor_name };
-    }
-    bySupervisor[a.supervisor_id].count++;
+async function getDeanAllocation(institutionId, sessionId, user) {
+  const isAdminLevel = ['super_admin', 'head_of_teaching_practice'].includes(user.role);
+  const isDean = user.is_dean === 1;
 
-    // By school (for debugging/analysis)
-    if (!bySchool[a.school_id]) {
-      bySchool[a.school_id] = { count: 0, name: a.school_name };
-    }
-    bySchool[a.school_id].count++;
+  if (isAdminLevel || !isDean) return null;
+
+  const [allocation] = await query(
+    `SELECT * FROM dean_posting_allocations
+     WHERE institution_id = ? AND session_id = ? AND dean_user_id = ?`,
+    [parseInt(institutionId), parseInt(sessionId), user.id]
+  );
+
+  if (!allocation) {
+    throw new ValidationError('You do not have a posting allocation for this session');
   }
 
-  // Calculate posting distribution statistics
-  const supervisorCounts = Object.values(bySupervisor).map(s => s.count);
-  const avgPostingsPerSupervisor = supervisorCounts.length > 0 
-    ? Math.round(supervisorCounts.reduce((a, b) => a + b, 0) / supervisorCounts.length) 
-    : 0;
-  const minPostings = supervisorCounts.length > 0 ? Math.min(...supervisorCounts) : 0;
-  const maxPostings = supervisorCounts.length > 0 ? Math.max(...supervisorCounts) : 0;
-
-  // Count supervisors by posting status
-  const supervisorsWithPostings = Object.keys(bySupervisor).length;
-  const supervisorsWithNoPostings = supervisors.length - supervisorsWithPostings;
-
-  // For backward compatibility, map to old field names
-  // "Full" = got postings, "Partial" = not applicable, "None" = no postings
   return {
-    total_assignments: assignments.length,
-    total_schools: Object.keys(bySchool).length,
-    by_visit: byVisit,
-    supervisors_full: supervisorsWithPostings,
-    supervisors_partial: 0,
-    supervisors_none: supervisorsWithNoPostings,
-    visits_included: visitsIncluded,
-    avg_postings_per_supervisor: avgPostingsPerSupervisor,
-    min_postings: minPostings,
-    max_postings: maxPostings,
-    by_round: byVisit, // Alias for frontend compatibility
+    ...allocation,
+    remaining: Math.max(0, allocation.allocated_postings - allocation.used_postings),
   };
 }
 
 /**
  * Create postings from assignments using transaction
+ *
+ * @param {number} maxPostingsPerSupervisor - Resolved cap; must be the same value the
+ *   planner used, or the guard here silently disagrees with what was previewed
+ * @param {Object|null} deanAllocation - When set, used_postings is advanced inside
+ *   the same transaction by the number of primary postings actually created
  */
-async function createPostingsFromAssignments(institutionId, sessionId, session, assignments, userId, batchId) {
+async function createPostingsFromAssignments(
+  institutionId,
+  sessionId,
+  session,
+  assignments,
+  userId,
+  batchId,
+  maxPostingsPerSupervisor,
+  deanAllocation = null
+) {
   const results = { total: 0, supervisorCount: 0, details: [] };
   const supervisorIds = new Set();
 
@@ -695,10 +404,13 @@ async function createPostingsFromAssignments(institutionId, sessionId, session, 
         [parseInt(institutionId), parseInt(sessionId), assignment.supervisor_id]
       );
 
-      if (countCheck[0].count >= session.max_posting_per_supervisor) {
-        skipped.push({ 
-          ...assignment, 
-          reason: `Supervisor reached max posting limit (${session.max_posting_per_supervisor})` 
+      // Uses the same resolved cap the planner used. Comparing against the raw
+      // session column here would silently disable the guard when it is NULL
+      // (count >= null is always false).
+      if (countCheck[0].count >= maxPostingsPerSupervisor) {
+        skipped.push({
+          ...assignment,
+          reason: `Supervisor reached max posting limit (${maxPostingsPerSupervisor})`,
         });
         continue;
       }
@@ -835,6 +547,18 @@ async function createPostingsFromAssignments(institutionId, sessionId, session, 
       }
     }
 
+    // Advance the dean's usage inside the same transaction, so a rollback cannot
+    // leave the counter ahead of the postings it is supposed to track
+    if (deanAllocation && results.total > 0) {
+      await conn.execute(
+        `UPDATE dean_posting_allocations
+         SET used_postings = used_postings + ?, updated_at = NOW()
+         WHERE id = ?`,
+        [results.total, deanAllocation.id]
+      );
+      results.deanAllocationUsed = results.total;
+    }
+
     results.supervisorCount = supervisorIds.size;
     results.skipped = skipped;
     return results;
@@ -858,7 +582,7 @@ const previewAutoPosting = async (req, res, next) => {
       throw new ValidationError('Validation failed', validation.error.flatten().fieldErrors);
     }
 
-    const { session_id, number_of_postings, posting_type, priority_enabled, faculty_id } = validation.data.body;
+    const { session_id, number_of_postings, posting_type, priority_enabled, avoid_repeat_schools, faculty_id } = validation.data.body;
 
     // Get session
     const session = await getSession(institutionId, session_id);
@@ -873,7 +597,9 @@ const previewAutoPosting = async (req, res, next) => {
 
     // Get data
     const supervisors = await getEligibleSupervisors(institutionId, session_id, priority_enabled, faculty_id);
-    const slots = await getAvailableSlots(institutionId, session_id, posting_type);
+    const slots = await getAvailableSlots(institutionId, session_id);
+    const schoolHistory = await getSupervisorSchoolHistory(institutionId, session_id);
+    const deanAllocation = await getDeanAllocation(institutionId, session_id, req.user);
 
     // Log for debugging
     console.log(`[Auto-Post Preview] visits_to_include=${number_of_postings}, total_slots=${slots.length}, supervisors=${supervisors.length}`);
@@ -884,7 +610,12 @@ const previewAutoPosting = async (req, res, next) => {
       slots,
       number_of_postings,
       posting_type,
-      priority_enabled
+      priority_enabled,
+      {
+        avoidRepeatSchools: avoid_repeat_schools,
+        schoolHistory,
+        maxAssignments: deanAllocation ? deanAllocation.remaining : Infinity,
+      }
     );
 
     // Calculate filtered slots count for display (slots for selected visits only)
@@ -901,6 +632,14 @@ const previewAutoPosting = async (req, res, next) => {
         assignments: result.assignments,
         statistics: result.statistics,
         warnings: result.warnings,
+        data_quality: collectDataQuality(supervisors, slots),
+        dean_allocation: deanAllocation
+          ? {
+              allocated: deanAllocation.allocated_postings,
+              used: deanAllocation.used_postings,
+              remaining: deanAllocation.remaining,
+            }
+          : null,
       },
     });
   } catch (error) {
@@ -922,7 +661,7 @@ const executeAutoPosting = async (req, res, next) => {
       throw new ValidationError('Validation failed', validation.error.flatten().fieldErrors);
     }
 
-    const { session_id, number_of_postings, posting_type, priority_enabled, faculty_id } = validation.data.body;
+    const { session_id, number_of_postings, posting_type, priority_enabled, avoid_repeat_schools, faculty_id } = validation.data.body;
 
     // Get session
     const session = await getSession(institutionId, session_id);
@@ -936,7 +675,16 @@ const executeAutoPosting = async (req, res, next) => {
 
     // Get data
     const supervisors = await getEligibleSupervisors(institutionId, session_id, priority_enabled, faculty_id);
-    const slots = await getAvailableSlots(institutionId, session_id, posting_type);
+    const slots = await getAvailableSlots(institutionId, session_id);
+    const schoolHistory = await getSupervisorSchoolHistory(institutionId, session_id);
+    const deanAllocation = await getDeanAllocation(institutionId, session_id, req.user);
+    const maxPostingsPerSupervisor = await getMaxPostingsPerSupervisor(institutionId, session_id);
+
+    if (deanAllocation && deanAllocation.remaining <= 0) {
+      throw new ValidationError(
+        `Your posting allocation for this session is exhausted (${deanAllocation.used_postings} of ${deanAllocation.allocated_postings} used)`
+      );
+    }
 
     // Run algorithm
     const result = runAutoPostingAlgorithm(
@@ -944,7 +692,12 @@ const executeAutoPosting = async (req, res, next) => {
       slots,
       number_of_postings,
       posting_type,
-      priority_enabled
+      priority_enabled,
+      {
+        avoidRepeatSchools: avoid_repeat_schools,
+        schoolHistory,
+        maxAssignments: deanAllocation ? deanAllocation.remaining : Infinity,
+      }
     );
 
     if (result.assignments.length === 0) {
@@ -960,7 +713,7 @@ const executeAutoPosting = async (req, res, next) => {
         parseInt(institutionId),
         parseInt(session_id),
         userId,
-        JSON.stringify({ number_of_postings, posting_type, priority_enabled, faculty_id }),
+        JSON.stringify({ number_of_postings, posting_type, priority_enabled, avoid_repeat_schools, faculty_id }),
       ]
     );
 
@@ -974,7 +727,9 @@ const executeAutoPosting = async (req, res, next) => {
         session,
         result.assignments,
         userId,
-        batchId
+        batchId,
+        maxPostingsPerSupervisor,
+        deanAllocation
       );
 
       // Update batch as completed
@@ -1004,6 +759,14 @@ const executeAutoPosting = async (req, res, next) => {
           assignments: created.details,
           statistics: result.statistics,
           warnings: result.warnings,
+          data_quality: collectDataQuality(supervisors, slots),
+          dean_allocation: deanAllocation
+            ? {
+                allocated: deanAllocation.allocated_postings,
+                used: deanAllocation.used_postings + (created.deanAllocationUsed || 0),
+                remaining: Math.max(0, deanAllocation.remaining - (created.deanAllocationUsed || 0)),
+              }
+            : null,
         },
       });
     } catch (error) {
@@ -1123,4 +886,6 @@ module.exports = {
   getAutoPostingHistory,
   rollbackAutoPosting,
   schemas,
+  // Re-exported from services/autoPostingEngine for tests and existing callers
+  runAutoPostingAlgorithm,
 };

@@ -71,6 +71,7 @@ export function ConfirmDialog({
   variant = 'warning',
   requireText = null,
   loading = false,
+  children = null,
 }) {
   const [inputValue, setInputValue] = useState('');
   const variantConfig = VARIANTS[variant] || VARIANTS.warning;
@@ -125,6 +126,9 @@ export function ConfirmDialog({
                 <IconX className="w-5 h-5" />
               </Button>
             </div>
+
+            {/* Custom content (options, extra warnings, etc.) */}
+            {children && <div className="mt-4">{children}</div>}
 
             {/* Require-text input for dangerous operations */}
             {requireText && (

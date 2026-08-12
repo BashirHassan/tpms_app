@@ -484,7 +484,9 @@ function MultipostingPage() {
   const { hasRole, user } = useAuth();
   const { toast } = useToast();
   const isAdminLevel = hasRole(['super_admin', 'head_of_teaching_practice']);
-  
+  // Auto-posting is super admin only - everyone else posts manually on this page
+  const isSuperAdmin = hasRole('super_admin');
+
   // Dean allocation state
   const [deanAllocation, setDeanAllocation] = useState(null);
   const [loadingAllocation, setLoadingAllocation] = useState(true);
@@ -925,8 +927,8 @@ function MultipostingPage() {
           <Button variant="outline" onClick={fetchData} disabled={loading} className="active:scale-95">
             <IconRefresh className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
-          {/* Auto-Post button - only for admin-level users */}
-          {isAdminLevel && !isReadOnlyMode && (
+          {/* Auto-Post button - super admin only, matching the API restriction */}
+          {isSuperAdmin && !isReadOnlyMode && (
             <Button 
               variant="outline" 
               onClick={() => setShowAutoPostDialog(true)}

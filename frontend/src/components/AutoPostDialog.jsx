@@ -37,22 +37,22 @@ import {
 } from '@tabler/icons-react';
 
 const POSTING_TYPES = [
-  { 
-    value: 'random', 
-    label: 'Random Locations', 
-    description: 'Distribute supervisors to any available schools regardless of location',
+  {
+    value: 'random',
+    label: 'Any Location',
+    description: 'Schools are assigned wherever they fall — no geographic grouping',
     icon: IconUsers,
   },
-  { 
-    value: 'route_based', 
-    label: 'Route Based', 
-    description: 'Each visit stays within one route (e.g., all Visit 1 schools in same route)',
+  {
+    value: 'route_based',
+    label: 'Route Based',
+    description: 'Each supervisor works a single route per visit, so one trip covers all their schools',
     icon: IconRoute,
   },
-  { 
-    value: 'lga_based', 
-    label: 'LGA Based', 
-    description: 'Each visit stays within one LGA (e.g., all Visit 1 schools in same LGA)',
+  {
+    value: 'lga_based',
+    label: 'LGA Based',
+    description: 'Each supervisor works a single LGA per visit, so one trip covers all their schools',
     icon: IconSchool,
   },
 ];
@@ -82,7 +82,8 @@ function AutoPostDialog({
   const [numberOfPostings, setNumberOfPostings] = useState(1);
   const [postingType, setPostingType] = useState('random');
   const [priorityEnabled, setPriorityEnabled] = useState(true);
-  
+  const [avoidRepeatSchools, setAvoidRepeatSchools] = useState(true);
+
   // UI state
   const [step, setStep] = useState('configure'); // 'configure' | 'preview' | 'success'
   const [loading, setLoading] = useState(false);
@@ -97,6 +98,7 @@ function AutoPostDialog({
     setNumberOfPostings(1);
     setPostingType('random');
     setPriorityEnabled(true);
+    setAvoidRepeatSchools(true);
     onClose();
   };
 
@@ -114,6 +116,7 @@ function AutoPostDialog({
         number_of_postings: numberOfPostings,
         posting_type: postingType,
         priority_enabled: priorityEnabled,
+        avoid_repeat_schools: avoidRepeatSchools,
         faculty_id: facultyId,
       });
 
@@ -135,6 +138,7 @@ function AutoPostDialog({
         number_of_postings: numberOfPostings,
         posting_type: postingType,
         priority_enabled: priorityEnabled,
+        avoid_repeat_schools: avoidRepeatSchools,
         faculty_id: facultyId,
       });
 
@@ -148,6 +152,148 @@ function AutoPostDialog({
     } finally {
       setLoading(false);
     }
+  };
+
+  // Supervisors that had to be sent back to a school they already cover
+  const renderRepeatSchoolsNotice = (statistics) => {
+    if (!statistics?.repeat_school_assignments) return null;
+
+    return (
+      <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+        <div className="flex items-center gap-2 text-amber-800 font-medium mb-2">
+          <IconAlertTriangle className="h-4 w-4" />
+          {statistics.repeat_school_assignments} posting(s) reuse a school for the same supervisor
+        </div>
+        <p className="text-sm text-amber-700 mb-2">
+          No other supervisor had capacity for these slots, so the school had to be repeated.
+        </p>
+        <ul className="text-sm text-amber-700 list-disc list-inside max-h-32 overflow-y-auto">
+          {(statistics.repeat_school_details || []).map((r) => (
+            <li key={`${r.supervisor_id}-${r.school_id}`}>
+              {r.supervisor_name} — {r.school_name}
+              {r.visit_numbers?.length > 0 && ` (Visit ${r.visit_numbers.join(', ')})`}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  };
+
+  // Inputs that would silently produce financially wrong postings
+  const renderDataQualityNotice = (dataQuality) => {
+    if (!dataQuality) return null;
+    const { supervisors_without_rank_count: noRank, schools_without_distance_count: noDistance } = dataQuality;
+    if (!noRank && !noDistance) return null;
+
+    return (
+      <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+        <div className="flex items-center gap-2 text-amber-800 font-medium mb-2">
+          <IconAlertTriangle className="h-4 w-4" />
+          Data quality
+        </div>
+
+        {noRank > 0 && (
+          <div className="mb-2">
+            <p className="text-sm text-amber-700">
+              <span className="font-medium">{noRank} supervisor(s) have no rank</span> — their
+              postings will calculate every allowance as zero.
+            </p>
+            <p className="text-xs text-amber-600 mt-0.5">
+              {dataQuality.supervisors_without_rank.map((s) => s.name).join(', ')}
+              {noRank > dataQuality.supervisors_without_rank.length && ' …'}
+            </p>
+          </div>
+        )}
+
+        {noDistance > 0 && (
+          <div>
+            <p className="text-sm text-amber-700">
+              <span className="font-medium">{noDistance} school(s) have no distance set</span> —
+              they are treated as inside the threshold and pay local running only.
+            </p>
+            <p className="text-xs text-amber-600 mt-0.5">
+              {dataQuality.schools_without_distance.map((s) => s.school_name).join(', ')}
+              {noDistance > dataQuality.schools_without_distance.length && ' …'}
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Objective read on how well-formed the distribution is
+  const renderQualityPanel = (statistics) => {
+    if (!statistics) return null;
+
+    return (
+      <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <h4 className="font-medium text-gray-900 mb-3">Distribution Quality</h4>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+          <div>
+            <div className="text-gray-500 text-xs">Postings per supervisor</div>
+            <div className="font-medium text-gray-900">
+              {statistics.load?.min ?? 0}–{statistics.load?.max ?? 0}
+            </div>
+          </div>
+          <div>
+            <div className="text-gray-500 text-xs">Distance per supervisor</div>
+            <div className="font-medium text-gray-900">
+              {statistics.travel_km?.min ?? 0}–{statistics.travel_km?.max ?? 0} km
+            </div>
+          </div>
+          <div>
+            <div className="text-gray-500 text-xs">
+              {postingType === 'random' ? 'Schools covered' : 'Out-of-area trips'}
+            </div>
+            <div className="font-medium text-gray-900">
+              {postingType === 'random'
+                ? statistics.total_schools ?? 0
+                : statistics.affinity_breaks ?? 0}
+            </div>
+          </div>
+        </div>
+
+        {/* Seniority is honoured when the mean journey falls as rank number rises */}
+        {priorityEnabled && statistics.distance_by_rank?.length > 1 && (
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <h5 className="text-sm font-medium text-gray-700 mb-2">
+              Average journey by rank priority
+            </h5>
+            <div className="flex flex-wrap gap-2">
+              {statistics.distance_by_rank.map((band) => (
+                <div
+                  key={band.priority_number}
+                  className="px-3 py-1 bg-white border border-gray-200 rounded-full text-sm"
+                  title={`${band.postings} posting(s)`}
+                >
+                  P{band.priority_number}: <span className="font-medium">{band.mean_km} km</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Senior ranks (lower number) should show longer average journeys.
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Dean quota, when the acting user has one
+  const renderDeanAllocation = (allocation, quotaSkipped) => {
+    if (!allocation) return null;
+
+    return (
+      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+        <span className="font-medium">Your posting allocation:</span>{' '}
+        {allocation.used} of {allocation.allocated} used, {allocation.remaining} remaining.
+        {quotaSkipped > 0 && (
+          <span className="block mt-1 text-blue-700">
+            {quotaSkipped} slot(s) were skipped because your allocation does not cover them.
+          </span>
+        )}
+      </div>
+    );
   };
 
   // Render configuration step
@@ -228,6 +374,23 @@ function AutoPostDialog({
         />
       </div>
 
+      {/* Avoid Repeat Schools Toggle */}
+      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="flex-1">
+          <label className="block text-sm font-medium text-gray-900">
+            Avoid Repeating Schools
+          </label>
+          <p className="text-sm text-gray-500 mt-0.5">
+            A supervisor won&apos;t be sent to the same school for more than one visit unless no other
+            supervisor is available. Schools they are already posted to this session are counted too.
+          </p>
+        </div>
+        <Switch
+          checked={avoidRepeatSchools}
+          onCheckedChange={setAvoidRepeatSchools}
+        />
+      </div>
+
       {/* Info Box */}
       <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
         <div className="flex items-start gap-3">
@@ -237,7 +400,9 @@ function AutoPostDialog({
             <ul className="list-disc list-inside space-y-1 text-blue-700">
               <li>All Visit 1 slots are filled first, then Visit 2, and so on (round-robin by visit)</li>
               <li>Schools are distributed serially within each visit round</li>
-              <li>Supervisors are assigned round-robin - each gets 1 posting before any gets 2</li>
+              <li>Postings are shared evenly - counts stay within one of each other</li>
+              <li>A supervisor is not sent back to a school they already cover unless unavoidable</li>
+              <li>With priority on, senior supervisors take the longer journeys (same workload, more distance)</li>
               <li>Only schools with students (in groups) are considered</li>
               <li>Existing postings are preserved - only available slots are used</li>
             </ul>
@@ -327,6 +492,18 @@ function AutoPostDialog({
         </div>
       )}
 
+      {/* Dean allocation */}
+      {renderDeanAllocation(previewData?.dean_allocation, previewData?.statistics?.quota_skipped)}
+
+      {/* Distribution quality */}
+      {renderQualityPanel(previewData?.statistics)}
+
+      {/* Data quality */}
+      {renderDataQualityNotice(previewData?.data_quality)}
+
+      {/* Repeated schools */}
+      {renderRepeatSchoolsNotice(previewData?.statistics)}
+
       {/* Warnings */}
       {previewData?.warnings?.length > 0 && (
         <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -364,6 +541,11 @@ function AutoPostDialog({
                   <span className="truncate max-w-[180px]" title={a.school_name}>{a.school_name}</span>
                   <Badge variant="secondary">G{a.group_number}</Badge>
                   <Badge variant="default">V{a.visit_number}</Badge>
+                  {a.repeat_school && (
+                    <Badge variant="warning" title="Supervisor already covers this school">
+                      Repeat
+                    </Badge>
+                  )}
                   <span className="text-gray-400">{a.distance_km?.toFixed(1)} km</span>
                 </div>
               </div>
@@ -443,6 +625,18 @@ function AutoPostDialog({
           </div>
         </div>
       )}
+
+      {/* Dean allocation */}
+      {renderDeanAllocation(resultData?.dean_allocation, resultData?.statistics?.quota_skipped)}
+
+      {/* Distribution quality */}
+      {renderQualityPanel(resultData?.statistics)}
+
+      {/* Data quality */}
+      {renderDataQualityNotice(resultData?.data_quality)}
+
+      {/* Repeated schools */}
+      {renderRepeatSchoolsNotice(resultData?.statistics)}
 
       {/* Warnings */}
       {resultData?.warnings?.length > 0 && (

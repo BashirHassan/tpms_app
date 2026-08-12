@@ -27,6 +27,7 @@ import {
   IconClock,
   IconX,
   IconSearch,
+  IconAlertTriangle,
 } from '@tabler/icons-react';
 import { getOrdinal } from '../../utils/helpers';
 
@@ -34,6 +35,7 @@ function PostingsPage() {
   const { hasRole } = useAuth();
   const { toast } = useToast();
   const canDelete = hasRole(['super_admin', 'head_of_teaching_practice']);
+  const isSuperAdmin = hasRole('super_admin');
   const locationTrackingEnabled = useFeature('supervisor_location_tracking');
 
   // State
@@ -57,6 +59,11 @@ function PostingsPage() {
   // Delete confirmation
   const [deletingPosting, setDeletingPosting] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Session-wide clear (super admin only)
+  const [sessionClearSummary, setSessionClearSummary] = useState(null);
+  const [clearMode, setClearMode] = useState('soft');
+  const [clearingSession, setClearingSession] = useState(false);
 
   // Fetch sessions on mount
   useEffect(() => {
@@ -158,6 +165,46 @@ function PostingsPage() {
       toast.error(err.response?.data?.message || 'Failed to delete posting');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  // Fetch the current session's counts, then open the bulk-clear dialog
+  const handleOpenSessionClear = async () => {
+    try {
+      const response = await postingsApi.getCurrentSessionSummary();
+      const summary = response.data?.data || response.data;
+
+      if (!summary?.total) {
+        toast.info(`No postings to clear for ${summary?.session_name || 'the current session'}`);
+        return;
+      }
+
+      setClearMode('soft');
+      setSessionClearSummary(summary);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load session postings');
+    }
+  };
+
+  const handleClearCurrentSession = async () => {
+    if (!sessionClearSummary) return;
+
+    setClearingSession(true);
+    try {
+      const response = await postingsApi.clearCurrentSession(clearMode);
+      const result = response.data?.data || response.data;
+
+      toast.success(
+        clearMode === 'hard'
+          ? `Permanently deleted ${result.affected_count} posting(s) for ${result.session_name}`
+          : `Cancelled ${result.affected_count} posting(s) for ${result.session_name}`
+      );
+      setSessionClearSummary(null);
+      handleRefresh();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to clear session postings');
+    } finally {
+      setClearingSession(false);
     }
   };
 
@@ -437,6 +484,17 @@ function PostingsPage() {
           <Button variant="outline" onClick={handleRefresh} className="active:scale-95">
             <IconRefresh className="w-4 h-4" />
           </Button>
+          {isSuperAdmin && (
+            <Button
+              variant="destructive"
+              onClick={handleOpenSessionClear}
+              className="active:scale-95 whitespace-nowrap"
+              title="Cancel or permanently delete every posting in the current session"
+            >
+              <IconTrash className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Clear Session Postings</span>
+            </Button>
+          )}
           <Select
             value={selectedSession}
             onChange={(e) => {
@@ -652,6 +710,89 @@ function PostingsPage() {
         loading={deleting}
         onConfirm={handleDeletePosting}
       />
+
+      {/* Session-wide Clear Dialog (super admin only) */}
+      <ConfirmDialog
+        isOpen={!!sessionClearSummary}
+        onClose={() => setSessionClearSummary(null)}
+        title="Clear Session Postings"
+        message={`Session ${sessionClearSummary?.session_name || ''} — choose how these postings should be removed.`}
+        confirmText={clearMode === 'hard' ? 'Delete Permanently' : 'Cancel Postings'}
+        cancelText="Cancel"
+        variant="danger"
+        requireText={clearMode === 'hard' ? 'DELETE' : null}
+        loading={clearingSession}
+        onConfirm={handleClearCurrentSession}
+      >
+        <div className="space-y-2">
+          {/* This always targets the is_current session, not the dropdown selection */}
+          {sessionClearSummary &&
+            String(selectedSession) !== String(sessionClearSummary.session_id) && (
+              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                <IconAlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>
+                  You are viewing a different session. This will clear{' '}
+                  <strong>{sessionClearSummary.session_name}</strong>, the current session.
+                </span>
+              </div>
+            )}
+
+          <label
+            className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+              clearMode === 'soft'
+                ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-500'
+                : 'border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            <input
+              type="radio"
+              name="clearMode"
+              value="soft"
+              checked={clearMode === 'soft'}
+              onChange={() => setClearMode('soft')}
+              className="mt-1 h-4 w-4 text-primary-600 focus:ring-primary-500"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="font-medium text-gray-900">
+                Soft delete — cancel {sessionClearSummary?.soft_deletable ?? 0} posting(s)
+              </div>
+              <div className="text-sm text-gray-500 mt-0.5">
+                Marks the postings as cancelled. The records are kept and this is reversible.
+              </div>
+            </div>
+          </label>
+
+          <label
+            className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+              clearMode === 'hard'
+                ? 'border-red-500 bg-red-50 ring-1 ring-red-500'
+                : 'border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            <input
+              type="radio"
+              name="clearMode"
+              value="hard"
+              checked={clearMode === 'hard'}
+              onChange={() => setClearMode('hard')}
+              className="mt-1 h-4 w-4 text-red-600 focus:ring-red-500"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="font-medium text-gray-900">
+                Hard delete — permanently remove {sessionClearSummary?.hard_deletable ?? 0} posting(s)
+              </div>
+              <div className="text-sm text-gray-500 mt-0.5">
+                Deletes the records outright, along with their location-verification logs.
+              </div>
+              {clearMode === 'hard' && (
+                <div className="text-sm font-medium text-red-600 mt-1">
+                  This cannot be undone — there is no rollback.
+                </div>
+              )}
+            </div>
+          </label>
+        </div>
+      </ConfirmDialog>
     </div>
   );
 }

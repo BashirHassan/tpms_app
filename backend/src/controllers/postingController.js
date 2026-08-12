@@ -8,6 +8,7 @@
 const { z } = require('zod');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const { calculateAllowances } = require('../services/allowanceCalculator');
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -49,14 +50,6 @@ const schemas = {
     }),
   }),
 
-  autoPost: z.object({
-    body: z.object({
-      session_id: z.number().int().positive('Session ID is required'),
-      route_id: z.number().int().positive().optional(),
-      max_postings_per_supervisor: z.number().int().min(1).max(100).optional(),
-    }),
-  }),
-
   clearPostings: z.object({
     body: z.object({
       session_id: z.number().int().positive('Session ID is required'),
@@ -64,11 +57,28 @@ const schemas = {
       route_id: z.number().int().positive().optional(),
     }),
   }),
+
+  // Super admin bulk clear of the current session. The `confirm` literal is a
+  // server-side guard so the endpoint cannot fire on an accidental request -
+  // the UI's typed confirmation must not be the only gate.
+  clearCurrentSession: z.object({
+    body: z.object({
+      mode: z.enum(['soft', 'hard'], {
+        errorMap: () => ({ message: "mode must be either 'soft' or 'hard'" }),
+      }),
+      confirm: z.literal('DELETE', {
+        errorMap: () => ({ message: "confirm must be the string 'DELETE'" }),
+      }),
+    }),
+  }),
 };
 
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
+
+// Max ids per IN () clause when deleting in bulk, so statements stay bounded
+const ID_CHUNK_SIZE = 1000;
 
 /**
  * Get current active session for institution
@@ -81,118 +91,6 @@ async function getCurrentSession(institutionId) {
     [institutionId]
   );
   return session[0] || null;
-}
-
-/**
- * Calculate distance-based location category
- */
-function getLocationCategory(distanceKm, thresholdKm = 10) {
-  return distanceKm <= thresholdKm ? 'inside' : 'outside';
-}
-
-/**
- * Calculate allowances based on rank and distance
- * 
- * ALLOWANCE CALCULATION RULES:
- * 
- * 1. LOCAL RUNNING (distance <= inside_distance_threshold_km):
- *    - Local Running Allowance ONLY
- *    - Transport = 0, DSA = 0, DTA = 0, Tetfund = 0
- *    (Inside postings are not eligible for tetfund)
- * 
- * 2. DSA ENABLED & distance within DSA range (dsa_min_distance_km to dsa_max_distance_km):
- *    - Local Running = 0
- *    - Transport = distance_km × transport_per_km
- *    - DSA = DTA × (dsa_percentage / 100)
- *    - DTA = 0
- *    - Tetfund = supervisor tetfund rate (eligible for tetfund)
- * 
- * 3. DSA DISABLED or distance > dsa_max_distance_km (full DTA range):
- *    - Local Running = 0
- *    - Transport = distance_km × transport_per_km
- *    - DSA = 0
- *    - DTA = full DTA rate
- *    - Tetfund = supervisor tetfund rate (eligible for tetfund)
- * 
- * NOTE: Tetfund is stored on ALL eligible postings (DSA and DTA range).
- * When calculating totals, use MAX(tetfund) to count it only ONCE per supervisor per session.
- * This provides resilience - if one posting is deleted, tetfund remains on other eligible postings.
- * 
- * @param {Object} supervisor - Supervisor with rank allowance rates
- * @param {Object} school - School with distance_km
- * @param {Object} session - Session with threshold settings
- * @param {boolean} isSecondary - If true, this is a dependent/merged posting (zero allowances)
- * @returns {Object} Calculated allowances
- */
-function calculateAllowances(supervisor, school, session, isSecondary = false) {
-  const distanceKm = parseFloat(school.distance_km) || 0;
-  const insideThreshold = parseFloat(session.inside_distance_threshold_km) || 10;
-  const locationCategory = getLocationCategory(distanceKm, insideThreshold);
-
-  // Secondary/dependent postings for merged groups get ZERO allowances
-  if (isSecondary) {
-    return {
-      transport: 0,
-      dsa: 0,
-      dta: 0,
-      local_running: 0,
-      tetfund: 0,
-      total: 0,
-      location_category: locationCategory,
-      distance_km: distanceKm,
-      is_secondary: true,
-    };
-  }
-
-  // Get supervisor rank rates
-  const localRunningRate = parseFloat(supervisor.local_running_allowance) || 0;
-  const transportPerKm = parseFloat(supervisor.transport_per_km) || 0;
-  const dtaRate = parseFloat(supervisor.dta) || 0;
-  const tetfundRate = parseFloat(supervisor.tetfund) || 0;
-
-  // Get session DSA settings
-  const dsaEnabled = session.dsa_enabled === 1 || session.dsa_enabled === true;
-  const dsaMinDistance = parseFloat(session.dsa_min_distance_km) || 11;
-  const dsaMaxDistance = parseFloat(session.dsa_max_distance_km) || 30;
-  const dsaPercentage = parseFloat(session.dsa_percentage) || 50;
-
-  let transport = 0;
-  let dsa = 0;
-  let dta = 0;
-  let localRunning = 0;
-  let tetfund = 0;
-
-  if (locationCategory === 'inside') {
-    // RULE 1: Inside distance threshold - LOCAL RUNNING ONLY
-    // Inside postings are NOT eligible for tetfund
-    localRunning = localRunningRate;
-    // All other allowances are 0 (including tetfund)
-  } else if (dsaEnabled && distanceKm >= dsaMinDistance && distanceKm <= dsaMaxDistance) {
-    // RULE 2: DSA enabled AND distance within DSA range
-    // Transport + DSA (percentage of DTA) + Tetfund
-    transport = transportPerKm * distanceKm;
-    dsa = (dtaRate * dsaPercentage) / 100;
-    tetfund = tetfundRate; // Eligible for tetfund
-    // DTA = 0
-  } else {
-    // RULE 3: Outside + (DSA disabled OR distance > dsa_max_distance_km)
-    // Transport + full DTA + Tetfund
-    transport = transportPerKm * distanceKm;
-    dta = dtaRate;
-    tetfund = tetfundRate; // Eligible for tetfund
-  }
-
-  return {
-    transport,
-    dsa,
-    dta,
-    local_running: localRunning,
-    tetfund,
-    total: transport + dsa + dta + localRunning + tetfund,
-    location_category: locationCategory,
-    distance_km: distanceKm,
-    is_secondary: false,
-  };
 }
 
 // ============================================================================
@@ -876,124 +774,6 @@ const bulkCreate = async (req, res, next) => {
 };
 
 /**
- * Auto-post supervisors to schools
- * POST /:institutionId/postings/auto-post
- */
-const autoPost = async (req, res, next) => {
-  try {
-    const { institutionId } = req.params;
-    const validation = schemas.autoPost.safeParse({ body: req.body });
-
-    if (!validation.success) {
-      throw new ValidationError('Validation failed', validation.error.flatten().fieldErrors);
-    }
-
-    const { session_id, route_id, max_postings_per_supervisor } = validation.data.body;
-
-    // Verify session
-    const [session] = await query(
-      'SELECT * FROM academic_sessions WHERE id = ? AND institution_id = ?',
-      [session_id, parseInt(institutionId)]
-    );
-
-    if (!session) {
-      throw new NotFoundError('Session not found');
-    }
-
-    const maxPostings = max_postings_per_supervisor || session.max_posting_per_supervisor || 50;
-
-    // Get schools with students that need supervisors
-    // Use institution_schools.distance_km as the authoritative source for distance
-    let schoolsSql = `
-      SELECT DISTINCT isv.id as school_id, ms.name as school_name, isv.route_id,
-             isv.distance_km,
-             COUNT(DISTINCT sa.student_id) as student_count,
-             MAX(sa.group_number) as max_group,
-             (SELECT COUNT(*) FROM supervisor_postings sp 
-              WHERE sp.institution_school_id = isv.id AND sp.session_id = ? AND sp.status = 'active') as existing_postings
-      FROM institution_schools isv
-      JOIN master_schools ms ON isv.master_school_id = ms.id
-      INNER JOIN student_acceptances sa ON isv.id = sa.institution_school_id AND sa.status = 'approved'
-      WHERE isv.institution_id = ? AND sa.session_id = ? AND isv.status = 'active'
-    `;
-    const schoolParams = [session_id, parseInt(institutionId), session_id];
-
-    if (route_id) {
-      schoolsSql += ' AND isv.route_id = ?';
-      schoolParams.push(parseInt(route_id));
-    }
-
-    schoolsSql += ' GROUP BY isv.id HAVING existing_postings < ? ORDER BY isv.distance_km';
-    schoolParams.push(session.max_supervision_visits || 3);
-
-    const schools = await query(schoolsSql, schoolParams);
-
-    // Get available supervisors (only count PRIMARY postings toward the limit)
-    const supervisors = await query(
-      `SELECT u.id, u.name,
-              r.local_running_allowance, r.transport_per_km, r.dsa, r.dta, r.tetfund,
-              COUNT(sp.id) as current_postings
-       FROM users u
-       LEFT JOIN ranks r ON u.rank_id = r.id
-       LEFT JOIN supervisor_postings sp ON u.id = sp.supervisor_id 
-                 AND sp.session_id = ? AND sp.status = 'active'
-                 AND sp.is_primary_posting = 1
-       WHERE u.institution_id = ? AND u.role = 'supervisor' AND u.status = 'active'
-       GROUP BY u.id
-       HAVING current_postings < ?
-       ORDER BY current_postings ASC, u.name`,
-      [session_id, parseInt(institutionId), maxPostings]
-    );
-
-    const results = { successful: [], skipped: [] };
-    let supervisorIndex = 0;
-
-    await transaction(async (conn) => {
-      for (const school of schools) {
-        if (supervisorIndex >= supervisors.length) break;
-
-        const supervisor = supervisors[supervisorIndex];
-        const allowances = calculateAllowances(supervisor, school, session, false);
-
-        // Create posting
-        const [insertResult] = await conn.execute(
-          `INSERT INTO supervisor_postings 
-           (institution_id, session_id, supervisor_id, institution_school_id, group_number, visit_number,
-            distance_km, transport, dsa, dta, local_running,
-            tetfund, posted_by, is_primary_posting, status, created_at)
-           VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, 1, 'active', NOW())`,
-          [
-            parseInt(institutionId), session_id, supervisor.id, school.school_id,
-            allowances.distance_km, allowances.transport,
-            allowances.dsa, allowances.dta, allowances.local_running, allowances.tetfund,
-            req.user.id
-          ]
-        );
-
-        results.successful.push({
-          posting_id: insertResult.insertId,
-          supervisor_id: supervisor.id,
-          supervisor_name: supervisor.name,
-          school_id: school.school_id,
-          school_name: school.school_name,
-        });
-
-        // Move to next supervisor (round-robin)
-        supervisorIndex = (supervisorIndex + 1) % supervisors.length;
-      }
-    });
-
-    res.json({
-      success: true,
-      message: `Auto-posted ${results.successful.length} supervisors`,
-      data: results,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
  * Clear postings for a session
  * POST /:institutionId/postings/clear
  */
@@ -1028,6 +808,178 @@ const clearPostings = async (req, res, next) => {
       success: true,
       message: `Cleared ${result.affectedRows} postings`,
       data: { cleared_count: result.affectedRows },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Summary of the current session's postings, for the super admin bulk-clear dialog
+ * GET /:institutionId/postings/current-session/summary
+ *
+ * Always resolves the session flagged is_current - the page's session dropdown
+ * does not decide what gets cleared.
+ */
+const getCurrentSessionPostingSummary = async (req, res, next) => {
+  try {
+    const { institutionId } = req.params;
+
+    const session = await getCurrentSession(parseInt(institutionId));
+    if (!session) {
+      throw new NotFoundError('No current academic session found for this institution');
+    }
+
+    const rows = await query(
+      `SELECT status, COUNT(*) as count
+       FROM supervisor_postings
+       WHERE institution_id = ? AND session_id = ?
+       GROUP BY status`,
+      [parseInt(institutionId), session.id]
+    );
+
+    const byStatus = {};
+    let total = 0;
+    for (const row of rows) {
+      byStatus[row.status] = Number(row.count);
+      total += Number(row.count);
+    }
+
+    const cancelled = byStatus.cancelled || 0;
+
+    res.json({
+      success: true,
+      data: {
+        session_id: session.id,
+        session_name: session.name,
+        total,
+        active: byStatus.active || 0,
+        cancelled,
+        by_status: byStatus,
+        // A soft delete is a no-op on already-cancelled rows; a hard delete removes everything
+        soft_deletable: total - cancelled,
+        hard_deletable: total,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Clear ALL postings for the current session (super admin only)
+ * DELETE /:institutionId/postings/current-session
+ *
+ * mode='soft' -> marks postings cancelled (reversible, same as the rest of the app)
+ * mode='hard' -> permanently removes the rows plus their location logs
+ *
+ * Hard delete is irreversible - there is no batch rollback for it.
+ */
+const clearCurrentSessionPostings = async (req, res, next) => {
+  try {
+    const { institutionId } = req.params;
+    const validation = schemas.clearCurrentSession.safeParse({ body: req.body });
+
+    if (!validation.success) {
+      throw new ValidationError('Validation failed', validation.error.flatten().fieldErrors);
+    }
+
+    const { mode } = validation.data.body;
+    const instId = parseInt(institutionId);
+
+    const session = await getCurrentSession(instId);
+    if (!session) {
+      throw new NotFoundError('No current academic session found for this institution');
+    }
+
+    const result = await transaction(async (conn) => {
+      if (mode === 'soft') {
+        const [update] = await conn.execute(
+          `UPDATE supervisor_postings SET status = 'cancelled', updated_at = NOW()
+           WHERE institution_id = ? AND session_id = ? AND status != 'cancelled'`,
+          [instId, session.id]
+        );
+        return { affectedCount: update.affectedRows, locationLogsDeleted: 0 };
+      }
+
+      // HARD DELETE - resolve the exact id set first so every statement below
+      // operates on the same rows even if a concurrent insert lands mid-transaction
+      const [rows] = await conn.execute(
+        'SELECT id FROM supervisor_postings WHERE institution_id = ? AND session_id = ?',
+        [instId, session.id]
+      );
+      const ids = rows.map(r => r.id);
+
+      if (ids.length === 0) {
+        return { affectedCount: 0, locationLogsDeleted: 0 };
+      }
+
+      let locationLogsDeleted = 0;
+
+      // Chunk the IN () lists so statements stay bounded on large sessions
+      for (let i = 0; i < ids.length; i += ID_CHUNK_SIZE) {
+        const chunk = ids.slice(i, i + ID_CHUNK_SIZE);
+        const placeholders = chunk.map(() => '?').join(',');
+
+        // No FK on supervisor_posting_id - these would orphan otherwise
+        const [logs] = await conn.execute(
+          `DELETE FROM supervision_location_logs
+           WHERE institution_id = ? AND supervisor_posting_id IN (${placeholders})`,
+          [instId, ...chunk]
+        );
+        locationLogsDeleted += logs.affectedRows;
+
+        // Self-reference with no FK - clear links from dependent postings in other
+        // sessions whose primary posting is about to disappear
+        await conn.execute(
+          `UPDATE supervisor_postings SET merged_with_posting_id = NULL
+           WHERE institution_id = ? AND merged_with_posting_id IN (${placeholders})`,
+          [instId, ...chunk]
+        );
+
+        await conn.execute(
+          `DELETE FROM supervisor_postings
+           WHERE institution_id = ? AND id IN (${placeholders})`,
+          [instId, ...chunk]
+        );
+      }
+
+      return { affectedCount: ids.length, locationLogsDeleted };
+    });
+
+    // Audit log - only when something actually changed
+    if (result.affectedCount > 0) {
+      await query(
+        `INSERT INTO audit_logs (institution_id, user_id, user_type, action, resource_type, resource_id, details, ip_address)
+         VALUES (?, ?, 'staff', ?, 'supervisor_posting', NULL, ?, ?)`,
+        [
+          instId,
+          req.user.id,
+          mode === 'hard' ? 'postings_session_hard_deleted' : 'postings_session_cancelled',
+          JSON.stringify({
+            session_id: session.id,
+            session_name: session.name,
+            mode,
+            affected_count: result.affectedCount,
+            location_logs_deleted: result.locationLogsDeleted,
+          }),
+          req.ip,
+        ]
+      );
+    }
+
+    const verb = mode === 'hard' ? 'Permanently deleted' : 'Cancelled';
+
+    res.json({
+      success: true,
+      message: `${verb} ${result.affectedCount} posting(s) for ${session.name}`,
+      data: {
+        mode,
+        affected_count: result.affectedCount,
+        location_logs_deleted: result.locationLogsDeleted,
+        session_id: session.id,
+        session_name: session.name,
+      },
     });
   } catch (error) {
     next(error);
@@ -3408,8 +3360,9 @@ module.exports = {
   getAvailableSchools,
   getAvailableSupervisors,
   bulkCreate,
-  autoPost,
   clearPostings,
+  getCurrentSessionPostingSummary,
+  clearCurrentSessionPostings,
   getBySession,
   getSupervisorPostings,
   getMyPostings,

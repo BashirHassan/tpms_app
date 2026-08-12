@@ -135,12 +135,20 @@ export function createPostingsApi(institutionId) {
     bulkCreate: (data) => 
       apiClient.post(`${basePath}/bulk`, data),
     
-    autoPost: (data) => 
-      apiClient.post(`${basePath}/auto-post`, data),
-    
-    clear: (data) => 
+    clear: (data) =>
       apiClient.post(`${basePath}/clear`, data),
-    
+
+    /** Counts for the current session, for the super admin bulk-clear dialog */
+    getCurrentSessionSummary: () =>
+      apiClient.get(`${basePath}/current-session/summary`),
+
+    /**
+     * Clear every posting in the current session (super admin only)
+     * @param {'soft'|'hard'} mode - 'soft' cancels, 'hard' permanently removes rows
+     */
+    clearCurrentSession: (mode) =>
+      apiClient.delete(`${basePath}/current-session`, { data: { mode, confirm: 'DELETE' } }),
+
     export: (params = {}) =>
       apiClient.get(`${basePath}/export`, { params, responseType: 'blob' }),
   };
@@ -204,8 +212,9 @@ export const postingsApi = {
   validatePosting: (data) => apiClient.post(`${getBasePath()}/validate`, data),
   createMultiPostings: (sessionId, postings) => apiClient.post(`${getBasePath()}/multi`, { session_id: sessionId, postings }),
   bulkCreate: (data) => apiClient.post(`${getBasePath()}/bulk`, data),
-  autoPost: (data) => apiClient.post(`${getBasePath()}/auto-post`, data),
   clear: (data) => apiClient.post(`${getBasePath()}/clear`, data),
+  getCurrentSessionSummary: () => apiClient.get(`${getBasePath()}/current-session/summary`),
+  clearCurrentSession: (mode) => apiClient.delete(`${getBasePath()}/current-session`, { data: { mode, confirm: 'DELETE' } }),
   export: (params = {}) => apiClient.get(`${getBasePath()}/export`, { params, responseType: 'blob' }),
   
   // Aliases for backward compatibility with MultipostingPage

@@ -30,6 +30,7 @@ export function createAutoPostingApi(institutionId) {
      * @param {number} criteria.number_of_postings - Number of postings per supervisor
      * @param {string} criteria.posting_type - 'random' | 'route_based' | 'lga_based'
      * @param {boolean} criteria.priority_enabled - Enable priority-based distribution
+     * @param {boolean} [criteria.avoid_repeat_schools=true] - Avoid sending a supervisor to the same school twice
      * @param {number} [criteria.faculty_id] - Optional faculty filter for deans
      */
     preview: (criteria) => 

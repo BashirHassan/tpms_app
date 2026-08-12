@@ -10,12 +10,15 @@ const express = require('express');
 const router = express.Router();
 const autoPostingController = require('../controllers/autoPostingController');
 const { authenticate } = require('../middleware/auth');
-const { requireInstitutionAccess, isHeadOfTP } = require('../middleware/rbac');
+const { requireInstitutionAccess, isSuperAdmin } = require('../middleware/rbac');
 const { requireFeature } = require('../middleware/featureToggle');
 
 // ============================================================================
 // Auto-Posting Operations
-// All routes require authentication, institution access, and head_of_tp+ role
+// All routes require authentication, institution access, and super_admin role.
+// Auto-posting creates postings in bulk across the whole institution, so it is
+// deliberately restricted to super admins - heads of TP and deans post manually
+// through the multiposting screen.
 // ============================================================================
 
 /**
@@ -26,7 +29,7 @@ router.post(
   '/:institutionId/auto-posting/preview',
   authenticate,
   requireInstitutionAccess(),
-  isHeadOfTP,
+  isSuperAdmin,
   requireFeature('posting_management'),
   autoPostingController.previewAutoPosting
 );
@@ -39,7 +42,7 @@ router.post(
   '/:institutionId/auto-posting/execute',
   authenticate,
   requireInstitutionAccess(),
-  isHeadOfTP,
+  isSuperAdmin,
   requireFeature('posting_management'),
   autoPostingController.executeAutoPosting
 );
@@ -52,7 +55,7 @@ router.get(
   '/:institutionId/auto-posting/history',
   authenticate,
   requireInstitutionAccess(),
-  isHeadOfTP,
+  isSuperAdmin,
   requireFeature('posting_management'),
   autoPostingController.getAutoPostingHistory
 );
@@ -65,7 +68,7 @@ router.post(
   '/:institutionId/auto-posting/:batchId/rollback',
   authenticate,
   requireInstitutionAccess(),
-  isHeadOfTP,
+  isSuperAdmin,
   requireFeature('posting_management'),
   autoPostingController.rollbackAutoPosting
 );

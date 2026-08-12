@@ -13,7 +13,7 @@ const express = require('express');
 const router = express.Router();
 const postingController = require('../controllers/postingController');
 const { authenticate } = require('../middleware/auth');
-const { requireInstitutionAccess, staffOnly } = require('../middleware/rbac');
+const { requireInstitutionAccess, staffOnly, isSuperAdmin } = require('../middleware/rbac');
 const { requireFeature } = require('../middleware/featureToggle');
 const validate = require('../middleware/validate');
 
@@ -66,6 +66,14 @@ router.get('/:institutionId/postings/my-postings-printable', authenticate, requi
 router.get('/:institutionId/postings/my-invitation-letter', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('posting_management'), postingController.getMyInvitationLetter);
 
 // ============================================================================
+// Current Session Bulk Clear (super_admin only - supports soft AND hard delete)
+// MUST be registered before the /:id routes below, otherwise Express matches
+// those first and parses "current-session" as the posting id
+// ============================================================================
+router.get('/:institutionId/postings/current-session/summary', authenticate, requireInstitutionAccess(), isSuperAdmin, requireFeature('posting_management'), postingController.getCurrentSessionPostingSummary);
+router.delete('/:institutionId/postings/current-session', authenticate, requireInstitutionAccess(), isSuperAdmin, requireFeature('posting_management'), postingController.clearCurrentSessionPostings);
+
+// ============================================================================
 // CRUD Operations
 // ============================================================================
 router.get('/:institutionId/postings', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('posting_management'), postingController.getAll);
@@ -80,7 +88,6 @@ router.delete('/:institutionId/postings/:id', authenticate, requireInstitutionAc
 router.post('/:institutionId/postings/validate', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('posting_management'), postingController.validatePosting);
 router.post('/:institutionId/postings/multi', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('posting_management'), postingController.createMultiPostings);
 router.post('/:institutionId/postings/bulk', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('posting_management'), postingController.bulkCreate);
-router.post('/:institutionId/postings/auto-post', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('posting_management'), postingController.autoPost);
 router.post('/:institutionId/postings/clear', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('posting_management'), postingController.clearPostings);
 
 module.exports = router;
