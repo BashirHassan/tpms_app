@@ -4,7 +4,7 @@
  * Uses tabs to switch between principal and location requests
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   IconUser,
   IconMapPin,
@@ -20,7 +20,7 @@ import { schoolUpdateRequestsApi } from '../../api/schoolUpdateRequestsApi';
 import { sessionsApi } from '../../api';
 import { useToast } from '../../context/ToastContext';
 import { formatDateTime } from '../../utils/helpers';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
@@ -98,18 +98,7 @@ export default function SchoolUpdateRequestsPage() {
     totalPages: 0,
   });
 
-  // Load sessions on mount
-  useEffect(() => {
-    loadSessions();
-  }, []);
-
-  // Load data when tab or filters change
-  useEffect(() => {
-    loadRequests();
-    loadStatistics();
-  }, [activeTab, filters.session_id, filters.status, pagination.page, pagination.limit]);
-
-  const loadSessions = async () => {
+  const loadSessions = useCallback(async () => {
     try {
       const response = await sessionsApi.getAll();
       const sessionsData = response.data.data || response.data || [];
@@ -123,9 +112,9 @@ export default function SchoolUpdateRequestsPage() {
     } catch (err) {
       console.error('Failed to load sessions:', err);
     }
-  };
+  }, []);
 
-  const loadRequests = async () => {
+  const loadRequests = useCallback(async () => {
     try {
       setLoading(true);
       const params = {
@@ -149,9 +138,9 @@ export default function SchoolUpdateRequestsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, filters, pagination.page, pagination.limit, toast]);
 
-  const loadStatistics = async () => {
+  const loadStatistics = useCallback(async () => {
     try {
       const sessionId = filters.session_id || null;
       const response = activeTab === 'principal'
@@ -163,7 +152,18 @@ export default function SchoolUpdateRequestsPage() {
     } catch (err) {
       console.error('Failed to load statistics:', err);
     }
-  };
+  }, [activeTab, filters.session_id]);
+
+  // Load sessions on mount
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
+
+  // Load data when tab or filters change
+  useEffect(() => {
+    loadRequests();
+    loadStatistics();
+  }, [loadRequests, loadStatistics]);
 
   const handleApprove = (request) => {
     setApprovingRequest(request);

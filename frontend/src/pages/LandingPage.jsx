@@ -3,8 +3,7 @@
  * Placeholder for the main marketing/landing page (no subdomain)
  */
 
-import { IconSchool, IconArrowRight, IconBuilding, IconUsers, IconClipboardCheck } from '@tabler/icons-react';
-import { Link } from 'react-router-dom';
+import { IconSchool, IconBuilding, IconUsers, IconClipboardCheck } from '@tabler/icons-react';
 
 function LandingPage() {
   return (

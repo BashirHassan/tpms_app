@@ -23,7 +23,6 @@ import {
   IconSearch,
   IconRefresh,
   IconCheck,
-  IconX,
   IconUsers,
   IconSchool,
   IconEye,
@@ -151,7 +150,7 @@ export default function InstitutionsPage() {
   };
 
   // Open view modal
-  const openViewModal = async (institution) => {
+  const openViewModal = useCallback(async (institution) => {
     try {
       const res = await institutionsApi.getById(institution.id);
       const data = res?.data?.data || res?.data || institution;
@@ -169,13 +168,13 @@ export default function InstitutionsPage() {
       setSelectedInstitution(institution);
       setShowViewModal(true);
     }
-  };
+  }, [allStats]);
 
   // Navigate to edit (uses settings page)
-  const handleEdit = (institution) => {
+  const handleEdit = useCallback((institution) => {
     // Navigate to institution settings page with the institution ID
     navigate(`/admin/institutions/${institution.id}/settings`);
-  };
+  }, [navigate]);
 
   // Table columns for DataTable
   const columns = useMemo(() => [

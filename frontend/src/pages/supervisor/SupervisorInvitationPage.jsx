@@ -6,7 +6,7 @@
  * Access is available for any user with postings in the current session
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { postingsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -43,12 +43,7 @@ function SupervisorInvitationPage() {
   const [templateHtml, setTemplateHtml] = useState(null);
   const [error, setError] = useState(null);
 
-  // Fetch document data on mount
-  useEffect(() => {
-    fetchDocumentData();
-  }, []);
-
-  const fetchDocumentData = async () => {
+  const fetchDocumentData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -68,7 +63,12 @@ function SupervisorInvitationPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  // Fetch document data on mount
+  useEffect(() => {
+    fetchDocumentData();
+  }, [fetchDocumentData]);
 
   const handlePrint = () => {
     window.print();
@@ -271,7 +271,7 @@ function SupervisorInvitationPage() {
               </p>
 
               <ul className="list-disc list-inside mb-4 text-sm ml-4 space-y-1">
-                <li>Observe the student-teacher's lesson delivery and classroom management</li>
+                <li>Observe the student-teacher&apos;s lesson delivery and classroom management</li>
                 <li>Provide constructive feedback and guidance for improvement</li>
                 <li>Complete the official assessment forms for each student</li>
                 <li>Submit your assessment reports to the Teaching Practice office</li>

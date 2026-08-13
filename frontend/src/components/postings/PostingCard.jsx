@@ -144,17 +144,6 @@ function SchoolCard({
     ? 'bg-gray-100 border-b border-gray-200 px-2 sm:px-4 py-2'
     : 'bg-purple-50 border-b border-purple-200 px-2 sm:px-4 py-2';
   
-  const iconStyles = isPrimary
-    ? 'text-primary-600'
-    : 'text-purple-600';
-  
-  const titleStyles = isPrimary
-    ? 'font-bold text-gray-900 text-base'
-    : 'font-bold text-gray-900 text-sm';
-  
-  const iconSize = isPrimary ? 'w-5 h-5' : 'w-4 h-4';
-  const addressTextSize = isPrimary ? 'text-sm' : 'text-xs';
-
   // Check if school has GPS coordinates
   const hasCoordinates = posting.school_latitude && posting.school_longitude;
 

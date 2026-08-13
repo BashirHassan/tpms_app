@@ -4,8 +4,7 @@
  */
 
 import { Suspense } from 'react';
-import { Outlet, Link } from 'react-router-dom';
-import { IconSchool } from '@tabler/icons-react';
+import { Outlet } from 'react-router-dom';
 import ContentLoader from '../components/ui/ContentLoader';
 
 export default function PublicLayout() {

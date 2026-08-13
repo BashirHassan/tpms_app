@@ -12,7 +12,7 @@
 
 import axios from 'axios';
 import { getSubdomain } from '../hooks/useSubdomain';
-import { getToken, getTabId, clearTabAuthOnly } from '../utils/tabStorage';
+import { getToken, getTabId, clearTabAuthOnly, getUser } from '../utils/tabStorage';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -35,7 +35,6 @@ export function getCurrentInstitutionId() {
   
   // Get from user data in tab-scoped storage
   try {
-    const { getUser } = require('../utils/tabStorage');
     const user = getUser();
     if (user) {
       const institutionId = user.institution?.id;

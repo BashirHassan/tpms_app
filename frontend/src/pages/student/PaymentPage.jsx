@@ -10,7 +10,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { paymentsApi, portalApi } from '../../api';
-import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { usePaystackInline } from '../../hooks';
 import { cn, formatCurrency, formatDate } from '../../utils/helpers';
@@ -34,7 +33,6 @@ import {
   IconSparkles,
   IconBuildingBank,
   IconDownload,
-  IconFileText,
 } from '@tabler/icons-react';
 
 // Payment states following JEI pattern
@@ -124,7 +122,6 @@ const StatCard = ({ icon: Icon, label, value, variant = 'default', className }) 
 
 function PaymentPage() {
   const navigate = useNavigate();
-  const { user, institution } = useAuth();
   const { toast } = useToast();
   const { resumeTransaction } = usePaystackInline();
   const contentRef = useRef(null);
@@ -141,7 +138,7 @@ function PaymentPage() {
   const [postingLetterWindow, setPostingLetterWindow] = useState(null);
   const [error, setError] = useState(null);
   // Store payment info for retry/verification
-  const [pendingPayment, setPendingPayment] = useState(null);
+  const [, setPendingPayment] = useState(null);
 
   // Unverified payment attempts from pending_transactions table
   const [pendingTransactions, setPendingTransactions] = useState([]);
@@ -152,12 +149,7 @@ function PaymentPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Fetch payment status and portal status
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -212,10 +204,15 @@ function PaymentPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  // Fetch payment status and portal status
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   // Server-side payment verification (NEVER trust frontend callbacks)
-  const verifyPaymentOnServer = async (reference) => {
+  const verifyPaymentOnServer = useCallback(async (reference) => {
     setPaymentState(PAYMENT_STATES.VERIFYING);
     try {
       const verifyResult = await paymentsApi.verifyPayment(reference);
@@ -236,7 +233,7 @@ function PaymentPage() {
       toast.error('Payment verification failed');
       return false;
     }
-  };
+  }, [toast, fetchData]);
 
   // Initialize and process payment following JEI Paystack pattern
   const handlePayment = useCallback(async () => {
@@ -265,10 +262,9 @@ function PaymentPage() {
       // Step 2: Open Paystack popup using access_code (JEI pattern)
       resumeTransaction({
         accessCode: paystack.accessCode,
-        onSuccess: async (response) => {
+        onSuccess: async () => {
           // CRITICAL: Verify payment server-side (JEI pattern)
           // Never trust frontend callback - always verify with backend
-          console.log('Paystack popup closed with response:', response);
           await verifyPaymentOnServer(paystack.reference);
         },
         onCancel: () => {
@@ -289,7 +285,7 @@ function PaymentPage() {
       setError(message);
       toast.error(message);
     }
-  }, [session, paymentStatus, toast, resumeTransaction]);
+  }, [session, paymentStatus, toast, resumeTransaction, verifyPaymentOnServer]);
 
 
 
@@ -390,7 +386,7 @@ function PaymentPage() {
             </div>
             <h3 className="text-xl font-semibold text-gray-900 mb-2">No Payment Required</h3>
             <p className="text-gray-600">
-              Payment is not required for this session, or has already been completed. You're all
+              Payment is not required for this session, or has already been completed. You&apos;re all
               set!
             </p>
           </div>

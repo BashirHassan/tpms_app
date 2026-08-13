@@ -186,17 +186,15 @@ function GlobalUsersPage() {
     }
   }, [search, role, institutionId, pagination.limit]);
 
-  useEffect(() => {
-    fetchUsers(1);
-  }, []);
-
-  // Refetch when filters change (debounced)
+  // Covers the initial load and every filter change. fetchUsers' identity
+  // already tracks search/role/institution/limit, so a separate mount effect
+  // would just double-fetch.
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchUsers(1);
     }, 300);
     return () => clearTimeout(timer);
-  }, [search, role, institutionId, pagination.limit]);
+  }, [fetchUsers]);
 
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= pagination.pages) {

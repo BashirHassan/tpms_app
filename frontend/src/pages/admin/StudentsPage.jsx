@@ -66,7 +66,7 @@ function StudentsPage() {
   const [uploadStep, setUploadStep] = useState('select'); // 'select' | 'preview' | 'result'
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
-  const [parsedData, setParsedData] = useState([]);
+  const [, setParsedData] = useState([]);
   const [ignoreErrors, setIgnoreErrors] = useState(false);
   const [previewFilter, setPreviewFilter] = useState('all'); // 'all' | 'valid' | 'errors'
 

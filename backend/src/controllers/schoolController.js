@@ -91,11 +91,18 @@ const getAll = async (req, res, next) => {
       location_category, 
       state, 
       lga, 
-      status, 
-      search, 
-      limit = 100, 
-      offset = 0 
+      status,
+      search,
+      page,
+      limit = 100,
+      offset = 0
     } = req.query;
+
+    const limitNum = Math.max(parseInt(limit) || 100, 1);
+    // Support both page-based and offset-based pagination
+    const offsetNum = page
+      ? (Math.max(parseInt(page) || 1, 1) - 1) * limitNum
+      : Math.max(parseInt(offset) || 0, 0);
 
     let sql = `
       SELECT 
@@ -194,7 +201,7 @@ const getAll = async (req, res, next) => {
 
     // Add ordering and pagination
     sql += ' ORDER BY ms.name ASC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    params.push(limitNum, offsetNum);
 
     const schools = await query(sql, params);
 
@@ -203,8 +210,9 @@ const getAll = async (req, res, next) => {
       data: schools,
       meta: {
         total,
-        limit: parseInt(limit),
-        offset: parseInt(offset),
+        limit: limitNum,
+        offset: offsetNum,
+        page: Math.floor(offsetNum / limitNum) + 1,
       },
     });
   } catch (error) {

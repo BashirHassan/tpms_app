@@ -8,7 +8,7 @@ import { postingsApi, sessionsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useFeature } from '../../context/InstitutionSelectionContext';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
@@ -18,7 +18,6 @@ import {
   IconClipboardList,
   IconUsers,
   IconBuildingBank as IconSchool,
-  IconMapPin,
   IconRefresh,
   IconTrash,
   IconCar,
@@ -65,20 +64,7 @@ function PostingsPage() {
   const [clearMode, setClearMode] = useState('soft');
   const [clearingSession, setClearingSession] = useState(false);
 
-  // Fetch sessions on mount
-  useEffect(() => {
-    fetchSessions();
-  }, []);
-
-  // Fetch data when session or tab changes
-  useEffect(() => {
-    if (selectedSession) {
-      fetchSummaryStats();
-      fetchTabData();
-    }
-  }, [selectedSession, activeTab, pagination.page, pagination.limit, allPostingsSearch]);
-
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const response = await sessionsApi.getAll();
       const sessionsData = response.data.data || response.data || [];
@@ -91,18 +77,42 @@ function PostingsPage() {
       console.error('Failed to load sessions:', err);
       toast.error('Failed to load sessions');
     }
-  };
+  }, [toast]);
 
-  const fetchSummaryStats = async () => {
+  const fetchSummaryStats = useCallback(async () => {
     try {
       const response = await postingsApi.getSummaryStats(selectedSession);
       setSummaryStats(response.data.data || response.data || {});
     } catch (err) {
       console.error('Failed to load summary stats:', err);
     }
-  };
+  }, [selectedSession]);
 
-  const fetchTabData = async () => {
+  const fetchAllPostings = useCallback(async () => {
+    const response = await postingsApi.getPostingsForDisplay({
+      session_id: selectedSession,
+      page: pagination.page,
+      limit: pagination.limit,
+      search: allPostingsSearch,
+    });
+    setAllPostings(response.data.data || response.data || []);
+    setPagination((prev) => ({
+      ...prev,
+      total: response.data.pagination?.total || 0,
+    }));
+  }, [selectedSession, pagination.page, pagination.limit, allPostingsSearch]);
+
+  const fetchSchoolsStudents = useCallback(async () => {
+    const response = await postingsApi.getSchoolsStudents(selectedSession);
+    setSchoolsStudents(response.data.data || response.data || []);
+  }, [selectedSession]);
+
+  const fetchSchoolsSupervisors = useCallback(async () => {
+    const response = await postingsApi.getSchoolsSupervisors(selectedSession);
+    setSchoolsSupervisors(response.data.data || response.data || []);
+  }, [selectedSession]);
+
+  const fetchTabData = useCallback(async () => {
     setLoading(true);
     try {
       switch (activeTab) {
@@ -121,31 +131,20 @@ function PostingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, fetchAllPostings, fetchSchoolsStudents, fetchSchoolsSupervisors, toast]);
 
-  const fetchAllPostings = async () => {
-    const response = await postingsApi.getPostingsForDisplay({
-      session_id: selectedSession,
-      page: pagination.page,
-      limit: pagination.limit,
-      search: allPostingsSearch,
-    });
-    setAllPostings(response.data.data || response.data || []);
-    setPagination((prev) => ({
-      ...prev,
-      total: response.data.pagination?.total || 0,
-    }));
-  };
+  // Fetch sessions on mount
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
 
-  const fetchSchoolsStudents = async () => {
-    const response = await postingsApi.getSchoolsStudents(selectedSession);
-    setSchoolsStudents(response.data.data || response.data || []);
-  };
-
-  const fetchSchoolsSupervisors = async () => {
-    const response = await postingsApi.getSchoolsSupervisors(selectedSession);
-    setSchoolsSupervisors(response.data.data || response.data || []);
-  };
+  // Fetch data when session or tab changes
+  useEffect(() => {
+    if (selectedSession) {
+      fetchSummaryStats();
+      fetchTabData();
+    }
+  }, [selectedSession, fetchSummaryStats, fetchTabData]);
 
   const handleRefresh = () => {
     fetchSummaryStats();

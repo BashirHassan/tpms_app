@@ -1,17 +1,26 @@
 /**
  * DataTable Usage Examples
- * 
+ *
  * This file demonstrates how to use the DataTable component
  * across different scenarios in the application.
+ *
+ * Reference only — nothing here is rendered, so the example components and
+ * their illustrative setters are intentionally never called.
  */
+/* eslint-disable no-unused-vars, no-console */
 
 // ============================================
 // BASIC IMPORT
 // ============================================
 
-import { DataTable, columnHelpers } from '../components/ui';
-import { Button } from '../components/ui';
-import { IconPencil, IconTrash, IconEye, IconDownload, IconDotsVertical } from '@tabler/icons-react';
+import { useState, useEffect, useRef } from 'react';
+import { DataTable, columnHelpers, Button } from './index';
+import { IconPencil, IconTrash, IconEye } from '@tabler/icons-react';
+
+// Stand-ins for the handlers a real page would define
+const fetchData = (page, limit) => console.warn('fetch page', page, 'limit', limit);
+const handleView = (row) => console.warn('view', row);
+const handleEdit = (row) => console.warn('edit', row);
 
 // ============================================
 // EXAMPLE 1: Simple Table
@@ -370,14 +379,14 @@ function FullFeatureExample() {
           variant="ghost"
           onClick={(e) => { e.stopPropagation(); handleView(row); }}
         >
-          <Eye className="w-4 h-4" />
+          <IconEye className="w-4 h-4" />
         </Button>
         <Button
           size="sm"
           variant="ghost"
           onClick={(e) => { e.stopPropagation(); handleEdit(row); }}
         >
-          <Pencil className="w-4 h-4" />
+          <IconPencil className="w-4 h-4" />
         </Button>
       </div>
     )),
@@ -437,7 +446,7 @@ header        - string    - Column header text
 type          - string    - Built-in type: 'status', 'badge', 'date', 'datetime', 'currency', 'number', 'boolean', 'actions'
 render        - function  - Custom render function: (value, row, index) => ReactNode
 formatter     - function  - Format value for display: (value, row) => string
-exportFormatter - function - Format value for export: (value, row) => string
+exportFormatter - function - Format value for export: (value, row, rowIndex) => string
 sortable      - boolean   - Enable/disable sorting (default: true)
 searchable    - boolean   - Include in search (default: true)
 exportable    - boolean   - Include in export (default: true)
@@ -464,4 +473,25 @@ Status Variants (auto-mapped):
 active, inactive, pending, approved, rejected, cancelled, completed,
 draft, published, archived, paid, unpaid, failed, refunded,
 locked, submitted, generated, available, downloaded, revoked
+
+Performance & UX Props:
+-----------------------
+virtualScrolling    - boolean  - Only render visible rows (default: false).
+                                 Turn on for 500+ row tables; keep off otherwise.
+virtualRowHeight    - number   - Estimated row height in px for the virtualizer (default: 48)
+highlightLastClicked - boolean - Keep the last clicked row visually marked (default: true).
+                                 Helps users track position after closing a modal.
+
+Server-side Export:
+-------------------
+onServerExport - async function - Called before generating the file, so exports can
+                                  cover every matching record rather than just the
+                                  current page:
+
+  onServerExport={async ({ type, columns, rows, filename }) => {
+    const all = await api.getAll({ ...filters, limit: 1000 });
+    return all.data.data;   // Row[] → generate the file from these rows
+    // return true;         // fully handled here (e.g. server sent a blob)
+    // return false;        // fall back to the currently loaded rows
+  }}
 */

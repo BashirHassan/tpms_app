@@ -16,18 +16,16 @@ import {
   IconX,
   IconClock,
   IconCurrencyNaira,
-  IconExternalLink,
   IconChecks,
   IconBan,
   IconReceipt,
   IconEye,
   IconUser,
-  IconSchool,
   IconCalendar,
   IconDeviceMobile,
   IconShieldCheck,
 } from '@tabler/icons-react';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Dialog } from '../../components/ui/Dialog';
@@ -35,8 +33,6 @@ import { DataTable, columnHelpers } from '../../components/ui/DataTable';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
 import api from '../../api/client';
-import { authApi } from '../../api/auth';
-import { getInstitutionUrl } from '../../hooks/useSubdomain';
 import { useToast } from '../../context/ToastContext';
 import { formatCurrency, formatDateTime } from '../../utils/helpers';
 
@@ -152,17 +148,14 @@ function GlobalPaymentsPage() {
     }
   }, [search, selectedStatus, selectedInstitution, startDate, endDate, pagination.limit]);
 
-  useEffect(() => {
-    fetchPayments(1);
-  }, []);
-
-  // Refetch when filters change
+  // Covers the initial load and every filter change — fetchPayments' identity
+  // already tracks the filters, so a separate mount effect would double-fetch.
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchPayments(1);
     }, 300);
     return () => clearTimeout(timer);
-  }, [search, selectedStatus, selectedInstitution, startDate, endDate, pagination.limit]);
+  }, [fetchPayments]);
 
   const handlePageChange = (newPage) => {
     fetchPayments(newPage);
@@ -686,7 +679,7 @@ function GlobalPaymentsPage() {
               placeholder="Enter Paystack reference..."
             />
             <p className="text-xs text-gray-500 mt-1">
-              Use this to verify a payment that may have succeeded but didn't update in the system.
+              Use this to verify a payment that may have succeeded but didn&apos;t update in the system.
             </p>
           </div>
 

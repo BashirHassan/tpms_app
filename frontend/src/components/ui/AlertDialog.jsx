@@ -26,8 +26,7 @@ import {
   IconAlertCircle, 
   IconAlertTriangle, 
   IconCircleCheck, 
-  IconInfoCircle,
-  IconX 
+  IconInfoCircle 
 } from '@tabler/icons-react';
 
 // Alert variants configuration
@@ -127,13 +126,13 @@ export function AlertProvider({ children }) {
   const handleConfirm = useCallback(() => {
     alertState.resolve?.(true);
     setAlertState(prev => ({ ...prev, isOpen: false }));
-  }, [alertState.resolve]);
+  }, [alertState]);
 
   // Handle cancel/close action
   const handleClose = useCallback(() => {
     alertState.resolve?.(alertState.type === 'alert' ? undefined : false);
     setAlertState(prev => ({ ...prev, isOpen: false }));
-  }, [alertState.resolve, alertState.type]);
+  }, [alertState]);
 
   const variantConfig = ALERT_VARIANTS[alertState.variant] || ALERT_VARIANTS.info;
   const IconComponent = variantConfig.icon;

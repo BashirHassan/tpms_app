@@ -10,7 +10,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { resultsApi, sessionsApi, groupsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Input } from '../../components/ui/Input';
@@ -114,32 +114,12 @@ function AdminResultsPage() {
   // INITIALIZATION
   // ============================================================
 
-  useEffect(() => {
-    fetchSessions();
-    fetchScoringCriteria();
-  }, []);
-
-  // Fetch schools when session changes
-  useEffect(() => {
-    if (selectedSession) {
-      fetchSchools();
-      fetchStudentsWithResults();
-    }
-  }, [selectedSession]);
-
-  // Refetch when filters change
-  useEffect(() => {
-    if (selectedSession) {
-      fetchStudentsWithResults();
-    }
-  }, [selectedSchool, pagination.page, pagination.limit, searchTerm]);
-
   // Clear pending changes when session changes
   useEffect(() => {
     setPendingChanges({});
   }, [selectedSession]);
 
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const response = await sessionsApi.getAll();
       const sessionsData = response.data.data || response.data || [];
@@ -158,9 +138,9 @@ function AdminResultsPage() {
     } finally {
       setInitialLoading(false);
     }
-  };
+  }, [toast]);
 
-  const fetchSchools = async () => {
+  const fetchSchools = useCallback(async () => {
     try {
       const response = await groupsApi.getSummary(selectedSession);
       const summary = response.data?.data || response.data || [];
@@ -180,9 +160,9 @@ function AdminResultsPage() {
     } catch (err) {
       console.error('Failed to load schools:', err);
     }
-  };
+  }, [selectedSession]);
 
-  const fetchScoringCriteria = async () => {
+  const fetchScoringCriteria = useCallback(async () => {
     try {
       const response = await resultsApi.getScoringCriteria();
       setScoringCriteria(response.data.data || response.data || []);
@@ -190,9 +170,9 @@ function AdminResultsPage() {
     } catch (err) {
       console.error('Failed to load scoring criteria:', err);
     }
-  };
+  }, []);
 
-  const fetchStudentsWithResults = async () => {
+  const fetchStudentsWithResults = useCallback(async () => {
     if (!selectedSession) return;
 
     setLoading(true);
@@ -222,10 +202,10 @@ function AdminResultsPage() {
         pages: parseInt(data.pagination?.pages) || 0,
       }));
 
-      // Update session info with max visits
-      if (sessionInfo) {
-        setSessionInfo(prev => ({ ...prev, max_supervision_visits: data.maxVisits }));
-      }
+      // Update session info with max visits. Uses the functional form so this
+      // doesn't close over sessionInfo — depending on a value it also replaces
+      // would retrigger the effect that calls it, forever.
+      setSessionInfo(prev => (prev ? { ...prev, max_supervision_visits: data.maxVisits } : prev));
 
       // Calculate statistics
       const studentsData = data.data || [];
@@ -257,7 +237,27 @@ function AdminResultsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedSession, pagination.page, pagination.limit, selectedSchool, searchTerm, toast]);
+
+  useEffect(() => {
+    fetchSessions();
+    fetchScoringCriteria();
+  }, [fetchSessions, fetchScoringCriteria]);
+
+  // Fetch schools when session changes
+  useEffect(() => {
+    if (selectedSession) {
+      fetchSchools();
+    }
+  }, [selectedSession, fetchSchools]);
+
+  // Covers the session change and every filter/pagination change, since
+  // fetchStudentsWithResults' identity tracks all of them
+  useEffect(() => {
+    if (selectedSession) {
+      fetchStudentsWithResults();
+    }
+  }, [selectedSession, fetchStudentsWithResults]);
 
   // ============================================================
   // SCORE CHANGE HANDLERS
@@ -301,59 +301,6 @@ function AdminResultsPage() {
     }));
   }, [totalMaxScore]);
 
-  const handleAdvancedScoreChange = useCallback((studentId, visitNumber, criterionId, score, maxScore, studentData) => {
-    const numScore = parseFloat(score);
-    if (isNaN(numScore) || numScore < 0) return;
-
-    const clampedScore = Math.min(numScore, maxScore);
-    const changeKey = `${studentId}-${visitNumber}`;
-
-    // Get current student data
-    const student = students.find(s => s.student_id === studentId);
-    const visitData = student?.[`visit_${visitNumber}`] || {};
-    const currentBreakdown = pendingChanges[changeKey]?.score_breakdown 
-      || visitData.score_breakdown 
-      || {};
-
-    const newBreakdown = {
-      ...currentBreakdown,
-      [criterionId]: clampedScore,
-    };
-
-    // Calculate new total
-    const newTotal = Object.values(newBreakdown).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
-
-    // Update local state
-    setStudents(prev =>
-      prev.map(s => {
-        if (s.student_id === studentId) {
-          return {
-            ...s,
-            [`visit_${visitNumber}`]: {
-              ...s[`visit_${visitNumber}`],
-              total_score: newTotal,
-              score_breakdown: newBreakdown,
-            },
-          };
-        }
-        return s;
-      })
-    );
-
-    // Track change
-    setPendingChanges(prev => ({
-      ...prev,
-      [changeKey]: {
-        student_id: studentId,
-        school_id: studentData.school_id,
-        group_number: studentData.group_number || 1,
-        visit_number: visitNumber,
-        total_score: newTotal,
-        score_breakdown: newBreakdown,
-        scoring_type: 'advanced',
-      },
-    }));
-  }, [students, pendingChanges]);
 
   // ============================================================
   // SAVE & DISCARD
@@ -434,7 +381,7 @@ function AdminResultsPage() {
   // ADVANCED SCORING DIALOG HANDLERS
   // ============================================================
 
-  const openAdvancedDialog = (student, visitNumber) => {
+  const openAdvancedDialog = useCallback((student, visitNumber) => {
     const changeKey = `${student.student_id}-${visitNumber}`;
     const visitData = student[`visit_${visitNumber}`] || {};
     
@@ -463,7 +410,7 @@ function AdminResultsPage() {
     setAdvancedDialogData({ student, visitNumber });
     setDialogBreakdown({ ...normalizedBreakdown });
     setAdvancedDialogOpen(true);
-  };
+  }, [pendingChanges]);
 
   const handleDialogCriterionChange = (criterionId, value, maxScore) => {
     const numVal = parseFloat(value);
@@ -1035,51 +982,7 @@ function AdminResultsPage() {
     });
 
     return baseColumns;
-  }, [maxVisits, scoringType, totalMaxScore, pendingChanges, savingChanges, canEdit, handleScoreChange, toast]);
-
-  // Advanced scoring criteria columns (displayed separately)
-  const renderAdvancedScoringRow = useCallback((student, visitNumber) => {
-    if (scoringType !== 'advanced' || scoringCriteria.length === 0) return null;
-
-    const changeKey = `${student.student_id}-${visitNumber}`;
-    const visitData = student[`visit_${visitNumber}`] || {};
-    const breakdown = pendingChanges[changeKey]?.score_breakdown || visitData.score_breakdown || {};
-
-    return (
-      <div className="flex flex-wrap gap-2 mt-1">
-        {scoringCriteria.map(criterion => (
-          <div key={criterion.id} className="flex items-center gap-1">
-            <span className="text-xs text-gray-500">{criterion.label}:</span>
-            <Input
-              type="number"
-              min={0}
-              max={criterion.max_score}
-              step={0.5}
-              value={breakdown[criterion.id] ?? ''}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === '') return;
-                const numVal = parseFloat(val);
-                if (!isNaN(numVal) && numVal >= 0) {
-                  handleAdvancedScoreChange(
-                    student.student_id,
-                    visitNumber,
-                    criterion.id,
-                    numVal,
-                    criterion.max_score,
-                    student
-                  );
-                }
-              }}
-              placeholder={`0-${criterion.max_score}`}
-              className="w-16 h-6 text-xs text-center"
-              disabled={savingChanges || !canEdit}
-            />
-          </div>
-        ))}
-      </div>
-    );
-  }, [scoringType, scoringCriteria, pendingChanges, savingChanges, canEdit, handleAdvancedScoreChange]);
+  }, [maxVisits, scoringType, totalMaxScore, pendingChanges, savingChanges, canEdit, handleScoreChange, toast, openAdvancedDialog, scoringCriteria]);
 
   // Table header actions
   const saveDisabled = savingChanges || (scoringType === 'advanced' && !allAdvancedCriteriaFilled);

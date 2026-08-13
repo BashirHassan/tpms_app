@@ -3,7 +3,7 @@
  * Full CRUD for staff users with institution, rank, file number, and dean status
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { usersApi } from '../../api/users';
 import { ranksApi } from '../../api/ranks';
 import { facultiesApi } from '../../api/academic';
@@ -108,7 +108,7 @@ function UsersPage() {
   const [copiedResetPassword, setCopiedResetPassword] = useState(false);
 
   // Fetch users with pagination
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
       const params = {
@@ -132,38 +132,38 @@ function UsersPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [pagination.page, pagination.limit, search, roleFilter, statusFilter, toast]);
 
   // Fetch ranks for dropdown
-  const fetchRanks = async () => {
+  const fetchRanks = useCallback(async () => {
     try {
       const response = await ranksApi.getAll({ status: 'active' });
       setRanks(response.data?.data || []);
     } catch (err) {
       console.error('Failed to load ranks:', err);
     }
-  };
+  }, []);
 
   // Fetch faculties for dropdown
-  const fetchFaculties = async () => {
+  const fetchFaculties = useCallback(async () => {
     try {
       const response = await facultiesApi.getAll({ status: 'active' });
       setFaculties(response.data?.data || []);
     } catch (err) {
       console.error('Failed to load faculties:', err);
     }
-  };
+  }, []);
 
   // Initial load for ranks and faculties
   useEffect(() => {
     fetchRanks();
     fetchFaculties();
-  }, []);
+  }, [fetchRanks, fetchFaculties]);
 
   // Fetch users when pagination or filters change
   useEffect(() => {
     fetchUsers();
-  }, [pagination.page, pagination.limit, search, roleFilter, statusFilter]);
+  }, [fetchUsers]);
 
   // Modal handlers
   const openCreateModal = () => {
@@ -291,7 +291,7 @@ function UsersPage() {
   };
 
   // Delete handlers
-  const handleDelete = (user) => {
+  const handleDelete = useCallback((user) => {
     // Prevent self-deletion
     if (user.id === currentUser?.id) {
       toast.error('You cannot delete your own account');
@@ -299,7 +299,7 @@ function UsersPage() {
     }
     setUserToDelete(user);
     setShowDeleteConfirm(true);
-  };
+  }, [currentUser?.id, toast]);
 
   const confirmDelete = async () => {
     if (!userToDelete) return;
@@ -320,7 +320,7 @@ function UsersPage() {
   };
 
   // Password reset handlers
-  const handleResetPassword = (user) => {
+  const handleResetPassword = useCallback((user) => {
     // Prevent self-reset
     if (user.id === currentUser?.id) {
       toast.error('You cannot reset your own password here. Use the Change Password option instead.');
@@ -328,7 +328,7 @@ function UsersPage() {
     }
     setUserToReset(user);
     setShowResetConfirm(true);
-  };
+  }, [currentUser?.id, toast]);
 
   const confirmResetPassword = async () => {
     if (!userToReset) return;
@@ -466,7 +466,7 @@ function UsersPage() {
         </div>
       ) : null
     }
-  ], [canEdit, currentUser]);
+  ], [canEdit, currentUser, isSuperAdmin, handleDelete, handleResetPassword]);
 
   // Toolbar with filters
   const tableToolbar = (

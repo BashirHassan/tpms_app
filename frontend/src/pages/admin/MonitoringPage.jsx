@@ -81,17 +81,9 @@ function MonitoringPage() {
     loading: false,
   });
 
-  // Fetch sessions on mount
-  useEffect(() => {
-    fetchSessions();
-  }, []);
+  // Effects live below the callbacks they depend on — a dep array is evaluated
+  // during render, so referencing a `const` declared later would throw.
 
-  // Fetch data when session changes
-  useEffect(() => {
-    if (selectedSession) {
-      fetchData();
-    }
-  }, [selectedSession, activeTab]);
 
   // Fetch unassigned schools when monitoring_type changes in the assign form
   const fetchUnassignedSchools = useCallback(async (monitoringType) => {
@@ -140,7 +132,7 @@ function MonitoringPage() {
     }
   }, [selectedSession, toast]);
 
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const response = await sessionsApi.getAll();
       const sessionsData = response.data.data || response.data || [];
@@ -150,9 +142,9 @@ function MonitoringPage() {
     } catch (err) {
       console.error('Failed to load sessions:', err);
     }
-  };
+  }, []);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       if (isTPHead) {
@@ -199,7 +191,19 @@ function MonitoringPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isTPHead, activeTab, selectedSession, assignForm.monitoring_type, toast]);
+
+  // Fetch sessions on mount
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
+
+  // Fetch data when session changes
+  useEffect(() => {
+    if (selectedSession) {
+      fetchData();
+    }
+  }, [selectedSession, fetchData]);
 
   // Handle create assignment
   const handleCreateAssignment = async () => {

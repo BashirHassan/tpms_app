@@ -15,12 +15,10 @@ import { usePasswordConfirmDialog } from '../../components/ui/PasswordConfirmDia
 import {
   IconUser,
   IconLock,
-  IconMail,
   IconPhone,
   IconBuilding,
   IconFileText,
   IconShieldCheck,
-  IconBuildingBank,
   IconStairs,
   IconSchool
 } from '@tabler/icons-react';

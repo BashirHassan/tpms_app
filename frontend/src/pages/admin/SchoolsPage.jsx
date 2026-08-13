@@ -15,8 +15,8 @@ import { schoolsApi, routesApi } from '../../api';
 import { nigeriaGeoData } from '../../data/nigeria';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { formatCoordinate, formatNumber, formatDistance } from '../../utils/helpers';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { formatCoordinate, formatDistance } from '../../utils/helpers';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
@@ -30,7 +30,6 @@ import {
   IconPencil,
   IconTrash,
   IconSearch,
-  IconDownload,
   IconMapPin,
   IconUsers,
   IconPhone,
@@ -109,7 +108,8 @@ function SchoolsPage() {
   const filterOptionsFetched = useRef(false);
 
   // Fetch data
-  const fetchSchools = async () => {
+  // Depends on page/limit but only writes `total`, so it never re-triggers itself
+  const fetchSchools = useCallback(async () => {
     setLoading(true);
     try {
       const params = {
@@ -135,28 +135,39 @@ function SchoolsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    pagination.page,
+    pagination.limit,
+    search,
+    routeFilter,
+    typeFilter,
+    categoryFilter,
+    locationCategoryFilter,
+    stateFilter,
+    lgaFilter,
+    toast,
+  ]);
 
-  const fetchRoutes = async () => {
+  const fetchRoutes = useCallback(async () => {
     try {
       const response = await routesApi.getAll({ status: 'active' });
       setRoutes(response.data.data || response.data || []);
     } catch (err) {
       console.error('Failed to load routes:', err);
     }
-  };
+  }, []);
 
-  const fetchStates = () => {
+  const fetchStates = useCallback(() => {
     try {
       const data = nigeriaGeoData.getStates();
       setStates(data);
     } catch (err) {
       console.error('Failed to load states:', err);
     }
-  };
+  }, []);
 
   // Fetch all schools once for filter dropdown options
-  const fetchFilterOptions = async () => {
+  const fetchFilterOptions = useCallback(async () => {
     if (filterOptionsFetched.current) return;
     filterOptionsFetched.current = true;
     try {
@@ -165,7 +176,7 @@ function SchoolsPage() {
     } catch (err) {
       console.error('Failed to load filter options:', err);
     }
-  };
+  }, []);
 
   // Derive unique states from actual school data
   const filterStates = useMemo(() => {
@@ -313,11 +324,11 @@ function SchoolsPage() {
     fetchRoutes();
     fetchStates();
     fetchFilterOptions();
-  }, []);
+  }, [fetchRoutes, fetchStates, fetchFilterOptions]);
 
   useEffect(() => {
     fetchSchools();
-  }, [pagination.page, pagination.limit, search, routeFilter, typeFilter, categoryFilter, locationCategoryFilter, stateFilter, lgaFilter]);
+  }, [fetchSchools]);
 
   // Modal handlers
   const getDefaultFormData = () => ({
@@ -456,38 +467,11 @@ function SchoolsPage() {
     }
   };
 
-  const handleDownloadTemplate = async () => {
-    try {
-      const response = await schoolsApi.downloadTemplate();
-      const url = window.URL.createObjectURL(new Blob([response.data.data || response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'school_upload_template.xlsx');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (err) {
-      toast.error('Failed to download template');
-    }
-  };
-
-  const handleExport = async () => {
-    try {
-      const response = await schoolsApi.export();
-      const url = window.URL.createObjectURL(new Blob([response.data.data || response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `schools_export_${new Date().toISOString().split('T')[0]}.xlsx`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      toast.success('Export downloaded');
-    } catch (err) {
-      toast.error('Failed to export schools');
-    }
-  };
+  // Any filter change invalidates the current page position
+  const resetPage = () => setPagination((p) => (p.page === 1 ? p : { ...p, page: 1 }));
 
   const clearFilters = () => {
+    resetPage();
     setSearch('');
     setRouteFilter('');
     setTypeFilter('');
@@ -501,7 +485,7 @@ function SchoolsPage() {
   const hasActiveFilters = routeFilter || typeFilter || categoryFilter || locationCategoryFilter || stateFilter || lgaFilter;
 
   // Handle status toggle
-  const handleToggleStatus = async (school) => {
+  const handleToggleStatus = useCallback(async (school) => {
     const newStatus = school.status === 'active' ? 'inactive' : 'active';
     try {
       await schoolsApi.updateStatus(school.id, newStatus);
@@ -510,7 +494,7 @@ function SchoolsPage() {
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update status');
     }
-  };
+  }, [toast, fetchSchools]);
 
   const getCategoryBadge = useCallback((category) => {
     const variants = {
@@ -539,6 +523,17 @@ function SchoolsPage() {
 
   // Column definitions for DataTable
   const columns = useMemo(() => [
+    {
+      header: '#',
+      accessor: null,
+      sortable: false,
+      exportable: false,
+      width: 56,
+      align: 'center',
+      cellClassName: 'text-gray-500',
+      // Continuous numbering across pages
+      render: (_, __, index) => (pagination.page - 1) * pagination.limit + index + 1,
+    },
     {
       header: 'School',
       accessor: 'name',
@@ -714,7 +709,7 @@ function SchoolsPage() {
         </div>
       ),
     },
-  ], [getCategoryBadge, getLocationCategoryBadge, canEdit, handleViewSchool, openEditModal, handleDeleteSchool, handleToggleStatus]);
+  ], [getCategoryBadge, getLocationCategoryBadge, canEdit, handleViewSchool, openEditModal, handleDeleteSchool, handleToggleStatus, pagination.page, pagination.limit]);
 
   return (
     <div className="space-y-4 px-2 sm:px-0">
@@ -753,13 +748,13 @@ function SchoolsPage() {
                     type="text"
                     placeholder="Search schools..."
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) => { resetPage(); setSearch(e.target.value); }}
                     className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                   />
                 </div>
                 <Select
                   value={routeFilter}
-                  onChange={(e) => setRouteFilter(e.target.value)}
+                  onChange={(e) => { resetPage(); setRouteFilter(e.target.value); }}
                   className="text-sm"
                 >
                   <option value="">All Routes</option>
@@ -771,7 +766,7 @@ function SchoolsPage() {
                 </Select>
                 <Select
                   value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
+                  onChange={(e) => { resetPage(); setTypeFilter(e.target.value); }}
                   className="text-sm"
                 >
                   <option value="">All Types</option>
@@ -782,7 +777,7 @@ function SchoolsPage() {
                 </Select>
                 <Select
                   value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  onChange={(e) => { resetPage(); setCategoryFilter(e.target.value); }}
                   className="text-sm"
                 >
                   <option value="">All Categories</option>
@@ -792,7 +787,7 @@ function SchoolsPage() {
                 </Select>
                 <Select
                   value={locationCategoryFilter}
-                  onChange={(e) => setLocationCategoryFilter(e.target.value)}
+                  onChange={(e) => { resetPage(); setLocationCategoryFilter(e.target.value); }}
                   className="text-sm"
                 >
                   <option value="">All Locations</option>
@@ -802,6 +797,7 @@ function SchoolsPage() {
                 <Select
                   value={stateFilter}
                   onChange={(e) => {
+                    resetPage();
                     setStateFilter(e.target.value);
                     setLgaFilter('');
                   }}
@@ -816,7 +812,7 @@ function SchoolsPage() {
                 </Select>
                 <Select
                   value={lgaFilter}
-                  onChange={(e) => setLgaFilter(e.target.value)}
+                  onChange={(e) => { resetPage(); setLgaFilter(e.target.value); }}
                   disabled={!stateFilter}
                   className="text-sm"
                 >

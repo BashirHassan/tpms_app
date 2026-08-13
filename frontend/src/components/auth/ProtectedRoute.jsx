@@ -13,7 +13,7 @@
 
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { ROLES, ROLE_GROUPS, hasRole } from '../../utils/roles';
+import { ROLE_GROUPS, hasRole } from '../../utils/roles';
 import { isAdminSubdomain, getAdminDomain } from '../../hooks/useSubdomain';
 import UnauthorizedPage from '../../pages/errors/UnauthorizedPage';
 
@@ -253,7 +253,6 @@ export function GlobalRoute({ children }) {
   if (!isAdminSubdomain()) {
     // Redirect to admin subdomain
     const adminUrl = getAdminDomain() + location.pathname;
-    console.log(`[ROUTE] Redirecting to admin subdomain: ${adminUrl}`);
     window.location.href = adminUrl;
     return null;
   }

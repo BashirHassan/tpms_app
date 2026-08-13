@@ -6,9 +6,8 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { allowancesApi, sessionsApi } from '../../api';
-import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
@@ -17,8 +16,6 @@ import {
   IconCash,
   IconUsers,
   IconCalendarEvent,
-  IconArrowRight,
-  IconArrowLeft,
   IconRefresh,
   IconReportMoney,
   IconCar,
@@ -27,7 +24,6 @@ import {
 import { getOrdinal, formatCurrency } from '../../utils/helpers';
 
 function AllowancesPage() {
-  const { hasRole } = useAuth();
   const { toast } = useToast();
 
   // State
@@ -94,20 +90,7 @@ function AllowancesPage() {
     return [...bySupervisor, totalsRow];
   }, [bySupervisor]);
 
-  // Fetch sessions on mount
-  useEffect(() => {
-    fetchSessions();
-  }, []);
-
-  // Fetch data when session or tab changes
-  useEffect(() => {
-    if (selectedSession) {
-      fetchSummaryStats();
-      fetchTabData();
-    }
-  }, [selectedSession, activeTab, selectedVisit]);
-
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const response = await sessionsApi.getAll();
       const sessionsData = response.data.data || response.data || [];
@@ -120,18 +103,36 @@ function AllowancesPage() {
       console.error('Failed to load sessions:', err);
       toast.error('Failed to load sessions');
     }
-  };
+  }, [toast]);
 
-  const fetchSummaryStats = async () => {
+  const fetchSummaryStats = useCallback(async () => {
     try {
       const response = await allowancesApi.getSummaryStats(selectedSession);
       setSummaryStats(response.data.data || response.data || {});
     } catch (err) {
       console.error('Failed to load summary stats:', err);
     }
-  };
+  }, [selectedSession]);
 
-  const fetchTabData = async () => {
+  const fetchBySupervisor = useCallback(async () => {
+    const response = await allowancesApi.getAllowancesBySupervisor(selectedSession);
+    setBySupervisor(response.data.data || response.data || []);
+  }, [selectedSession]);
+
+  const fetchByVisit = useCallback(async () => {
+    const response = await allowancesApi.getAllowancesByVisit(selectedSession);
+    setByVisit(response.data.data || response.data || []);
+  }, [selectedSession]);
+
+  const fetchBySupervisorVisit = useCallback(async () => {
+    const response = await allowancesApi.getAllowancesBySupervisorAndVisit(
+      selectedSession,
+      selectedVisit || undefined
+    );
+    setBySupervisorVisit(response.data.data || response.data || []);
+  }, [selectedSession, selectedVisit]);
+
+  const fetchTabData = useCallback(async () => {
     setLoading(true);
     try {
       switch (activeTab) {
@@ -150,25 +151,20 @@ function AllowancesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, fetchBySupervisor, fetchByVisit, fetchBySupervisorVisit, toast]);
 
-  const fetchBySupervisor = async () => {
-    const response = await allowancesApi.getAllowancesBySupervisor(selectedSession);
-    setBySupervisor(response.data.data || response.data || []);
-  };
+  // Fetch sessions on mount
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
 
-  const fetchByVisit = async () => {
-    const response = await allowancesApi.getAllowancesByVisit(selectedSession);
-    setByVisit(response.data.data || response.data || []);
-  };
-
-  const fetchBySupervisorVisit = async () => {
-    const response = await allowancesApi.getAllowancesBySupervisorAndVisit(
-      selectedSession,
-      selectedVisit || undefined
-    );
-    setBySupervisorVisit(response.data.data || response.data || []);
-  };
+  // Fetch data when session or tab changes
+  useEffect(() => {
+    if (selectedSession) {
+      fetchSummaryStats();
+      fetchTabData();
+    }
+  }, [selectedSession, fetchSummaryStats, fetchTabData]);
 
   const handleRefresh = () => {
     fetchSummaryStats();
@@ -319,7 +315,7 @@ function AllowancesPage() {
         exportFormatter: (_, row) => ((parseFloat(row.subtotal) || 0) - (parseFloat(row.tetfund) || 0)).toLocaleString(),
       },
     ],
-    [formatCurrency]
+    []
   );
 
   // Column definitions for By Visit tab
@@ -381,7 +377,7 @@ function AllowancesPage() {
         ),
       },
     ],
-    [formatCurrency]
+    []
   );
 
   // Column definitions for By Supervisor & Visit tab
@@ -469,7 +465,7 @@ function AllowancesPage() {
         ),
       },
     ],
-    [formatCurrency]
+    []
   );
 
   // Get current data based on active tab

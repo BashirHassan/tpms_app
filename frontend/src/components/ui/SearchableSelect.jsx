@@ -151,20 +151,6 @@ const SearchableSelect = React.forwardRef(
       onSearchChange?.(debouncedSearch);
     }, [debouncedSearch, onSearchChange]);
 
-    // Handle click outside to close
-    useEffect(() => {
-      const handleClickOutside = (event) => {
-        if (containerRef.current && !containerRef.current.contains(event.target)) {
-          handleClose();
-        }
-      };
-
-      if (isOpen) {
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-      }
-    }, [isOpen]);
-
     // Scroll highlighted option into view
     useEffect(() => {
       if (isOpen && optionRefs.current[highlightedIndex]) {
@@ -195,6 +181,21 @@ const SearchableSelect = React.forwardRef(
       setSearchTerm('');
       onClose?.();
     }, [onClose]);
+
+    // Handle click outside to close — declared after handleClose so the dep
+    // array isn't evaluated before the callback exists
+    useEffect(() => {
+      const handleClickOutside = (event) => {
+        if (containerRef.current && !containerRef.current.contains(event.target)) {
+          handleClose();
+        }
+      };
+
+      if (isOpen) {
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+      }
+    }, [isOpen, handleClose]);
 
     const handleSelect = useCallback(
       (option) => {
@@ -255,7 +256,7 @@ const SearchableSelect = React.forwardRef(
     );
 
     // Default option renderer
-    const defaultRenderOption = (option, { isSelected, isHighlighted }) => (
+    const defaultRenderOption = (option) => (
       <span className="truncate">{getOptionLabel(option)}</span>
     );
 
@@ -461,7 +462,7 @@ const SearchableSelect = React.forwardRef(
 SearchableSelect.displayName = 'SearchableSelect';
 
 // Pre-built school option renderer
-export const SchoolOptionRenderer = (school, { isSelected, isHighlighted }) => (
+export const SchoolOptionRenderer = (school, { isSelected }) => (
   <div className="min-w-0">
     <div className={cn(
       'font-medium truncate',

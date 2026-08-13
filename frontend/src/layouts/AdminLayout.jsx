@@ -8,23 +8,21 @@
  */
 
 import { useState, Suspense } from 'react';
-import { Outlet, Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import ContentLoader from '../components/ui/ContentLoader';
 import { useAuth } from '../context/AuthContext';
 import { useInstitution } from '../context/InstitutionContext';
 import { useInstitutionSelection } from '../context/InstitutionSelectionContext';
 import { cn, getInitials, getRoleName } from '../utils/helpers';
-import { ROLES, ROLE_GROUPS, hasRole as checkRole } from '../utils/roles';
+import { ROLE_GROUPS, hasRole as checkRole } from '../utils/roles';
 import { Button } from '../components/ui/Button';
 import {
   IconLayoutDashboard,
   IconUsers,
   IconUser,
-  IconSettings,
   IconLogout,
   IconMenu2,
   IconX,
-  IconBuilding,
   IconToggleLeft,
   IconSchool,
   IconBuildingBank,
@@ -148,7 +146,7 @@ const globalNavigation = [
 import { getAdminDomain, isAdminSubdomain } from '../hooks/useSubdomain';
 
 function AdminLayout() {
-  const { user, institution, effectiveInstitution, logout, hasRole, isSuperAdmin } = useAuth();
+  const { user, effectiveInstitution, logout, isSuperAdmin } = useAuth();
   const { branding } = useInstitution();
   const { isFeatureEnabled } = useInstitutionSelection();
   const navigate = useNavigate();

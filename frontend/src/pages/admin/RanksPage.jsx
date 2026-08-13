@@ -3,7 +3,7 @@
  * Manage staff ranks and allowance components
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ranksApi, sessionsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -80,7 +80,7 @@ function RanksPage() {
   const [deleting, setDeleting] = useState(false);
 
   // Fetch ranks
-  const fetchRanks = async () => {
+  const fetchRanks = useCallback(async () => {
     setLoading(true);
     try {
       const response = await ranksApi.getAll();
@@ -90,15 +90,10 @@ function RanksPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchRanks();
-    fetchSessionSettings();
-  }, []);
+  }, [toast]);
 
   // Fetch current session settings for allowance calculation
-  const fetchSessionSettings = async () => {
+  const fetchSessionSettings = useCallback(async () => {
     setSessionLoading(true);
     try {
       const response = await sessionsApi.getCurrent();
@@ -118,7 +113,12 @@ function RanksPage() {
     } finally {
       setSessionLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchRanks();
+    fetchSessionSettings();
+  }, [fetchRanks, fetchSessionSettings]);
 
   // Modal handlers
   const openCreateModal = () => {

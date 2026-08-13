@@ -5,7 +5,7 @@
  * Uses the template system for body content while keeping React-based header/footer
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { portalApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
@@ -41,12 +41,7 @@ function AcceptanceDocumentPage() {
   const [templateHtml, setTemplateHtml] = useState(null);
   const [error, setError] = useState(null);
 
-  // Fetch document data on mount
-  useEffect(() => {
-    fetchDocumentData();
-  }, []);
-
-  const fetchDocumentData = async () => {
+  const fetchDocumentData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -69,7 +64,12 @@ function AcceptanceDocumentPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  // Fetch document data on mount
+  useEffect(() => {
+    fetchDocumentData();
+  }, [fetchDocumentData]);
 
   const handlePrint = () => {
     window.print();
@@ -294,7 +294,7 @@ function AcceptanceDocumentPage() {
               </div>
 
               <div className="mt-6 mb-4">
-                <p className="font-semibold text-sm mb-2">Student's Teaching Subject(s):</p>
+                <p className="font-semibold text-sm mb-2">Student&apos;s Teaching Subject(s):</p>
                 <div className="grid grid-cols-2 md:grid-cols-3 print:grid-cols-3 gap-1 text-xs border border-gray-300 p-3 rounded">
                   {programs.map((program, index) => (
                     <div key={index} className="flex items-center gap-1">

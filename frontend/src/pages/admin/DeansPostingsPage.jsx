@@ -6,30 +6,25 @@
  * - Only deans with posting allocation can access this page
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { deanAllocationsApi, sessionsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { Badge } from '../../components/ui/Badge';
 import { DataTable } from '../../components/ui/DataTable';
 import { Select } from '../../components/ui/Select';
-import { Dialog } from '../../components/ui/Dialog';
 import { useAlert } from '../../components/ui/AlertDialog';
 import {
   IconUsers,
   IconBuildingBank as IconSchool,
   IconTrash,
   IconAlertCircle,
-  IconCircleCheck,
   IconLoader2,
   IconRefresh,
   IconCrown,
   IconPlus,
-  IconCalendar,
-  IconMapPin,
 } from '@tabler/icons-react';
 import { getOrdinal, formatDate } from '../../utils/helpers';
 
@@ -48,19 +43,7 @@ function DeansPostingsPage() {
   const [postings, setPostings] = useState([]);
   const [allocation, setAllocation] = useState(null);
 
-  // Fetch sessions on mount
-  useEffect(() => {
-    fetchSessions();
-  }, []);
-
-  // Fetch postings when session changes
-  useEffect(() => {
-    if (selectedSession) {
-      fetchPostings();
-    }
-  }, [selectedSession]);
-
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const response = await sessionsApi.getAll();
       const sessionsData = response.data.data || response.data || [];
@@ -72,9 +55,9 @@ function DeansPostingsPage() {
     } catch (err) {
       toast.error('Failed to load sessions');
     }
-  };
+  }, [toast]);
 
-  const fetchPostings = async () => {
+  const fetchPostings = useCallback(async () => {
     setLoading(true);
     try {
       const response = await deanAllocationsApi.getMyPostings({ session_id: selectedSession });
@@ -85,9 +68,21 @@ function DeansPostingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedSession, toast]);
 
-  const handleDelete = async (posting) => {
+  // Fetch sessions on mount
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
+
+  // Fetch postings when session changes
+  useEffect(() => {
+    if (selectedSession) {
+      fetchPostings();
+    }
+  }, [selectedSession, fetchPostings]);
+
+  const handleDelete = useCallback(async (posting) => {
     const confirmed = await confirm({
       title: 'Delete Posting',
       message: (
@@ -119,7 +114,7 @@ function DeansPostingsPage() {
     } finally {
       setDeleting(null);
     }
-  };
+  }, [confirm, toast, fetchPostings]);
 
   // Table columns
   const columns = useMemo(() => [
@@ -180,7 +175,7 @@ function DeansPostingsPage() {
         </Button>
       ),
     },
-  ], [deleting]);
+  ], [deleting, handleDelete]);
 
   // Access check - only deans can view this page
   if (!isDean && !isAdminLevel) {
@@ -321,7 +316,7 @@ function DeansPostingsPage() {
               </div>
               <h3 className="text-lg font-medium text-gray-900 mb-2">No Postings Yet</h3>
               <p className="text-gray-500 mb-4">
-                You haven't created any postings for this session.
+                You haven&apos;t created any postings for this session.
               </p>
               {allocation && allocation.allocated_postings > allocation.used_postings && (
                 <Link to="/admin/multiposting">

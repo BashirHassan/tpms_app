@@ -6,7 +6,6 @@ import {
   IconCode,
   IconShieldCheck,
   IconAlertCircle,
-  IconChevronRight,
   IconCopy,
   IconCheck,
   IconBrandJavascript,
@@ -38,7 +37,7 @@ const CODE_LANGUAGES = [
   { id: 'java', label: 'Java', icon: IconCoffee },
 ];
 
-function CodeBlock({ code, language = 'javascript' }) {
+function CodeBlock({ code }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -397,7 +396,7 @@ export default function DocsPage() {
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
                 <h4 className="font-semibold text-blue-900 mb-2">How It Works</h4>
                 <ol className="list-decimal list-inside space-y-1 text-blue-800 text-sm">
-                  <li>User clicks "Teaching Practice" in your system</li>
+                  <li>User clicks &quot;Teaching Practice&quot; in your system</li>
                   <li>Your server generates a signed token</li>
                   <li>User is redirected to DigitalTP with the token</li>
                   <li>DigitalTP validates the token and looks up the user</li>
@@ -565,7 +564,7 @@ export default function DocsPage() {
                   <li>Base64URL encode payload → payload_base64</li>
                   <li>HMAC-SHA256(payload_base64, secret_key) → signature_bytes</li>
                   <li>Base64URL encode signature_bytes → signature_base64</li>
-                  <li>Token = payload_base64 + "." + signature_base64</li>
+                  <li>Token = payload_base64 + &quot;.&quot; + signature_base64</li>
                 </ol>
               </div>
             </Section>
@@ -653,7 +652,7 @@ export default function DocsPage() {
                 <div>
                   <h4 className="font-semibold text-red-700 mb-3 flex items-center gap-2">
                     <IconAlertCircle size={20} />
-                    DON'T
+                    DON&apos;T
                   </h4>
                   <ul className="space-y-2">
                     {[

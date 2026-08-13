@@ -97,16 +97,7 @@ export default function SchoolRegistrationRequestsPage() {
     totalPages: 0,
   });
 
-  useEffect(() => {
-    loadSessions();
-  }, []);
-
-  useEffect(() => {
-    loadRequests();
-    loadStatistics();
-  }, [filters.session_id, filters.status, pagination.page, pagination.limit]);
-
-  const loadSessions = async () => {
+  const loadSessions = useCallback(async () => {
     try {
       const response = await sessionsApi.getAll();
       const sessionsData = response.data.data || response.data || [];
@@ -119,9 +110,9 @@ export default function SchoolRegistrationRequestsPage() {
     } catch (err) {
       console.error('Failed to load sessions:', err);
     }
-  };
+  }, []);
 
-  const loadRequests = async () => {
+  const loadRequests = useCallback(async () => {
     try {
       setLoading(true);
       const params = {
@@ -141,9 +132,9 @@ export default function SchoolRegistrationRequestsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters, pagination.page, pagination.limit, toast]);
 
-  const loadStatistics = async () => {
+  const loadStatistics = useCallback(async () => {
     try {
       const params = filters.session_id ? { session_id: filters.session_id } : {};
       const response = await schoolRegistrationRequestsApi.getStats(params);
@@ -151,7 +142,16 @@ export default function SchoolRegistrationRequestsPage() {
     } catch (err) {
       console.error('Failed to load statistics:', err);
     }
-  };
+  }, [filters.session_id]);
+
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
+
+  useEffect(() => {
+    loadRequests();
+    loadStatistics();
+  }, [loadRequests, loadStatistics]);
 
   const handleApprove = (request) => {
     setApprovingRequest(request);

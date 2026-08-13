@@ -7,7 +7,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { paymentsApi, sessionsApi } from '../../api';
 import { useToast } from '../../context/ToastContext';
 import { formatCurrency, formatDateTime } from '../../utils/helpers';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { Input } from '../../components/ui/Input';
@@ -16,7 +16,6 @@ import {
   IconCheck,
   IconClock,
   IconTrendingUp,
-  IconUsers,
   IconUserX,
   IconShieldCheck,
   IconX,
@@ -29,7 +28,6 @@ import {
   IconSchool,
   IconCalendar,
   IconDeviceMobile,
-  IconWorld,
 } from '@tabler/icons-react';
 import { DataTable } from '../../components/ui/DataTable';
 import { Select } from '../../components/ui/Select';
@@ -57,30 +55,7 @@ function PaymentsPage() {
   const [viewModal, setViewModal] = useState({ open: false, payment: null });
   const [actionLoading, setActionLoading] = useState(false);
 
-  // Fetch data
-  useEffect(() => {
-    fetchSessions();
-  }, []);
-
-  // Fetch when session or page changes (immediate)
-  useEffect(() => {
-    if (selectedSession) {
-      fetchPayments();
-      fetchStatistics();
-    }
-  }, [selectedSession, pagination.page, pagination.limit]);
-
-  // Debounce search and status filter changes
-  useEffect(() => {
-    if (!selectedSession) return;
-    const timer = setTimeout(() => {
-      fetchPayments();
-      fetchStatistics();
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [search, selectedStatus]);
-
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const response = await sessionsApi.getAll();
       const sessions = response.data.data || response.data || [];
@@ -92,9 +67,9 @@ function PaymentsPage() {
     } catch (err) {
       console.error('Failed to load sessions:', err);
     }
-  };
+  }, []);
 
-  const fetchPayments = async () => {
+  const fetchPayments = useCallback(async () => {
     setLoading(true);
     try {
       const response = await paymentsApi.getAll({
@@ -114,9 +89,9 @@ function PaymentsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedSession, pagination.page, pagination.limit, search, selectedStatus, toast]);
 
-  const fetchStatistics = async () => {
+  const fetchStatistics = useCallback(async () => {
     try {
       const response = await paymentsApi.getStats({ 
         session_id: selectedSession,
@@ -128,7 +103,23 @@ function PaymentsPage() {
     } catch (err) {
       console.error('Failed to load statistics:', err);
     }
-  };
+  }, [selectedSession, search, selectedStatus]);
+
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
+
+  // One debounced effect covers session, page and filter changes. Previously
+  // two effects fetched the same data, which double-fired when a filter and
+  // the page changed together.
+  useEffect(() => {
+    if (!selectedSession) return;
+    const timer = setTimeout(() => {
+      fetchPayments();
+      fetchStatistics();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [selectedSession, fetchPayments, fetchStatistics]);
 
 
 
@@ -171,7 +162,7 @@ function PaymentsPage() {
     } finally {
       setActionLoading(false);
     }
-  }, [verifyModal.payment, toast]);
+  }, [verifyModal.payment, toast, fetchPayments, fetchStatistics]);
 
   // Handle cancel payment
   const handleCancelPayment = useCallback(async () => {
@@ -190,7 +181,7 @@ function PaymentsPage() {
     } finally {
       setActionLoading(false);
     }
-  }, [cancelModal.payment, toast]);
+  }, [cancelModal.payment, toast, fetchPayments, fetchStatistics]);
 
   // Handle lookup by reference - for recovering payments where callback failed
   const handleLookupVerify = useCallback(async () => {
@@ -223,7 +214,7 @@ function PaymentsPage() {
     } finally {
       setActionLoading(false);
     }
-  }, [lookupModal.reference, toast]);
+  }, [lookupModal.reference, toast, fetchPayments, fetchStatistics]);
 
   // Column definitions for DataTable
   const paymentsColumns = useMemo(() => [
@@ -688,7 +679,7 @@ function PaymentsPage() {
               </Button>
             </div>
             <p className="text-xs text-gray-500">
-              The reference is usually sent to the student's email or can be found in Paystack dashboard.
+              The reference is usually sent to the student&apos;s email or can be found in Paystack dashboard.
             </p>
           </div>
 

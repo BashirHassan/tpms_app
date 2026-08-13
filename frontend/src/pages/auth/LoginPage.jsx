@@ -15,7 +15,7 @@ import { IconSchool, IconAlertCircle, IconBuilding } from '@tabler/icons-react';
 function LoginPage() {
   const navigate = useNavigate();
   const { login } = useAuth();
-  const { branding, institution, loading: brandingLoading, error: brandingError, isSuperAdminPortal } = useInstitution();
+  const { branding, loading: brandingLoading, error: brandingError, isSuperAdminPortal } = useInstitution();
   const { toast } = useToast();
 
   const [email, setEmail] = useState('');

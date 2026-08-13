@@ -15,17 +15,14 @@
  * exchanged server-side for a real JWT (the URL token is NOT stored directly).
  */
 
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { authApi } from '../api/auth';
-import { createFeaturesApi, featuresApi } from '../api/features';
+import { createFeaturesApi } from '../api/features';
 import { applyBrandingColors } from '../utils/colorGenerator';
 import {
   getToken,
   setToken,
-  getUser,
   setUser as storeUser,
-  getSessionId,
   setSessionId,
   clearAuthState,
   prepareForLogin,
@@ -340,27 +337,50 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const value = {
-    user,
-    institution,
-    effectiveInstitution,
-    features,
-    loading,
-    error,
-    isAuthenticated: !!user,
-    isStaff: user?.role !== 'student',
-    isStudent: user?.role === 'student',
-    isSuperAdmin,
-    isGlobalContext, // On admin.* subdomain with no institution
-    subdomain,
-    login,
-    studentLogin,
-    logout,
-    hasRole,
-    hasFeature,
-    refreshFeatures,
-    refreshProfile,
-  };
+  // Memoized so consumers can safely list these in hook dependency arrays.
+  // An object literal here would be a new reference on every provider render
+  // and would retrigger every effect that depends on `user`, `hasRole`, etc.
+  const value = useMemo(
+    () => ({
+      user,
+      institution,
+      effectiveInstitution,
+      features,
+      loading,
+      error,
+      isAuthenticated: !!user,
+      isStaff: user?.role !== 'student',
+      isStudent: user?.role === 'student',
+      isSuperAdmin,
+      isGlobalContext, // On admin.* subdomain with no institution
+      subdomain,
+      login,
+      studentLogin,
+      logout,
+      hasRole,
+      hasFeature,
+      refreshFeatures,
+      refreshProfile,
+    }),
+    [
+      user,
+      institution,
+      effectiveInstitution,
+      features,
+      loading,
+      error,
+      isSuperAdmin,
+      isGlobalContext,
+      subdomain,
+      login,
+      studentLogin,
+      logout,
+      hasRole,
+      hasFeature,
+      refreshFeatures,
+      refreshProfile,
+    ]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

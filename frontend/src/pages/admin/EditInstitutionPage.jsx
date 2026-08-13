@@ -10,8 +10,6 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { formatCurrency } from '../../utils/helpers';
 import { institutionsApi } from '../../api/institutions';
-import { paymentsApi, programsApi } from '../../api';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import {
   InstitutionInfoForm,
@@ -46,8 +44,8 @@ export default function EditInstitutionPage() {
   const [testingSmtp, setTestingSmtp] = useState(false);
   const [smtpTestResult, setSmtpTestResult] = useState(null);
   const [smtpTestResultType, setSmtpTestResultType] = useState(null);
-  const [testingPaystack, setTestingPaystack] = useState(false);
-  const [programs, setPrograms] = useState([]);
+  const [testingPaystack] = useState(false);
+  const [programs] = useState([]);
   const [institutionName, setInstitutionName] = useState('');
   
   // Per-tab saving states

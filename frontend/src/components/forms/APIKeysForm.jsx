@@ -273,7 +273,7 @@ export default function APIKeysForm({ institutionId, onToast }) {
                   className="mt-3"
                   onClick={() => setNewSecretKey(null)}
                 >
-                  I've saved the key
+                  I&apos;ve saved the key
                 </Button>
               </div>
             </div>

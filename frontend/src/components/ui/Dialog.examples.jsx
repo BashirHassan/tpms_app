@@ -1,9 +1,13 @@
 /**
  * Dialog Component Examples
- * 
+ *
  * This file demonstrates various ways to use the reusable Dialog component
  * in the DigitalTP system.
+ *
+ * Reference only — nothing here is rendered, so the illustrative console
+ * output stands in for real handlers.
  */
+/* eslint-disable no-console */
 
 import { useState } from 'react';
 import { 
@@ -11,11 +15,10 @@ import {
   DialogHeader, 
   DialogTitle, 
   DialogDescription,
-  DialogBody,
   DialogFooter,
   useDialog 
 } from '../components/ui/Dialog';
-import { AlertProvider, useAlert, AlertDialog } from '../components/ui/AlertDialog';
+import { useAlert } from '../components/ui/AlertDialog';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';

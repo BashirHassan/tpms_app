@@ -23,7 +23,6 @@ import { Badge } from './ui/Badge';
 import { Switch } from './forms/InstitutionFormSections';
 import { autoPostingApi } from '../api';
 import { useToast } from '../context/ToastContext';
-import { formatCurrency } from '../utils/helpers';
 import {
   IconWand,
   IconLoader2,

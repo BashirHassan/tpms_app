@@ -179,6 +179,7 @@ export function setDevSubdomain(subdomain) {
     return;
   }
   
+  /* eslint-disable no-console -- deliberate dev-tool feedback in the browser console */
   if (subdomain) {
     localStorage.setItem('dev_subdomain', subdomain.toLowerCase());
     console.log(`Dev subdomain set to: ${subdomain}. Reload to apply.`);
@@ -186,6 +187,7 @@ export function setDevSubdomain(subdomain) {
     localStorage.removeItem('dev_subdomain');
     console.log('Dev subdomain cleared. Reload to apply.');
   }
+  /* eslint-enable no-console */
 }
 
 /**
@@ -253,7 +255,8 @@ if (typeof window !== 'undefined' && isLocalDev()) {
     getSubdomainInfo,
     clearSubdomain: () => setDevSubdomain(null),
   };
-  console.log('🔧 DigitalTP Dev Tools loaded. Use window.sitpms.setSubdomain("fuk") to test institutions.');
+  // eslint-disable-next-line no-console -- deliberate dev-tool banner
+  console.log('🔧 DigitalTP Dev Tools loaded. Use window.digitaltp.setSubdomain("fuk") to test institutions.');
 }
 
 export default useSubdomain;

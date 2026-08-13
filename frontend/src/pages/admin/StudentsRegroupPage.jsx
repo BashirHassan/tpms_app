@@ -3,11 +3,11 @@
  * Change individual student group numbers within a school
  */
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { groupsApi, sessionsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Input } from '../../components/ui/Input';
@@ -44,32 +44,12 @@ function StudentsRegroupPage() {
   const [searchTerm, setSearchTerm] = useState('');
 
   // Processing
-  const [processing, setProcessing] = useState(false);
 
   // Track pending changes (student_id -> new_group_number)
   const [pendingChanges, setPendingChanges] = useState({});
   const [savingChanges, setSavingChanges] = useState(false);
 
-  // Fetch sessions on mount
-  useEffect(() => {
-    fetchSessions();
-  }, []);
-
-  // Fetch schools when session changes
-  useEffect(() => {
-    if (selectedSession) {
-      fetchSchools();
-    }
-  }, [selectedSession]);
-
-  // Fetch data when session/school changes
-  useEffect(() => {
-    if (selectedSession && selectedSchool) {
-      fetchSchoolData();
-    }
-  }, [selectedSession, selectedSchool]);
-
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const response = await sessionsApi.getAll({ status: 'active' });
       const sessionsData = response.data.data || response.data || [];
@@ -79,10 +59,10 @@ function StudentsRegroupPage() {
     } catch (err) {
       console.error('Failed to load sessions:', err);
     }
-  };
+  }, []);
 
   // Fetch schools from group summary (only schools with acceptances in session)
-  const fetchSchools = async () => {
+  const fetchSchools = useCallback(async () => {
     try {
       const response = await groupsApi.getSummary(selectedSession);
       const summary = response.data?.data || response.data || [];
@@ -103,7 +83,7 @@ function StudentsRegroupPage() {
     } catch (err) {
       console.error('Failed to load schools:', err);
     }
-  };
+  }, [selectedSession]);
 
   // Custom renderer for school options
   const renderSchoolOption = (school, { isSelected }) => (
@@ -129,7 +109,7 @@ function StudentsRegroupPage() {
     </div>
   );
 
-  const fetchSchoolData = async () => {
+  const fetchSchoolData = useCallback(async () => {
     if (!selectedSchool || !selectedSession) return;
 
     setLoading(true);
@@ -155,22 +135,26 @@ function StudentsRegroupPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedSchool, selectedSession, toast]);
 
-  const handleAssignGroup = async (studentId, newGroup) => {
-    if (!selectedSchool) return;
+  // Fetch sessions on mount
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
 
-    setProcessing(true);
-    try {
-      await groupsApi.assignStudentGroup(studentId, selectedSchool, newGroup, selectedSession);
-      toast.success('Student regrouped successfully');
-      fetchSchoolData();
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to regroup student');
-    } finally {
-      setProcessing(false);
+  // Fetch schools when session changes
+  useEffect(() => {
+    if (selectedSession) {
+      fetchSchools();
     }
-  };
+  }, [selectedSession, fetchSchools]);
+
+  // Fetch data when session/school changes
+  useEffect(() => {
+    if (selectedSession && selectedSchool) {
+      fetchSchoolData();
+    }
+  }, [selectedSession, selectedSchool, fetchSchoolData]);
 
   // Calculate current group student counts (accounting for pending changes)
   const getGroupStudentCounts = useCallback(() => {
@@ -400,7 +384,7 @@ function StudentsRegroupPage() {
           ]
         : []),
     ];
-  }, [canEdit, processing, handleGroupChange, pendingChanges, savingChanges, schoolStudents, schoolGroups]);
+  }, [canEdit, handleGroupChange, pendingChanges, savingChanges, schoolStudents, schoolGroups]);
 
   // Header actions for the DataTable (near export button)
   const tableHeaderActions = hasPendingChanges ? (

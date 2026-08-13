@@ -10,7 +10,6 @@ import { useToast } from '../../context/ToastContext';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
-import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { SearchableSelect } from '../../components/ui/SearchableSelect';
 import { DataTable } from '../../components/ui/DataTable';
@@ -21,7 +20,6 @@ import {
   IconBuildingBank as IconSchool,
   IconRefresh,
   IconAlertTriangle,
-  IconX,
   IconGitMerge,
   IconUsers,
 } from '@tabler/icons-react';
@@ -58,19 +56,7 @@ function MergeRoutesPage() {
   // Unmerge confirmation modal
   const [unmergeTarget, setUnmergeTarget] = useState(null);
 
-  // Fetch sessions on mount
-  useEffect(() => {
-    fetchSessions();
-  }, []);
-
-  // Fetch data when session changes
-  useEffect(() => {
-    if (selectedSession) {
-      fetchData();
-    }
-  }, [selectedSession]);
-
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const response = await sessionsApi.getAll({ status: 'active' });
       const sessionsData = response.data.data || response.data || [];
@@ -83,9 +69,9 @@ function MergeRoutesPage() {
     } catch (err) {
       console.error('Failed to load sessions:', err);
     }
-  };
+  }, []);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [mergedRes, availableRes] = await Promise.all([
@@ -115,7 +101,19 @@ function MergeRoutesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedSession, toast]);
+
+  // Fetch sessions on mount
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
+
+  // Fetch data when session changes
+  useEffect(() => {
+    if (selectedSession) {
+      fetchData();
+    }
+  }, [selectedSession, fetchData]);
 
   // Get unique schools for dropdown
   const schoolsForDropdown = useMemo(() => {

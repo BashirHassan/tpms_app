@@ -38,16 +38,7 @@ import {
   IconLoader2,
 } from '@tabler/icons-react';
 
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-export const INSTITUTION_TYPES = [
-  { value: 'college_of_education', label: 'College of Education' },
-  { value: 'university', label: 'University' },
-  { value: 'polytechnic', label: 'Polytechnic' },
-  { value: 'other', label: 'Other' },
-];
+import { INSTITUTION_TYPES } from './institutionConstants';
 
 
 
@@ -418,7 +409,7 @@ export function BrandingForm({ data, onChange, errors = {}, institutionCode }) {
         fileInputRef.current.value = '';
       }
     }
-  }, [onChange, institutionCode, data.code]);
+  }, [onChange, institutionCode, data.code, data.logo_url]);
 
   const handleClearLogo = () => {
     onChange('logo_url', '');

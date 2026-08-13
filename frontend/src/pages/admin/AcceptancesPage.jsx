@@ -7,7 +7,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { acceptancesApi, sessionsApi, schoolsApi, groupsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -15,7 +15,6 @@ import { SearchableSelect } from '../../components/ui/SearchableSelect';
 import { Badge } from '../../components/ui/Badge';
 import { DataTable } from '../../components/ui/DataTable';
 import { Dialog } from '../../components/ui/Dialog';
-import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import {
   IconFileText,
   IconEye,
@@ -63,20 +62,7 @@ function AcceptancesPage() {
   // Image preview state
   const [previewImage, setPreviewImage] = useState(null);
 
-  // Fetch data
-  useEffect(() => {
-    fetchSessions();
-    fetchSchools();
-  }, []);
-
-  useEffect(() => {
-    if (selectedSession) {
-      fetchAcceptances();
-      fetchStatistics();
-    }
-  }, [selectedSession, selectedSchool, search, pagination.page, pagination.limit]);
-
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const response = await sessionsApi.getAll({ status: 'active' });
       const sessionsData = response.data.data || response.data || [];
@@ -88,18 +74,18 @@ function AcceptancesPage() {
     } catch (err) {
       console.error('Failed to load sessions:', err);
     }
-  };
+  }, []);
 
-  const fetchSchools = async () => {
+  const fetchSchools = useCallback(async () => {
     try {
       const response = await schoolsApi.getAll({ status: 'active', limit: 500 });
       setSchools(response.data.data || response.data || []);
     } catch (err) {
       console.error('Failed to load schools:', err);
     }
-  };
+  }, []);
 
-  const fetchAcceptances = async () => {
+  const fetchAcceptances = useCallback(async () => {
     setLoading(true);
     try {
       const params = {
@@ -121,23 +107,34 @@ function AcceptancesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedSession, selectedSchool, search, pagination.page, pagination.limit, toast]);
 
-  const fetchStatistics = async () => {
+  const fetchStatistics = useCallback(async () => {
     try {
       const response = await acceptancesApi.getStatistics(selectedSession);
       setStatistics(response.data.data || response.data || {});
     } catch (err) {
       console.error('Failed to load statistics:', err);
     }
-  };
+  }, [selectedSession]);
 
-  const fetchAllAcceptancesForExport = useCallback(async ({ scope, displayedData } = {}) => {
-    if (scope === 'loaded') {
-      return Array.isArray(displayedData) ? displayedData : [];
+  // Fetch data
+  useEffect(() => {
+    fetchSessions();
+    fetchSchools();
+  }, [fetchSessions, fetchSchools]);
+
+  useEffect(() => {
+    if (selectedSession) {
+      fetchAcceptances();
+      fetchStatistics();
     }
+  }, [selectedSession, fetchAcceptances, fetchStatistics]);
 
-    if (!selectedSession) return [];
+  // Pulls every matching acceptance so exports cover all pages, not just the
+  // loaded one. Returning `false` lets DataTable fall back to the current page.
+  const fetchAllAcceptancesForExport = useCallback(async ({ rows } = {}) => {
+    if (!selectedSession) return Array.isArray(rows) ? rows : false;
 
     const baseParams = {
       session_id: selectedSession,
@@ -224,7 +221,7 @@ function AcceptancesPage() {
     {
       accessor: 'student_name',
       header: 'Student',
-      render: (value, row) => (
+      render: (value) => (
         <div>
           <p className="font-medium text-gray-900">{value}</p>
         </div>
@@ -461,7 +458,7 @@ function AcceptancesPage() {
         loading={loading}
         sortable
         exportable
-        exportDataProvider={fetchAllAcceptancesForExport}
+        onServerExport={fetchAllAcceptancesForExport}
         exportFilename="acceptances_export"
         emptyIcon={IconFileText}
         emptyTitle="No acceptances found"

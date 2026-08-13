@@ -36,7 +36,7 @@ function UnauthorizedPage() {
 
         {/* Description */}
         <p className="text-gray-600 mb-2">
-          You don't have permission to access this page.
+          You don&apos;t have permission to access this page.
         </p>
         <p className="text-sm text-gray-500 mb-8">
           If you believe this is an error, please contact your administrator.

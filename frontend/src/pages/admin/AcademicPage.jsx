@@ -8,7 +8,6 @@ import { facultiesApi, departmentsApi, programsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { cn } from '../../utils/helpers';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -25,6 +24,10 @@ import {
   IconTrash,
   IconRefresh,
 } from '@tabler/icons-react';
+
+// Tab singular name mapping — module scope so it keeps a stable identity
+// across renders and can be listed in hook dependency arrays
+const singularTab = { faculties: 'faculty', departments: 'department', programs: 'program' };
 
 function AcademicPage() {
   const { hasRole } = useAuth();
@@ -54,25 +57,22 @@ function AcademicPage() {
   const [formData, setFormData] = useState({});
   const [saving, setSaving] = useState(false);
 
-  // Tab singular name mapping
-  const singularTab = { faculties: 'faculty', departments: 'department', programs: 'program' };
-
   // Delete confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState({ type: null, id: null });
   const [deleting, setDeleting] = useState(false);
 
   // Fetch data
-  const fetchFaculties = async () => {
+  const fetchFaculties = useCallback(async () => {
     try {
       const response = await facultiesApi.getAll({ status: 'active' });
       setFaculties(response.data.data || response.data || []);
     } catch (err) {
       toast.error('Failed to load faculties');
     }
-  };
+  }, [toast]);
 
-  const fetchDepartments = async () => {
+  const fetchDepartments = useCallback(async () => {
     try {
       const params = { status: 'active' };
       if (selectedFaculty) params.faculty_id = selectedFaculty;
@@ -81,9 +81,9 @@ function AcademicPage() {
     } catch (err) {
       toast.error('Failed to load departments');
     }
-  };
+  }, [selectedFaculty, toast]);
 
-  const fetchPrograms = async () => {
+  const fetchPrograms = useCallback(async () => {
     try {
       const params = { status: 'active' };
       if (selectedDepartment) params.department_id = selectedDepartment;
@@ -93,13 +93,13 @@ function AcademicPage() {
     } catch (err) {
       toast.error('Failed to load programs');
     }
-  };
+  }, [selectedFaculty, selectedDepartment, toast]);
 
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true);
     await Promise.all([fetchFaculties(), fetchDepartments(), fetchPrograms()]);
     setLoading(false);
-  };
+  }, [fetchFaculties, fetchDepartments, fetchPrograms]);
 
   const handleRefresh = async () => {
     setSearch('');
@@ -110,33 +110,15 @@ function AcademicPage() {
     setRefreshing(false);
   };
 
+  // fetchAll's identity changes with the faculty/department filters, so this
+  // covers both the initial load and every filter change (the second effect
+  // that used to do the refetch was redundant once the deps became honest)
   useEffect(() => {
     fetchAll();
-  }, []);
-
-  useEffect(() => {
-    if (!loading) {
-      fetchDepartments();
-      fetchPrograms();
-    }
-  }, [selectedFaculty, selectedDepartment]);
+  }, [fetchAll]);
 
   // Modal handlers
-  const openCreateModal = (type) => {
-    setModalType(type);
-    setEditItem(null);
-    setFormData(getDefaultFormData(type));
-    setShowModal(true);
-  };
-
-  const openEditModal = (type, item) => {
-    setModalType(type);
-    setEditItem(item);
-    setFormData({ ...item });
-    setShowModal(true);
-  };
-
-  const getDefaultFormData = (type) => {
+  const getDefaultFormData = useCallback((type) => {
     switch (type) {
       case 'faculty':
         return { name: '', code: '' };
@@ -147,7 +129,21 @@ function AcademicPage() {
       default:
         return {};
     }
-  };
+  }, [selectedFaculty, selectedDepartment]);
+
+  const openCreateModal = useCallback((type) => {
+    setModalType(type);
+    setEditItem(null);
+    setFormData(getDefaultFormData(type));
+    setShowModal(true);
+  }, [getDefaultFormData]);
+
+  const openEditModal = useCallback((type, item) => {
+    setModalType(type);
+    setEditItem(item);
+    setFormData({ ...item });
+    setShowModal(true);
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -171,10 +167,10 @@ function AcademicPage() {
     }
   };
 
-  const handleDelete = async (type, id) => {
+  const handleDelete = useCallback((type, id) => {
     setDeleteTarget({ type, id });
     setShowDeleteConfirm(true);
-  };
+  }, []);
 
   const confirmDelete = async () => {
     const { type, id } = deleteTarget;
@@ -196,29 +192,29 @@ function AcademicPage() {
   };
 
   // Filter data by search
-  const filterBySearch = (items) => {
+  const filterBySearch = useCallback((items) => {
     if (!search) return items;
     const term = search.toLowerCase();
     return items.filter(
       (item) =>
         item.name.toLowerCase().includes(term) || item.code.toLowerCase().includes(term)
     );
-  };
+  }, [search]);
 
   // Get current data based on active tab
   const currentData = useMemo(() => {
     const data = activeTab === 'faculties' ? faculties : activeTab === 'departments' ? departments : programs;
     return filterBySearch(data);
-  }, [activeTab, faculties, departments, programs, search]);
+  }, [activeTab, faculties, departments, programs, filterBySearch]);
 
   // Handlers wrapped in useCallback
   const handleEdit = useCallback((item) => {
     openEditModal(singularTab[activeTab], item);
-  }, [activeTab]);
+  }, [activeTab, openEditModal]);
 
   const handleDeleteItem = useCallback((id) => {
     handleDelete(singularTab[activeTab], id);
-  }, [activeTab]);
+  }, [activeTab, handleDelete]);
 
   // Table columns definition
   const columns = useMemo(() => {
@@ -331,7 +327,7 @@ function AcademicPage() {
         </Button>
       )}
     </div>
-  ), [activeTab, faculties, departments, selectedFaculty, selectedDepartment, canEdit]);
+  ), [activeTab, faculties, departments, selectedFaculty, selectedDepartment, canEdit, openCreateModal]);
 
   const tabs = [
     { id: 'faculties', label: 'Faculties', icon: IconBuilding, count: faculties.length },
@@ -454,6 +450,7 @@ function AcademicPage() {
         searchable={false}
         exportable
         exportFilename={`${activeTab}_export`}
+        toolbar={tableToolbar}
         emptyIcon={activeTab === 'faculties' ? IconBuilding : activeTab === 'departments' ? IconBook : IconGraduationCap}
         emptyTitle={`No ${activeTab} found`}
         emptyDescription={`Add your first ${singularTab[activeTab]} to get started`}

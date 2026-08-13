@@ -8,8 +8,9 @@
     "dev": "npm run copy:tinymce && vite --port 5173",
     "build": "npm run copy:tinymce && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "lint:fix": "eslint . --ext js,jsx --fix"
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "lint:strict": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "@paystack/inline-js": "^2.22.7",
@@ -27,6 +28,7 @@
     "@radix-ui/react-toast": "^1.1.5",
     "@radix-ui/react-tooltip": "^1.0.7",
     "@tabler/icons-react": "^3.36.0",
+    "@tanstack/react-virtual": "^3.14.9",
     "@tinymce/tinymce-react": "^6.3.0",
     "axios": "^1.6.2",
     "class-variance-authority": "^0.7.0",

@@ -6,7 +6,7 @@
  * A4 Print Ready Layout
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { postingsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
@@ -30,7 +30,6 @@ import {
   IconUsers,
   IconAlertCircle,
   IconFilter,
-  IconMapPin,
   IconMail,
 } from '@tabler/icons-react';
 
@@ -53,12 +52,7 @@ function SupervisorMyPostingsPage() {
   const [selectedVisit, setSelectedVisit] = useState('');
   const [selectedLocationCategory, setSelectedLocationCategory] = useState('');
 
-  // Fetch postings on mount and when filters change
-  useEffect(() => {
-    fetchPostings();
-  }, [selectedRoute, selectedVisit, selectedLocationCategory]);
-
-  const fetchPostings = async () => {
+  const fetchPostings = useCallback(async () => {
     setLoading(true);
     try {
       const params = {};
@@ -88,7 +82,12 @@ function SupervisorMyPostingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedRoute, selectedVisit, selectedLocationCategory, toast]);
+
+  // Fetch postings on mount and when filters change
+  useEffect(() => {
+    fetchPostings();
+  }, [fetchPostings]);
 
   const handlePrint = () => {
     window.print();

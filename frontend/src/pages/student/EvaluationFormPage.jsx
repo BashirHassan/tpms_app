@@ -5,13 +5,12 @@
  * and requires an approved acceptance form.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { portalApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { sanitizeHtml } from '../../utils/sanitize';
 import { useToast } from '../../context/ToastContext';
-import { formatDate } from '../../utils/helpers';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import {
@@ -45,7 +44,7 @@ function EvaluationFormPage() {
   const [availabilityInfo, setAvailabilityInfo] = useState(null);
   const [postingLetterWindow, setPostingLetterWindow] = useState(null);
 
-  const fetchPortalStatus = async () => {
+  const fetchPortalStatus = useCallback(async () => {
     try {
       const response = await portalApi.getStatus();
       const portal = response.data.data;
@@ -55,14 +54,9 @@ function EvaluationFormPage() {
     } catch (err) {
       console.error('Failed to fetch portal status:', err);
     }
-  };
-
-  useEffect(() => {
-    fetchDocumentData();
-    fetchPortalStatus();
   }, []);
 
-  const fetchDocumentData = async () => {
+  const fetchDocumentData = useCallback(async () => {
     setLoading(true);
     setError(null);
     setAvailabilityInfo(null);
@@ -87,7 +81,12 @@ function EvaluationFormPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    fetchDocumentData();
+    fetchPortalStatus();
+  }, [fetchDocumentData, fetchPortalStatus]);
 
   const handlePrint = () => window.print();
 

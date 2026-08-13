@@ -10,7 +10,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import { dashboardApi } from '../../../api/dashboard';
-import { formatCurrency, formatDate, formatGreetingName, formatNumber } from '../../../utils/helpers';
+import { formatCurrency, formatGreetingName, formatNumber } from '../../../utils/helpers';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/Card';
 import { StatsCard } from '../../../components/ui/StatsCard';
 import { Button } from '../../../components/ui/Button';
@@ -90,7 +90,7 @@ function InstitutionDashboard() {
     );
   }
 
-  const { currentSession, summary, charts, recentActivity } = data || {};
+  const { currentSession, summary, recentActivity } = data || {};
   const { students, staff, schools, postings, payments, acceptances, results, pendingRequests } = summary || {};
 
   // Primary stats that are always shown

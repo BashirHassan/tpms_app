@@ -6,7 +6,7 @@
  * Access is controlled by the session's posting_letters_available_from date
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { portalApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
@@ -49,7 +49,7 @@ function PostingLetterPage() {
   const [postingLetterWindow, setPostingLetterWindow] = useState(null);
 
   // Fetch portal status for availability date info
-  const fetchPortalStatus = async () => {
+  const fetchPortalStatus = useCallback(async () => {
     try {
       const response = await portalApi.getStatus();
       const portal = response.data.data;
@@ -60,15 +60,9 @@ function PostingLetterPage() {
       // Silent fail - this is supplementary info
       console.error('Failed to fetch portal status:', err);
     }
-  };
-
-  // Fetch document data on mount
-  useEffect(() => {
-    fetchDocumentData();
-    fetchPortalStatus();
   }, []);
 
-  const fetchDocumentData = async () => {
+  const fetchDocumentData = useCallback(async () => {
     setLoading(true);
     setError(null);
     setAvailabilityInfo(null);
@@ -98,7 +92,13 @@ function PostingLetterPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  // Fetch document data on mount
+  useEffect(() => {
+    fetchDocumentData();
+    fetchPortalStatus();
+  }, [fetchDocumentData, fetchPortalStatus]);
 
   const handlePrint = () => {
     window.print();

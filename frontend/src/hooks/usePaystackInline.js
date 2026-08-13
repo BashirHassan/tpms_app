@@ -40,19 +40,14 @@ const usePaystackInline = () => {
         onSuccess: (response) => {
           // IMPORTANT: This callback only indicates the popup closed after payment
           // The actual payment success must be verified on the backend
-          console.log('Paystack popup success callback:', response);
           onSuccess?.(response);
         },
         onCancel: () => {
-          console.log('Paystack popup cancelled by user');
           onCancel?.();
         },
         onError: (error) => {
           console.error('Paystack popup error:', error);
           onError?.(error);
-        },
-        onLoad: (response) => {
-          console.log('Paystack popup loaded:', response);
         },
       };
 

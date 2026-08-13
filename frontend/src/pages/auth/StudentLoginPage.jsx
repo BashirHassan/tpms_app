@@ -15,7 +15,7 @@ import { IconSchool, IconAlertCircle, IconBuilding } from '@tabler/icons-react';
 function StudentLoginPage() {
   const navigate = useNavigate();
   const { studentLogin } = useAuth();
-  const { branding, institution, loading: brandingLoading, error: brandingError, isSuperAdminPortal } = useInstitution();
+  const { branding, loading: brandingLoading, error: brandingError, isSuperAdminPortal } = useInstitution();
   const { toast } = useToast();
 
   const [registrationNumber, setRegistrationNumber] = useState('');

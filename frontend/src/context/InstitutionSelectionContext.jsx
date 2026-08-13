@@ -12,7 +12,7 @@
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { featuresApi, createFeaturesApi } from '../api/features';
+import { createFeaturesApi } from '../api/features';
 import { setCurrentInstitutionId } from '../api/client';
 import { applyBrandingColors, removeBrandingColors } from '../utils/colorGenerator';
 
@@ -174,8 +174,9 @@ export function InstitutionSelectionProvider({ children, user }) {
    * - No switching or manual selection allowed
    */
   useEffect(() => {
-    if (!user) {
-      // No user = clear institution
+    if (!user?.id) {
+      // No user = clear institution. Keyed on the id rather than the object so
+      // this doesn't re-run every time the auth value is rebuilt.
       clearInstitution();
       return;
     }
@@ -189,30 +190,45 @@ export function InstitutionSelectionProvider({ children, user }) {
     }
   }, [user?.id, userInstitution, setInstitutionFromData, clearInstitution]);
 
-  const value = {
-    // State
-    institution,
-    status,
+  // Memoized so consumers can safely list these in hook dependency arrays —
+  // an object literal here would be a new reference on every provider render.
+  const value = useMemo(
+    () => ({
+      // State
+      institution,
+      status,
 
-    // Features
-    features: featuresMap,
-    featureToggles,
-    featuresLoading,
+      // Features
+      features: featuresMap,
+      featureToggles,
+      featuresLoading,
 
-    // Computed
-    hasInstitution: status === 'SELECTED' && institution !== null,
-    isLoading: status === 'LOADING',
-    isGlobalContext: isSuperAdmin && !institution, // On admin.* subdomain
+      // Computed
+      hasInstitution: status === 'SELECTED' && institution !== null,
+      isLoading: status === 'LOADING',
+      isGlobalContext: isSuperAdmin && !institution, // On admin.* subdomain
 
-    // Actions
-    clearInstitution,
-    refreshFeatures,
-    isFeatureEnabled,
+      // Actions
+      clearInstitution,
+      refreshFeatures,
+      isFeatureEnabled,
 
-    // For API client - current institution ID
-    institutionId: institution?.id || null,
-    selectedInstitutionId: institution?.id || null,  // Alias for useInstitutionApi hook
-  };
+      // For API client - current institution ID
+      institutionId: institution?.id || null,
+      selectedInstitutionId: institution?.id || null,  // Alias for useInstitutionApi hook
+    }),
+    [
+      institution,
+      status,
+      featuresMap,
+      featureToggles,
+      featuresLoading,
+      isSuperAdmin,
+      clearInstitution,
+      refreshFeatures,
+      isFeatureEnabled,
+    ]
+  );
 
   return <InstitutionSelectionContext.Provider value={value}>{children}</InstitutionSelectionContext.Provider>;
 }

@@ -56,6 +56,19 @@ const Textarea = ({ className = '', ...props }) => (
   />
 );
 
+// Module scope so it keeps a stable identity across renders and can be listed
+// in hook dependency arrays
+const moduleNames = {
+  core:       'Core Features',
+  posting:    'Posting & Grouping',
+  documents:  'Documents',
+  finance:    'Finance & Payments',
+  results:    'Results',
+  monitoring: 'Monitoring',
+  supervision:'Supervision',
+  schools:    'Schools & Updates',
+};
+
 function FeaturesPage() {
   const { refreshFeatures, hasRole } = useAuth();
   const { refreshFeatures: refreshInstitutionFeatures } = useInstitutionSelection();
@@ -87,17 +100,6 @@ function FeaturesPage() {
   });
   const [showFilters, setShowFilters] = useState(false);
 
-  const moduleNames = {
-    core:       'Core Features',
-    posting:    'Posting & Grouping',
-    documents:  'Documents',
-    finance:    'Finance & Payments',
-    results:    'Results',
-    monitoring: 'Monitoring',
-    supervision:'Supervision',
-    schools:    'Schools & Updates',
-  };
-
   const fetchFeatures = useCallback(async () => {
     try {
       setLoading(true);
@@ -127,7 +129,7 @@ function FeaturesPage() {
     } finally {
       setToggling(null);
     }
-  }, [fetchFeatures, refreshFeatures, toast]);
+  }, [fetchFeatures, refreshFeatures, refreshInstitutionFeatures, toast]);
 
   const handleOpenForm = useCallback((feature = null) => {
     if (feature) {

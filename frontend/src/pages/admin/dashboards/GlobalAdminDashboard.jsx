@@ -6,12 +6,11 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../../context/AuthContext';
+import { Link } from 'react-router-dom';
 import { globalDashboardApi } from '../../../api/dashboard';
 import { authApi } from '../../../api/auth';
 import { getInstitutionUrl } from '../../../hooks/useSubdomain';
-import { formatCurrency, formatNumber } from '../../../utils/helpers';
+import { formatNumber } from '../../../utils/helpers';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/Card';
 import { StatsCard } from '../../../components/ui/StatsCard';
 import { Button } from '../../../components/ui/Button';
@@ -35,8 +34,6 @@ import {
 } from '@tabler/icons-react';
 
 function GlobalAdminDashboard() {
-  const { user } = useAuth();
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);

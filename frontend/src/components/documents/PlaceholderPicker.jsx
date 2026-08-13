@@ -120,11 +120,6 @@ const PlaceholderPicker = ({ documentType, onInsert, className = '' }) => {
     );
   };
 
-  // Check if any placeholders match search in a category
-  const hasMatchingPlaceholders = (categoryPlaceholders) => {
-    return filterPlaceholders(categoryPlaceholders).length > 0;
-  };
-
   if (loading) {
     return (
       <div className={`bg-white border-l border-gray-200 p-4 ${className}`}>

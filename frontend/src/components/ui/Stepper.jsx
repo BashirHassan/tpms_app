@@ -9,7 +9,7 @@ import { IconCheck } from '@tabler/icons-react';
 /**
  * Stepper - Container component
  */
-export function Stepper({ children, currentStep = 0, className }) {
+export function Stepper({ children, className }) {
   return (
     <div className={cn('w-full', className)}>
       <nav aria-label="Progress">

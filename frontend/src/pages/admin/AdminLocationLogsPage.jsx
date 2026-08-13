@@ -5,7 +5,7 @@
  * Shows all location verifications with filtering and override capabilities.
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { locationApi, sessionsApi, usersApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -16,14 +16,11 @@ import { Select } from '../../components/ui/Select';
 import { SearchableSelect } from '../../components/ui/SearchableSelect';
 import { DataTable } from '../../components/ui/DataTable';
 import { Dialog } from '../../components/ui/Dialog';
-import { Input } from '../../components/ui/Input';
 import {
   IconMapPin,
   IconRefresh,
   IconCheck,
-  IconX,
   IconAlertTriangle,
-  IconFilter,
   IconEye,
   IconDeviceMobile,
   IconClock,
@@ -65,19 +62,7 @@ function AdminLocationLogsPage() {
   const [overrideReason, setOverrideReason] = useState('');
   const [overriding, setOverriding] = useState(false);
 
-  // Fetch sessions on mount
-  useEffect(() => {
-    fetchSessions();
-    fetchSupervisors();
-  }, []);
-
-  // Fetch logs when filters change
-  useEffect(() => {
-    fetchLogs();
-    fetchStats();
-  }, [selectedSession, selectedSupervisor, selectedStatus, suspiciousOnly, pagination.page, pagination.limit]);
-
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const response = await sessionsApi.getAll();
       const sessionsData = response.data.data || response.data || [];
@@ -89,18 +74,18 @@ function AdminLocationLogsPage() {
     } catch (err) {
       console.error('Failed to load sessions:', err);
     }
-  };
+  }, []);
 
-  const fetchSupervisors = async () => {
+  const fetchSupervisors = useCallback(async () => {
     try {
       const response = await usersApi.getAll({ role: 'supervisor', limit: 500 });
       setSupervisors(response.data.data || []);
     } catch (err) {
       console.error('Failed to load supervisors:', err);
     }
-  };
+  }, []);
 
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
       const params = {
@@ -124,9 +109,9 @@ function AdminLocationLogsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedSession, selectedSupervisor, selectedStatus, suspiciousOnly, pagination.page, pagination.limit, toast]);
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     try {
       const params = selectedSession ? { session_id: selectedSession } : {};
       const response = await locationApi.getLocationStats(params);
@@ -134,7 +119,19 @@ function AdminLocationLogsPage() {
     } catch (err) {
       console.error('Failed to load stats:', err);
     }
-  };
+  }, [selectedSession]);
+
+  // Fetch sessions on mount
+  useEffect(() => {
+    fetchSessions();
+    fetchSupervisors();
+  }, [fetchSessions, fetchSupervisors]);
+
+  // Fetch logs when filters change
+  useEffect(() => {
+    fetchLogs();
+    fetchStats();
+  }, [fetchLogs, fetchStats]);
 
   const handleRefresh = () => {
     fetchLogs();

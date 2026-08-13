@@ -7,12 +7,8 @@ import { InstitutionProvider, useInstitution } from './context/InstitutionContex
 import { AlertProvider } from './components/ui/AlertDialog';
 import { useLandingPage } from './hooks/useSubdomain';
 // import RouteProgressBar from './components/ui/RouteProgressBar';
-import ContentLoader from './components/ui/ContentLoader';
 import ProtectedRoute, { 
-  StaffRoute, 
-  AdminRoute, 
-  HeadOfTPRoute, 
-  SupervisorRoute,
+  HeadOfTPRoute,
   SuperAdminRoute,
   GlobalRoute,
   StudentRoute,
@@ -23,7 +19,6 @@ import { ROLE_GROUPS } from './utils/roles';
 // Layouts (kept eager - they wrap all routes)
 import AdminLayout from './layouts/AdminLayout';
 import StudentLayout from './layouts/StudentLayout';
-import PublicLayout from './layouts/PublicLayout';
 
 // Inline fallback for non-layout routes (auth pages, landing)
 function PageLoader() {

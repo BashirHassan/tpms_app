@@ -8,9 +8,9 @@
  * - Deans (with allocation): Access only to supervisors in their faculty
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { postingsApi, sessionsApi, deanAllocationsApi, autoPostingApi } from '../../api';
+import { postingsApi, sessionsApi, deanAllocationsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
@@ -39,25 +39,6 @@ import {
   IconWand,
 } from '@tabler/icons-react';
 import { formatCurrency, getOrdinal } from '../../utils/helpers';
-
-// Calculate total allowance for a supervisor
-// Note: tetfund is only counted once per session regardless of multiple postings
-const calculateSupervisorTotalAllowance = (supervisor) => {
-  const postingCount = supervisor.current_visits || 0;
-  if (postingCount === 0) return 0;
-  
-  // Get rate values from supervisor (these come from their rank)
-  const localRunning = parseFloat(supervisor.local_running_allowance) || 0;
-  const transport = parseFloat(supervisor.transport_per_km) || 0;
-  const dsa = parseFloat(supervisor.dsa) || 0;
-  const dta = parseFloat(supervisor.dta) || 0;
-  const tetfund = parseFloat(supervisor.tetfund) || 0;
-  
-  // For display purposes, we show a simplified estimate
-  // The actual total from postings would need to come from the backend
-  // This shows the rank rates as an indicator
-  return supervisor.total_allowance || 0;
-};
 
 // Custom renderers for SearchableSelect
 const renderSupervisorOption = (supervisor, { isSelected }) => {
@@ -493,11 +474,8 @@ function MultipostingPage() {
   
   // Determine if user can access this page (admin level or dean with allocation)
   const isDean = user?.is_dean === 1 || user?.is_dean === true;
-  // A dean can VIEW the page if they have any allocation (even if exhausted)
-  const hasDeanAccess = isDean && deanAllocation;
   // A dean can EDIT (create postings) only if they have remaining allocation
   const hasRemainingAllocation = deanAllocation && deanAllocation.allocated_postings > deanAllocation.used_postings;
-  const canEdit = isAdminLevel || hasRemainingAllocation;
   // For read-only mode: dean has allocation but exhausted it
   const isReadOnlyMode = isDean && deanAllocation && !hasRemainingAllocation;
   
@@ -561,26 +539,7 @@ function MultipostingPage() {
     fetchDeanAllocation();
   }, [isAdminLevel]);
 
-  // Fetch sessions
-  useEffect(() => {
-    if (!loadingAllocation) {
-      fetchSessions();
-    }
-  }, [loadingAllocation]);
-
-  // Fetch data when session changes
-  useEffect(() => {
-    if (selectedSession && !loadingAllocation) {
-      fetchData();
-      // Update max supervision visits when session changes
-      const session = sessions.find((s) => s.id.toString() === selectedSession);
-      if (session) {
-        setMaxSupervisionVisits(session.max_supervision_visits || 3);
-      }
-    }
-  }, [selectedSession, sessions, loadingAllocation]);
-
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const response = await sessionsApi.getAll();
       const sessionsData = response.data.data || response.data || [];
@@ -593,9 +552,9 @@ function MultipostingPage() {
     } catch (err) {
       toast.error('Failed to load sessions');
     }
-  };
+  }, [toast]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [supervisorsRes, schoolsRes] = await Promise.all([
@@ -610,7 +569,26 @@ function MultipostingPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedSession, facultyIdFilter, toast]);
+
+  // Fetch sessions
+  useEffect(() => {
+    if (!loadingAllocation) {
+      fetchSessions();
+    }
+  }, [loadingAllocation, fetchSessions]);
+
+  // Fetch data when session changes
+  useEffect(() => {
+    if (selectedSession && !loadingAllocation) {
+      fetchData();
+      // Update max supervision visits when session changes
+      const session = sessions.find((s) => s.id.toString() === selectedSession);
+      if (session) {
+        setMaxSupervisionVisits(session.max_supervision_visits || 3);
+      }
+    }
+  }, [selectedSession, sessions, loadingAllocation, fetchData]);
 
   // Add new row
   const addRow = () => {
@@ -816,7 +794,7 @@ function MultipostingPage() {
   if (!isAdminLevel && !isDean) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-500">You don't have permission to access this page.</p>
+        <p className="text-gray-500">You don&apos;t have permission to access this page.</p>
       </div>
     );
   }
@@ -1329,7 +1307,7 @@ function MultipostingPage() {
                   </table>
                 </div>
                 <div className="bg-purple-50 px-4 py-2 border-t border-purple-200 text-xs text-purple-700">
-                  These postings were automatically created for merged groups. They don't receive separate allowances.
+                  These postings were automatically created for merged groups. They don&apos;t receive separate allowances.
                 </div>
               </div>
             )}

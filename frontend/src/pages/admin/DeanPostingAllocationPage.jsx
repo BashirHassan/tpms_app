@@ -5,17 +5,16 @@
  * Deans can then create postings for supervisors within their faculty.
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { deanAllocationsApi } from '../../api/deanAllocations';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { DataTable } from '../../components/ui/DataTable';
 import { Dialog } from '../../components/ui/Dialog';
 import { Input } from '../../components/ui/Input';
-import { Select } from '../../components/ui/Select';
 import { SearchableSelect } from '../../components/ui/SearchableSelect';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { formatDate } from '../../utils/helpers';
@@ -41,7 +40,7 @@ function DeanPostingAllocationPage() {
   const [allocations, setAllocations] = useState([]);
   const [stats, setStats] = useState(null);
   const [availableDeans, setAvailableDeans] = useState([]);
-  const [allDeans, setAllDeans] = useState([]);
+  const [, setAllDeans] = useState([]);
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
@@ -60,7 +59,7 @@ function DeanPostingAllocationPage() {
   const [deleting, setDeleting] = useState(false);
 
   // Fetch data
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [statsRes, allocationsRes, deansRes] = await Promise.all([
@@ -77,7 +76,7 @@ function DeanPostingAllocationPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   const fetchAvailableDeans = async () => {
     try {
@@ -90,7 +89,7 @@ function DeanPostingAllocationPage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   // Open create modal
   const openCreateModal = async () => {
@@ -202,14 +201,14 @@ function DeanPostingAllocationPage() {
   };
 
   // Delete allocation
-  const handleDelete = (allocation) => {
+  const handleDelete = useCallback((allocation) => {
     if (allocation.used_postings > 0) {
       toast.error(`Cannot delete allocation with ${allocation.used_postings} used postings`);
       return;
     }
     setAllocationToDelete(allocation);
     setShowDeleteConfirm(true);
-  };
+  }, [toast]);
 
   const confirmDelete = async () => {
     if (!allocationToDelete) return;
@@ -333,7 +332,7 @@ function DeanPostingAllocationPage() {
         </div>
       ) : null,
     },
-  ], [canEdit]);
+  ], [canEdit, handleDelete]);
 
   // Stats cards
   const statsCards = [

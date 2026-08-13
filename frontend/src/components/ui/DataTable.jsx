@@ -8,12 +8,14 @@
  * - Loading and empty states
  * - Pagination support
  * - Sorting support
+ * - Virtual scrolling for large datasets
  */
 
-import { useState, useMemo, useCallback, forwardRef, useImperativeHandle, useEffect } from 'react';
+import { useState, useMemo, useCallback, forwardRef, useImperativeHandle, useEffect, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { cva } from 'class-variance-authority';
 import { Skeleton } from './Skeleton';
-import { cn, formatCurrency } from '../../utils/helpers';
+import { cn, formatCurrency, formatDate, formatDateTime, formatNumber } from '../../utils/helpers';
 import { Button } from './Button';
 import { Badge } from './Badge';
 import { Dialog } from './Dialog';
@@ -45,13 +47,13 @@ const STATUS_VARIANTS = {
   draft: 'default',
   published: 'success',
   archived: 'default',
-  
+
   // Payment statuses
   paid: 'success',
   unpaid: 'warning',
   failed: 'error',
   refunded: 'info',
-  
+
   // Custom statuses
   locked: 'error',
   submitted: 'info',
@@ -113,13 +115,19 @@ const Checkbox = ({ checked, indeterminate, onChange, className, ...props }) => 
 /**
  * Export Column Selection Modal using Dialog component
  */
-const ExportModal = ({ isOpen, onClose, columns, onExport, exportType }) => {
-  const exportableColumns = useMemo(() => 
+const ExportModal = ({
+  isOpen,
+  onClose,
+  columns,
+  onExport,
+  exportType,
+  isExporting = false,
+}) => {
+  const exportableColumns = useMemo(() =>
     columns.filter((col) => col.exportable !== false && (col.accessor || col.key) !== 'actions'),
     [columns]
   );
   const [selectedColumns, setSelectedColumns] = useState([]);
-  const [exportScope, setExportScope] = useState('loaded');
 
   // Get unique identifier for a column
   const getColumnId = (col) => col.accessor || col.key;
@@ -128,7 +136,6 @@ const ExportModal = ({ isOpen, onClose, columns, onExport, exportType }) => {
   useEffect(() => {
     if (isOpen) {
       setSelectedColumns(exportableColumns.map((col) => getColumnId(col)));
-      setExportScope('loaded');
     }
   }, [isOpen, exportableColumns]);
 
@@ -152,7 +159,7 @@ const ExportModal = ({ isOpen, onClose, columns, onExport, exportType }) => {
     const columnsToExport = exportableColumns.filter((col) =>
       selectedColumns.includes(getColumnId(col))
     );
-    onExport(columnsToExport, { scope: exportScope });
+    onExport(columnsToExport);
     onClose();
   };
 
@@ -171,14 +178,14 @@ const ExportModal = ({ isOpen, onClose, columns, onExport, exportType }) => {
           <Button
             type="button"
             onClick={handleExport}
-            disabled={selectedColumns.length === 0}
+            disabled={selectedColumns.length === 0 || isExporting}
           >
             {exportType === 'excel' ? (
               <IconFileSpreadsheet className="w-4 h-4 mr-2" />
             ) : (
               <IconFileTypePdf className="w-4 h-4 mr-2" />
             )}
-            Export {exportType === 'excel' ? 'Excel' : 'PDF'}
+            {isExporting ? 'Preparing...' : `Export ${exportType === 'excel' ? 'Excel' : 'PDF'}`}
           </Button>
         </>
       }
@@ -203,28 +210,14 @@ const ExportModal = ({ isOpen, onClose, columns, onExport, exportType }) => {
         </Button>
       </div>
 
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Export Scope
-        </label>
-        <select
-          value={exportScope}
-          onChange={(e) => setExportScope(e.target.value)}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-        >
-          <option value="loaded">Currently Loaded</option>
-          <option value="all">All Matching Records</option>
-        </select>
-      </div>
-
       {/* Column list */}
       <div className="space-y-1 max-h-60 overflow-y-auto border rounded-lg p-2">
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-          {exportableColumns.map((col) => {
+          {exportableColumns.map((col, index) => {
             const columnId = getColumnId(col);
             return (
               <label
-                key={columnId}
+                key={columnId ?? index}
                 className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
               >
                 <Checkbox
@@ -257,24 +250,27 @@ const exportToExcel = async (data, columns, filename = 'export') => {
 
   const XLSX = await import('xlsx');
 
-  // Get visible columns for export
-  const exportColumns = columns.filter((col) => col.exportable !== false && (col.accessor || col.key) !== 'actions');
+  // Columns arriving from ExportModal are already filtered; filter again so the
+  // ref-based exportData() path (which passes every column) still drops actions
+  const exportColumns = columns.filter(
+    (col) => col.exportable !== false && (col.accessor || col.key) !== 'actions'
+  );
 
   // Build worksheet data
   const headers = exportColumns.map((col) => col.header || col.accessor || col.key);
 
-  const rows = data.map((row) => {
+  const rows = data.map((row, rowIndex) => {
     return exportColumns.map((col) => {
       const field = col.accessor || col.key;
       let value = field ? getNestedValue(row, field) : '';
 
       // Use export formatter if provided, otherwise use regular formatter
       if (col.exportFormatter) {
-        value = col.exportFormatter(value, row);
+        value = col.exportFormatter(value, row, rowIndex);
       } else if (col.formatter && typeof col.formatter(value, row) !== 'object') {
         value = col.formatter(value, row);
       }
-      
+
       return value ?? '';
     });
   });
@@ -282,7 +278,7 @@ const exportToExcel = async (data, columns, filename = 'export') => {
   // Create workbook and worksheet
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-  
+
   // Set column widths
   const colWidths = headers.map((h, i) => {
     const maxLen = Math.max(
@@ -292,9 +288,9 @@ const exportToExcel = async (data, columns, filename = 'export') => {
     return { wch: Math.min(maxLen + 2, 50) };
   });
   ws['!cols'] = colWidths;
-  
+
   XLSX.utils.book_append_sheet(wb, ws, 'Data');
-  
+
   // Download
   XLSX.writeFile(wb, `${filename}_${new Date().toISOString().split('T')[0]}.xlsx`);
 };
@@ -310,24 +306,26 @@ const exportToPdf = async (data, columns, filename = 'export', options = {}) => 
     import('jspdf-autotable'),
   ]);
 
-  // Get visible columns for export
-  const exportColumns = columns.filter((col) => col.exportable !== false && (col.accessor || col.key) !== 'actions');
+  // Same defensive filter as the Excel path
+  const exportColumns = columns.filter(
+    (col) => col.exportable !== false && (col.accessor || col.key) !== 'actions'
+  );
 
   // Build table data
   const headers = exportColumns.map((col) => col.header || col.accessor || col.key);
 
-  const rows = data.map((row) => {
+  const rows = data.map((row, rowIndex) => {
     return exportColumns.map((col) => {
       const field = col.accessor || col.key;
       let value = field ? getNestedValue(row, field) : '';
 
       // Use export formatter if provided
       if (col.exportFormatter) {
-        value = col.exportFormatter(value, row);
+        value = col.exportFormatter(value, row, rowIndex);
       } else if (col.formatter && typeof col.formatter(value, row) !== 'object') {
         value = col.formatter(value, row);
       }
-      
+
       return String(value ?? '');
     });
   });
@@ -386,52 +384,55 @@ const DataTable = forwardRef(function DataTable(
     data = [],
     columns = [],
     keyField = 'id',
-    
+
     // Features
     loading = false,
     sortable = true,
     exportable = true,
     exportFilename = 'export',
-    exportDataProvider,
     searchable = false,
     searchPlaceholder = 'Search...',
-    
+
     // Multiselect
     selectable = false,
     selectedRows = [],
     onSelectionChange,
     selectionMode = 'multiple', // 'single' | 'multiple'
     isRowSelectable, // (row) => boolean - optional function to disable selection for specific rows
-    
+
     // Pagination
     pagination = null, // { page, limit, total, onPageChange, onLimitChange? }
     pageSizeOptions = [20, 50, 100, 200],
-    
+
     // Callbacks
     onRowClick,
     onSort,
-    
+    onServerExport, // ({ type, columns, rows, filename }) => true | Row[] | false
+
     // Styling
     size = 'default',
     className,
     tableClassName,
     headerClassName,
     rowClassName,
-    
+    highlightLastClicked = true,
+
     // Empty & Loading states
     emptyIcon: EmptyIcon,
     emptyTitle = 'No data found',
     emptyDescription,
-    
+
     // Toolbar
     toolbar,
     toolbarPosition = 'top', // 'top' | 'bottom' | 'both'
-    
+
     // Header actions (buttons near export)
     headerActionsLeft,
     headerActionsRight,
-    
-    ...props
+
+    // Virtual scrolling — enable for tables with 500+ rows
+    virtualScrolling = false,
+    virtualRowHeight = 48,
   },
   ref
 ) {
@@ -440,12 +441,16 @@ const DataTable = forwardRef(function DataTable(
   const [internalSelectedRows, setInternalSelectedRows] = useState([]);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportType, setExportType] = useState(null); // 'excel' | 'pdf'
-  const [exportLoading, setExportLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [lastClickedKey, setLastClickedKey] = useState(null);
+
+  const tableContainerRef = useRef(null);
+  const lastRowCountRef = useRef(0);
 
   // Use controlled or uncontrolled selection
   const isControlled = onSelectionChange !== undefined;
   const currentSelectedRows = isControlled ? selectedRows : internalSelectedRows;
-  
+
   const setSelectedRows = useCallback((newSelection) => {
     if (isControlled) {
       onSelectionChange?.(newSelection);
@@ -470,7 +475,7 @@ const DataTable = forwardRef(function DataTable(
   // Check if row is selected
   const isRowSelected = useCallback((row) => {
     const rowKey = row[keyField];
-    return currentSelectedRows.some((selected) => 
+    return currentSelectedRows.some((selected) =>
       typeof selected === 'object' ? selected[keyField] === rowKey : selected === rowKey
     );
   }, [currentSelectedRows, keyField]);
@@ -497,7 +502,7 @@ const DataTable = forwardRef(function DataTable(
         setSelectedRows([...currentSelectedRows, row]);
       } else {
         const rowKey = row[keyField];
-        setSelectedRows(currentSelectedRows.filter((selected) => 
+        setSelectedRows(currentSelectedRows.filter((selected) =>
           typeof selected === 'object' ? selected[keyField] !== rowKey : selected !== rowKey
         ));
       }
@@ -513,21 +518,11 @@ const DataTable = forwardRef(function DataTable(
     }
   }, [selectableRows, setSelectedRows]);
 
-  // Expose methods via ref
-  useImperativeHandle(ref, () => ({
-    exportData: () => exportToExcel(filteredData, columns, exportFilename),
-    getFilteredData: () => filteredData,
-    getSortConfig: () => sortConfig,
-    getSelectedRows: () => currentSelectedRows,
-    clearSelection: () => setSelectedRows([]),
-    selectAll: () => setSelectedRows([...selectableRows]),
-  }));
-
   // Handle sorting
   const handleSort = useCallback(
     (columnKey) => {
       if (!sortable) return;
-      
+
       const column = columns.find((c) => c.accessor === columnKey);
       if (column?.sortable === false) return;
 
@@ -559,7 +554,7 @@ const DataTable = forwardRef(function DataTable(
   // Sort data locally (if not server-side)
   const sortedData = useMemo(() => {
     if (!sortConfig.key || onSort) return filteredData; // Skip if server-side sorting
-    
+
     const column = columns.find((c) => c.accessor === sortConfig.key);
     if (!column) return filteredData;
 
@@ -581,6 +576,21 @@ const DataTable = forwardRef(function DataTable(
       return sortConfig.direction === 'asc' ? comparison : -comparison;
     });
   }, [filteredData, sortConfig, columns, onSort]);
+
+  // Remember the last non-loading row count so a refetch's skeleton state
+  // doesn't collapse the scroll container height (and clamp scrollTop) below it
+  useEffect(() => {
+    if (!loading && sortedData.length > 0) {
+      lastRowCountRef.current = sortedData.length;
+    }
+  }, [loading, sortedData.length]);
+
+  const rowVirtualizer = useVirtualizer({
+    count: virtualScrolling ? sortedData.length : 0,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => virtualRowHeight,
+    overscan: 10,
+  });
 
   // Render cell content
   const renderCell = useCallback((column, row, rowIndex) => {
@@ -608,16 +618,16 @@ const DataTable = forwardRef(function DataTable(
         );
 
       case 'date':
-        return value ? new Date(value).toLocaleDateString() : '-';
+        return formatDate(value, '-');
 
       case 'datetime':
-        return value ? new Date(value).toLocaleString() : '-';
+        return formatDateTime(value, '-');
 
       case 'currency':
         return value != null ? formatCurrency(value, column.currency) : '-';
 
       case 'number':
-        return value != null ? value.toLocaleString() : '-';
+        return formatNumber(value);
 
       case 'boolean':
         return value ? 'Yes' : 'No';
@@ -640,7 +650,7 @@ const DataTable = forwardRef(function DataTable(
     if (!sortable || column.sortable === false) return null;
 
     const isActive = sortConfig.key === column.accessor;
-    
+
     return (
       <span className="ml-1 inline-flex flex-col">
         <IconChevronUp
@@ -687,7 +697,7 @@ const DataTable = forwardRef(function DataTable(
           <div className="flex-1 min-w-0">{toolbar}</div>
           {headerActionsLeft}
         </div>
-        
+
         <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-auto">
           {headerActionsRight}
           {exportable && data.length > 0 && (
@@ -699,11 +709,15 @@ const DataTable = forwardRef(function DataTable(
                   setExportType('excel');
                   setExportModalOpen(true);
                 }}
-                disabled={exportLoading}
+                disabled={isExporting}
                 className="active:scale-95"
               >
-                {exportLoading ? <IconLoader2 className="w-4 h-4 sm:mr-2 animate-spin" /> : <IconFileSpreadsheet className="w-4 h-4 sm:mr-2" />}
-                <span className="hidden sm:inline">Excel</span>
+                {isExporting ? (
+                  <IconLoader2 className="w-4 h-4 sm:mr-2 animate-spin" />
+                ) : (
+                  <IconFileSpreadsheet className="w-4 h-4 sm:mr-2" />
+                )}
+                <span className="hidden sm:inline">{isExporting ? 'Preparing...' : 'Excel'}</span>
               </Button>
               <Button
                 variant="outline"
@@ -712,11 +726,15 @@ const DataTable = forwardRef(function DataTable(
                   setExportType('pdf');
                   setExportModalOpen(true);
                 }}
-                disabled={exportLoading}
+                disabled={isExporting}
                 className="active:scale-95"
               >
-                {exportLoading ? <IconLoader2 className="w-4 h-4 sm:mr-2 animate-spin" /> : <IconFileTypePdf className="w-4 h-4 sm:mr-2" />}
-                <span className="hidden sm:inline">PDF</span>
+                {isExporting ? (
+                  <IconLoader2 className="w-4 h-4 sm:mr-2 animate-spin" />
+                ) : (
+                  <IconFileTypePdf className="w-4 h-4 sm:mr-2" />
+                )}
+                <span className="hidden sm:inline">{isExporting ? 'Preparing...' : 'PDF'}</span>
               </Button>
             </>
           )}
@@ -814,8 +832,7 @@ const DataTable = forwardRef(function DataTable(
 
   // Render loading state with skeleton rows
   const renderLoadingState = () => {
-    const colCount = columns.length + (selectable ? 1 : 0);
-    return Array.from({ length: 5 }).map((_, rowIndex) => (
+    return Array.from({ length: Math.max(lastRowCountRef.current, 5) }).map((_, rowIndex) => (
       <tr key={`skeleton-${rowIndex}`} className="border-b border-gray-100">
         {selectable && (
           <td className="px-4 py-3 w-10">
@@ -835,11 +852,78 @@ const DataTable = forwardRef(function DataTable(
     ));
   };
 
+  const handleExport = useCallback(async (selectedColumns) => {
+    setIsExporting(true);
+    try {
+      let dataForExport = sortedData;
+
+      if (typeof onServerExport === 'function') {
+        const result = await onServerExport({
+          type: exportType,
+          columns: selectedColumns,
+          rows: sortedData,
+          filename: exportFilename,
+        });
+        if (result === true) return;        // server handled fully (e.g. blob download)
+        if (Array.isArray(result)) {
+          dataForExport = result;           // server fetched all rows; generate client-side
+        }
+        // result === false → fall through with current-page sortedData
+      }
+
+      if (exportType === 'excel') {
+        await exportToExcel(dataForExport, selectedColumns, exportFilename);
+      } else if (exportType === 'pdf') {
+        await exportToPdf(dataForExport, selectedColumns, exportFilename);
+      }
+    } catch (error) {
+      console.error('Failed to export data:', error);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [exportType, exportFilename, onServerExport, sortedData]);
+
+  const exportDataFromRef = useCallback(async () => {
+    setIsExporting(true);
+    try {
+      if (typeof onServerExport === 'function') {
+        const handled = await onServerExport({
+          type: 'excel',
+          columns,
+          rows: sortedData,
+          filename: exportFilename,
+        });
+        if (handled === true) return;
+        if (Array.isArray(handled)) {
+          await exportToExcel(handled, columns, exportFilename);
+          return;
+        }
+      }
+
+      await exportToExcel(sortedData, columns, exportFilename);
+    } catch (error) {
+      console.error('Failed to export data from ref:', error);
+      await exportToExcel(sortedData, columns, exportFilename);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [columns, exportFilename, onServerExport, sortedData]);
+
+  // Expose methods via ref
+  useImperativeHandle(ref, () => ({
+    exportData: exportDataFromRef,
+    getFilteredData: () => filteredData,
+    getSortConfig: () => sortConfig,
+    getSelectedRows: () => currentSelectedRows,
+    clearSelection: () => setSelectedRows([]),
+    selectAll: () => setSelectedRows([...selectableRows]),
+  }));
+
   return (
     <div className={cn('bg-white rounded-lg shadow-sm', className)}>
       {(toolbarPosition === 'top' || toolbarPosition === 'both') && renderToolbar()}
-      
-      <div className={cn(tableContainerVariants({ size }))}>
+
+      <div ref={tableContainerRef} className={cn(tableContainerVariants({ size }))}>
         <table className={cn('w-full min-w-max', tableClassName)}>
           <thead className={cn('bg-gray-50 sticky top-0 z-10', headerClassName)}>
             <tr>
@@ -884,11 +968,68 @@ const DataTable = forwardRef(function DataTable(
               <tr>
                 <td colSpan={columns.length + (selectable ? 1 : 0)}>{renderEmptyState()}</td>
               </tr>
-            ) : (
+            ) : virtualScrolling ? (() => {
+              const virtualItems = rowVirtualizer.getVirtualItems();
+              const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
+              const paddingBottom = virtualItems.length > 0
+                ? rowVirtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end
+                : 0;
+              return (
+                <>
+                  {paddingTop > 0 && <tr><td style={{ height: paddingTop }} colSpan={columns.length + (selectable ? 1 : 0)} /></tr>}
+                  {virtualItems.map((virtualRow) => {
+                    const row = sortedData[virtualRow.index];
+                    const rowSelectable = !isRowSelectable || isRowSelectable(row);
+                    const selected = isRowSelected(row);
+                    const isLastClicked = highlightLastClicked && lastClickedKey != null && row[keyField] === lastClickedKey;
+                    return (
+                      <tr
+                        key={row[keyField] || virtualRow.index}
+                        className={cn(
+                          'hover:bg-gray-50 transition-colors',
+                          onRowClick && 'cursor-pointer',
+                          selected && 'bg-primary-50 hover:bg-primary-100',
+                          isLastClicked && 'bg-gray-100 ring-1 ring-inset ring-gray-300 hover:bg-gray-200',
+                          typeof rowClassName === 'function' ? rowClassName(row, virtualRow.index) : rowClassName
+                        )}
+                        onClickCapture={() => highlightLastClicked && setLastClickedKey(row[keyField])}
+                        onClick={() => onRowClick?.(row, virtualRow.index)}
+                      >
+                        {selectable && (
+                          <td className="px-4 py-3 w-10">
+                            <Checkbox
+                              checked={selected}
+                              onChange={(checked) => handleRowSelect(row, checked)}
+                              disabled={!rowSelectable}
+                              aria-label={`Select row ${virtualRow.index + 1}`}
+                            />
+                          </td>
+                        )}
+                        {columns.map((column, colIndex) => (
+                          <td
+                            key={column.accessor || colIndex}
+                            className={cn(
+                              'px-4 py-2 whitespace-nowrap text-sm text-gray-900',
+                              column.cellClassName,
+                              column.align === 'center' && 'text-center',
+                              column.align === 'right' && 'text-right'
+                            )}
+                          >
+                            {renderCell(column, row, virtualRow.index)}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                  {paddingBottom > 0 && <tr><td style={{ height: paddingBottom }} colSpan={columns.length + (selectable ? 1 : 0)} /></tr>}
+                </>
+              );
+            })() : (
               sortedData.map((row, rowIndex) => {
                 const rowSelectable = !isRowSelectable || isRowSelectable(row);
                 const selected = isRowSelected(row);
-                
+                const isLastClicked = highlightLastClicked && lastClickedKey != null && row[keyField] === lastClickedKey;
+
                 return (
                   <tr
                     key={row[keyField] || rowIndex}
@@ -896,8 +1037,10 @@ const DataTable = forwardRef(function DataTable(
                       'hover:bg-gray-50 transition-colors',
                       onRowClick && 'cursor-pointer',
                       selected && 'bg-primary-50 hover:bg-primary-100',
+                      isLastClicked && 'bg-gray-100 ring-1 ring-inset ring-gray-300 hover:bg-gray-200',
                       typeof rowClassName === 'function' ? rowClassName(row, rowIndex) : rowClassName
                     )}
+                    onClickCapture={() => highlightLastClicked && setLastClickedKey(row[keyField])}
                     onClick={() => onRowClick?.(row, rowIndex)}
                   >
                     {selectable && (
@@ -943,36 +1086,8 @@ const DataTable = forwardRef(function DataTable(
         }}
         columns={columns}
         exportType={exportType}
-        onExport={async (selectedColumns, options = {}) => {
-          try {
-            setExportLoading(true);
-            let exportRows = sortedData;
-            const scope = options.scope || 'loaded';
-
-            if (typeof exportDataProvider === 'function') {
-              const providedRows = await exportDataProvider({
-                exportType,
-                scope,
-                selectedColumns,
-                displayedData: sortedData,
-              });
-
-              if (Array.isArray(providedRows)) {
-                exportRows = providedRows;
-              }
-            }
-
-            if (exportType === 'excel') {
-              await exportToExcel(exportRows, selectedColumns, exportFilename);
-            } else if (exportType === 'pdf') {
-              await exportToPdf(exportRows, selectedColumns, exportFilename);
-            }
-          } catch (error) {
-            console.error('Failed to export data:', error);
-          } finally {
-            setExportLoading(false);
-          }
-        }}
+        isExporting={isExporting}
+        onExport={handleExport}
       />
     </div>
   );
@@ -1033,9 +1148,9 @@ export const columnHelpers = {
     accessor: null,
     header,
     sortable: false,
-    exportable: false,
-    render: (_, __, index) => index + 1,
     width: 50,
+    exportFormatter: (_, __, rowIndex) => rowIndex + 1,
+    render: (_, __, index) => index + 1,
     ...options,
   }),
 };

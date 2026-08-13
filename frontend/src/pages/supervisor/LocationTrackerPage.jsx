@@ -7,7 +7,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { locationApi, sessionsApi } from '../../api';
-import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -29,10 +28,9 @@ import {
   IconExternalLink,
   IconNavigation,
 } from '@tabler/icons-react';
-import { getOrdinal, getMapViewUrl, getDirectionsUrl, formatDistance } from '../../utils/helpers';
+import { getOrdinal, getMapViewUrl, getDirectionsUrl } from '../../utils/helpers';
 
 function LocationTrackerPage() {
-  const { user } = useAuth();
   const { toast } = useToast();
 
   // State
@@ -45,19 +43,7 @@ function LocationTrackerPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPosting, setSelectedPosting] = useState(null);
 
-  // Fetch sessions on mount
-  useEffect(() => {
-    fetchSessions();
-  }, []);
-
-  // Fetch postings when session changes
-  useEffect(() => {
-    if (selectedSession) {
-      fetchPostings();
-    }
-  }, [selectedSession]);
-
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const response = await sessionsApi.getAll();
       const sessionsData = response.data.data || response.data || [];
@@ -70,9 +56,9 @@ function LocationTrackerPage() {
       console.error('Failed to load sessions:', err);
       toast.error('Failed to load sessions');
     }
-  };
+  }, [toast]);
 
-  const fetchPostings = async () => {
+  const fetchPostings = useCallback(async () => {
     setLoading(true);
     try {
       const params = selectedSession ? { session_id: selectedSession } : {};
@@ -84,7 +70,19 @@ function LocationTrackerPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedSession, toast]);
+
+  // Fetch sessions on mount
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
+
+  // Fetch postings when session changes
+  useEffect(() => {
+    if (selectedSession) {
+      fetchPostings();
+    }
+  }, [selectedSession, fetchPostings]);
 
   const handleRefresh = () => {
     fetchPostings();
@@ -95,7 +93,7 @@ function LocationTrackerPage() {
     setDialogOpen(true);
   };
 
-  const handleVerified = (result) => {
+  const handleVerified = () => {
     // Update the posting in the list
     setPostings((prev) =>
       prev.map((p) =>

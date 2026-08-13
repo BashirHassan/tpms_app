@@ -18,7 +18,6 @@ import {
   IconClock as Clock,
   IconArchive as Archive,
   IconUpload as Upload,
-  IconChevronDown as ChevronDown,
   IconRefresh as RotateCcw,
   IconHistory as History,
   IconX as X,
@@ -131,7 +130,7 @@ const DocumentTemplatesPage = () => {
   }, [fetchTemplates]);
 
   // Handle placeholder insert from picker
-  const handlePlaceholderInsert = (placeholderText, placeholder) => {
+  const handlePlaceholderInsert = (placeholderText) => {
     if (insertPlaceholderRef.current) {
       insertPlaceholderRef.current(placeholderText);
     }

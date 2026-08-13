@@ -8,7 +8,7 @@ import { sessionsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { formatDate, getOrdinal } from '../../utils/helpers';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Card, CardContent } from '../../components/ui/Card';
 import { DataTable } from '../../components/ui/DataTable';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -27,7 +27,6 @@ import {
   IconClock,
   IconUsers,
   IconCheck,
-  IconAlertCircle,
 } from '@tabler/icons-react';
 
 function SessionsPage() {
@@ -84,7 +83,7 @@ function SessionsPage() {
   });
 
   // Fetch data
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     setLoading(true);
     try {
       const response = await sessionsApi.getAll();
@@ -94,9 +93,9 @@ function SessionsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  const fetchCurrentSession = async () => {
+  const fetchCurrentSession = useCallback(async () => {
     try {
       const response = await sessionsApi.getCurrent();
       setCurrentSession(response.data.data || response.data || null);
@@ -104,12 +103,12 @@ function SessionsPage() {
       // No current session is fine
       setCurrentSession(null);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchSessions();
     fetchCurrentSession();
-  }, []);
+  }, [fetchSessions, fetchCurrentSession]);
 
   // Modal handlers
   const getDefaultFormData = () => ({
@@ -155,7 +154,7 @@ function SessionsPage() {
   };
 
   // Fetch supervision timelines for a session
-  const fetchSupervisionTimelines = async (sessionId) => {
+  const fetchSupervisionTimelines = useCallback(async (sessionId) => {
     setLoadingTimelines(true);
     try {
       const response = await sessionsApi.getSupervisionTimelines(sessionId);
@@ -182,7 +181,7 @@ function SessionsPage() {
     } finally {
       setLoadingTimelines(false);
     }
-  };
+  }, [toast]);
 
   const openEditModal = useCallback((session) => {
     setEditSession(session);
@@ -213,7 +212,7 @@ function SessionsPage() {
       fetchSupervisionTimelines(session.id);
     }
     setShowModal(true);
-  }, [toast]);
+  }, [fetchSupervisionTimelines]);
 
   const handleSave = async () => {
     if (!formData.name) {
@@ -222,7 +221,7 @@ function SessionsPage() {
     }
 
     // Generate code from name if not provided (e.g., "2024/2025 First Semester" -> "2024-2025-1")
-    const code = formData.code || formData.name.replace(/[\s\/]+/g, '-').toUpperCase().substring(0, 20);
+    const code = formData.code || formData.name.replace(/[\s/]+/g, '-').toUpperCase().substring(0, 20);
 
     setSaving(true);
     try {
@@ -339,7 +338,7 @@ function SessionsPage() {
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to lock session');
     }
-  }, [toast]);
+  }, [toast, fetchSessions]);
 
   const handleUnlock = useCallback(async (id) => {
     try {
@@ -349,7 +348,7 @@ function SessionsPage() {
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to unlock session');
     }
-  }, [toast]);
+  }, [toast, fetchSessions]);
 
   const getStatusBadge = (session) => {
     if (session.is_locked) {

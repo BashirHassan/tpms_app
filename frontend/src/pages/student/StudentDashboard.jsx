@@ -3,7 +3,7 @@
  * Real-time portal status with session-aware features
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { portalApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
@@ -29,18 +29,14 @@ import {
 
 function StudentDashboard() {
   const navigate = useNavigate();
-  const { user, institution } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
 
   const [loading, setLoading] = useState(true);
   const [portalStatus, setPortalStatus] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    fetchPortalStatus();
-  }, []);
-
-  const fetchPortalStatus = async () => {
+  const fetchPortalStatus = useCallback(async () => {
     try {
       const response = await portalApi.getStatus();
       setPortalStatus(response.data.data || response.data || null);
@@ -52,7 +48,11 @@ function StudentDashboard() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    fetchPortalStatus();
+  }, [fetchPortalStatus]);
 
   const handleRefresh = () => {
     setRefreshing(true);

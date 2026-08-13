@@ -29,8 +29,7 @@ import {
 } from './DocumentPreview';
 
 const TemplatePreview = ({ 
-  templateId, 
-  documentType,
+  templateId,
   studentId = null,
   sessionId = null,
   schoolId = null,

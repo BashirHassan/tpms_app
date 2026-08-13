@@ -131,7 +131,6 @@ export default function StudentLocationUpdatePage() {
 
   const validateForm = () => {
     const errors = {};
-    const phoneRegex = /^(\+?234|0)?[789][01]\d{8}$/;
     const lat = parseFloat(formData.proposed_latitude);
     const lng = parseFloat(formData.proposed_longitude);
 

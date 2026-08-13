@@ -5,7 +5,7 @@
  * Uses the template system for body content while keeping React-based header/footer
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { portalApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
@@ -19,10 +19,6 @@ import {
   DocumentFooter,
   DocumentPrintStyles,
   TemplateBodyStyles,
-  DateBlock,
-  AddressBlock,
-  StudentInfoTable,
-  SignatureBlock,
 } from '../../components/documents/DocumentPreview';
 import {
   IconFileText,
@@ -43,12 +39,7 @@ function IntroductionLetterPage() {
   const [templateHtml, setTemplateHtml] = useState(null);
   const [error, setError] = useState(null);
 
-  // Fetch document data on mount
-  useEffect(() => {
-    fetchDocumentData();
-  }, []);
-
-  const fetchDocumentData = async () => {
+  const fetchDocumentData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -71,28 +62,17 @@ function IntroductionLetterPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  // Fetch document data on mount
+  useEffect(() => {
+    fetchDocumentData();
+  }, [fetchDocumentData]);
 
   const handlePrint = () => {
     window.print();
   };
 
-  // Generate reference number
-  const getReference = () => {
-    const student = documentData?.student;
-    const session = documentData?.session;
-    return `TP/INT/${session?.code || new Date().getFullYear()}/${student?.registration_number?.replace(/\//g, '-') || student?.id || ''}`;
-  };
-
-  // Get institution type label
-  const getInstitutionLabel = () => {
-    const types = {
-      'university': 'University',
-      'college_of_education': 'College',
-      'polytechnic': 'Polytechnic',
-    };
-    return types[institution?.institution_type] || 'Institution';
-  };
 
   // Loading state
   if (loading) {
@@ -173,14 +153,7 @@ function IntroductionLetterPage() {
     );
   }
 
-  const student = documentData?.student;
   const session = documentData?.session;
-  const coordinator = documentData?.coordinator || {
-    name: session?.coordinator_name,
-    phone: session?.coordinator_phone,
-    email: session?.coordinator_email,
-  };
-  const reference = getReference();
 
   return (
     <div className="space-y-3 sm:space-y-4 px-1">

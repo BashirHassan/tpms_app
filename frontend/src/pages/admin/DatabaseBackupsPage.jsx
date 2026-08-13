@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import backupsApi from '../../api/backups';
 import { useToast } from '../../context/ToastContext';
 import { Button } from '../../components/ui/Button';
@@ -25,7 +25,7 @@ export default function DatabaseBackupsPage() {
   const [loading, setLoading]         = useState(true);
   const [downloading, setDownloading] = useState(null);
 
-  const fetchBackups = async () => {
+  const fetchBackups = useCallback(async () => {
     setLoading(true);
     try {
       const res = await backupsApi.getAll();
@@ -35,11 +35,11 @@ export default function DatabaseBackupsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  useEffect(() => { fetchBackups(); }, []);
+  useEffect(() => { fetchBackups(); }, [fetchBackups]);
 
-  const handleDownload = async (filename) => {
+  const handleDownload = useCallback(async (filename) => {
     setDownloading(filename);
     try {
       const res = await backupsApi.download(filename);
@@ -54,7 +54,7 @@ export default function DatabaseBackupsPage() {
     } finally {
       setDownloading(null);
     }
-  };
+  }, [toast]);
 
   const totalSize = backups.reduce((sum, b) => sum + b.size_bytes, 0);
 
@@ -94,7 +94,7 @@ export default function DatabaseBackupsPage() {
         </Button>
       ),
     },
-  ], [downloading]);
+  ], [downloading, handleDownload]);
 
   return (
     <div className="p-6 space-y-6">

@@ -9,19 +9,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   IconToggleLeft,
-  IconToggleRight,
-  IconSearch,
   IconRefresh,
   IconBuilding,
   IconCheck,
   IconX,
   IconChartBar,
-  IconFilter,
   IconShieldCheck,
 } from '@tabler/icons-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { Input } from '../../components/ui/Input';
 import { StatsCard } from '../../components/ui/StatsCard';
 import api from '../../api/client';
 

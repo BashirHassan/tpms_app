@@ -20,16 +20,12 @@ import {
   IconCalendar,
   IconRefresh,
   IconArrowRight,
-  IconMapPin,
   IconUsers,
-  IconSchool,
   IconCash,
   IconCheck,
   IconClock,
-  IconAlertCircle,
   IconReport,
   IconChecklist,
-  IconEye,
   IconStar,
   IconTrendingUp,
   IconBuildingBank,
@@ -39,7 +35,7 @@ import {
 } from '@tabler/icons-react';
 
 function SupervisorDashboard() {
-  const { user, effectiveInstitution, hasFeature } = useAuth();
+  const { user, hasFeature } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
@@ -122,10 +118,6 @@ function SupervisorDashboard() {
   const isSupervisor = role === 'supervisor';
   const isMonitor = role === 'field_monitor';
 
-  // Calculate total allowances for supervisors
-  const totalAllowances = postings?.reduce((sum, p) => {
-    return sum + (p.local_running || 0) + (p.transport || 0) + (p.dsa || 0) + (p.dta || 0) + (p.tetfund || 0);
-  }, 0) || 0;
 
   return (
     <div className="space-y-4">

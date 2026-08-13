@@ -110,12 +110,7 @@ function AcceptanceFormPage() {
   const [signedForm, setSignedForm] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
 
-  // Fetch status and schools
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [statusRes, schoolsRes, registrationRes] = await Promise.all([
@@ -132,7 +127,12 @@ function AcceptanceFormPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  // Fetch status and schools
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   // Validate phone number
   const validatePhone = (phone) => {
@@ -151,7 +151,7 @@ function AcceptanceFormPage() {
       case 0: // Documents - no validation needed
         break;
 
-      case 1: // Contact Info & School Selection
+      case 1: { // Contact Info & School Selection
         const phoneError = validatePhone(formData.phone);
         if (phoneError) errors.phone = phoneError;
 
@@ -164,6 +164,7 @@ function AcceptanceFormPage() {
           return false;
         }
         break;
+      }
 
       case 2: // Upload
         if (!signedForm) {
@@ -543,7 +544,6 @@ function ContactAndSchoolStep({
   formData,
   formErrors,
   onChange,
-  user,
   search,
   onSearchChange,
   selectedSchool,
@@ -617,7 +617,7 @@ function ContactAndSchoolStep({
           <div>
             <h3 className="font-semibold text-gray-900 text-sm sm:text-base">Select Your School</h3>
             <p className="text-xs sm:text-sm text-gray-500">
-              Choose the school where you've obtained acceptance
+              Choose the school where you&apos;ve obtained acceptance
             </p>
           </div>
         </div>

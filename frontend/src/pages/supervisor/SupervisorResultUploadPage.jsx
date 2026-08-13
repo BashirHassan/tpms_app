@@ -7,7 +7,6 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { resultsApi } from '../../api';
-import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -28,7 +27,6 @@ import {
 import { getOrdinal } from '../../utils/helpers';
 
 function SupervisorResultUploadPage() {
-  const { user } = useAuth();
   const { toast } = useToast();
 
   // State
@@ -63,13 +61,8 @@ function SupervisorResultUploadPage() {
   // PHASE 1: Initialization & Access Control
   // ============================================================
 
-  useEffect(() => {
-    fetchAssignedGroups();
-    fetchScoringCriteria();
-  }, []);
-
   // Fetch assigned groups when component mounts
-  const fetchAssignedGroups = async () => {
+  const fetchAssignedGroups = useCallback(async () => {
     setInitialLoading(true);
     try {
       const response = await resultsApi.getAssignedGroups();
@@ -84,10 +77,10 @@ function SupervisorResultUploadPage() {
     } finally {
       setInitialLoading(false);
     }
-  };
+  }, [toast]);
 
   // Fetch scoring criteria for advanced mode
-  const fetchScoringCriteria = async () => {
+  const fetchScoringCriteria = useCallback(async () => {
     try {
       const response = await resultsApi.getScoringCriteria();
       setScoringCriteria(response.data.data || response.data || []);
@@ -95,25 +88,23 @@ function SupervisorResultUploadPage() {
     } catch (err) {
       console.error('Failed to load scoring criteria:', err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchAssignedGroups();
+    fetchScoringCriteria();
+  }, [fetchAssignedGroups, fetchScoringCriteria]);
 
   // ============================================================
   // PHASE 3: Student List Rendering
   // ============================================================
-
-  // Fetch students when group selection changes
-  useEffect(() => {
-    if (selectedGroup) {
-      fetchStudentsForScoring();
-    }
-  }, [selectedGroup]);
 
   // Clear pending changes when group changes
   useEffect(() => {
     setPendingChanges({});
   }, [selectedGroup]);
 
-  const fetchStudentsForScoring = async () => {
+  const fetchStudentsForScoring = useCallback(async () => {
     if (!selectedGroup) return;
 
     const [schoolId, groupNumber, visitNumber] = selectedGroup.split('-').map(Number);
@@ -141,7 +132,14 @@ function SupervisorResultUploadPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedGroup, toast]);
+
+  // Fetch students when group selection changes
+  useEffect(() => {
+    if (selectedGroup) {
+      fetchStudentsForScoring();
+    }
+  }, [selectedGroup, fetchStudentsForScoring]);
 
   // ============================================================
   // PHASE 4 & 5: Scoring Logic
@@ -567,7 +565,7 @@ function SupervisorResultUploadPage() {
     }
 
     return baseColumns;
-  }, [scoringType, scoringCriteria, totalMaxScore, pendingChanges, savingChanges, handleScoreChange, handleAdvancedScoreChange]);
+  }, [scoringType, scoringCriteria, totalMaxScore, pendingChanges, savingChanges, handleScoreChange, handleAdvancedScoreChange, students, toast]);
 
   // Check if at least one student has complete criteria in advanced mode
   const hasCompleteAdvancedScoring = useMemo(() => {

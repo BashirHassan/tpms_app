@@ -3,7 +3,7 @@
  * Manages institution branding, colors, and theming across the app
  */
 
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useSubdomain, isSuperAdminPortal } from '../hooks/useSubdomain';
 import { applyBrandingColors, removeBrandingColors } from '../utils/colorGenerator';
 import apiClient from '../api/client';
@@ -162,20 +162,36 @@ export function InstitutionProvider({ children }) {
     localStorage.removeItem('institution');
   }, []);
 
-  const value = {
-    subdomain,
-    institution,
-    branding,
-    loading,
-    error,
-    maintenance,
-    isSuperAdminPortal: isSuperAdmin,
-    updateBranding,
-    resetBranding,
-    refetchBranding: fetchBranding,
-    // Helper to check if we have institution context
-    hasInstitution: !!institution,
-  };
+  // Memoized so consumers can safely list these in hook dependency arrays —
+  // an object literal here would be a new reference on every provider render.
+  const value = useMemo(
+    () => ({
+      subdomain,
+      institution,
+      branding,
+      loading,
+      error,
+      maintenance,
+      isSuperAdminPortal: isSuperAdmin,
+      updateBranding,
+      resetBranding,
+      refetchBranding: fetchBranding,
+      // Helper to check if we have institution context
+      hasInstitution: !!institution,
+    }),
+    [
+      subdomain,
+      institution,
+      branding,
+      loading,
+      error,
+      maintenance,
+      isSuperAdmin,
+      updateBranding,
+      resetBranding,
+      fetchBranding,
+    ]
+  );
 
   return (
     <InstitutionContext.Provider value={value}>

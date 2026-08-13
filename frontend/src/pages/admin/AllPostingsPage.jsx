@@ -6,8 +6,8 @@
  * A4 Print Ready Layout (Landscape when showing all supervisors)
  */
 
-import { useState, useEffect } from 'react';
-import { postingsApi, sessionsApi } from '../../api';
+import { useState, useEffect, useCallback } from 'react';
+import { postingsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { formatDate, getOrdinal, getMapViewUrl, getDirectionsUrl } from '../../utils/helpers';
@@ -35,11 +35,9 @@ import {
   IconMap2,
   IconPhone,
   IconRoute,
-  IconEye,
   IconExternalLink,
   IconNavigation,
 } from '@tabler/icons-react';
-import { Badge } from '../../components/ui/Badge';
 
 // ============================================
 // Supervisors Table Component
@@ -498,19 +496,7 @@ function AllPostingsPage() {
   const [selectedLocationCategory, setSelectedLocationCategory] = useState('');
   const [viewType, setViewType] = useState('postings'); // 'postings' or 'preposting'
 
-  // Initial load - fetch current session first
-  useEffect(() => {
-    fetchInitialData();
-  }, []);
-
-  // Fetch data when filters or viewType change
-  useEffect(() => {
-    if (selectedSession || allSessions.length > 0) {
-      fetchData();
-    }
-  }, [selectedSession, selectedSupervisor, selectedRoute, selectedVisit, selectedLocationCategory, viewType]);
-
-  const fetchInitialData = async () => {
+  const fetchInitialData = useCallback(async () => {
     setLoading(true);
     try {
       // First fetch to get sessions and current session
@@ -541,9 +527,9 @@ function AllPostingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const params = {};
@@ -601,7 +587,19 @@ function AllPostingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedSession, selectedSupervisor, selectedRoute, selectedVisit, selectedLocationCategory, viewType, toast]);
+
+  // Initial load - fetch current session first
+  useEffect(() => {
+    fetchInitialData();
+  }, [fetchInitialData]);
+
+  // Fetch data when filters or viewType change
+  useEffect(() => {
+    if (selectedSession || allSessions.length > 0) {
+      fetchData();
+    }
+  }, [selectedSession, allSessions.length, fetchData]);
 
   const handlePrint = () => {
     window.print();

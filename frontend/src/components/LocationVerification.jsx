@@ -19,7 +19,6 @@ import { formatDistance } from '../utils/helpers';
 import {
   IconMapPin,
   IconCheck,
-  IconLoader2,
   IconAlertTriangle,
   IconCurrentLocation,
   IconRefresh,
@@ -64,7 +63,7 @@ export function LocationVerification({
   const { toast } = useToast();
   const [status, setStatus] = useState('idle'); // idle, locating, submitting, success, error
   const [location, setLocation] = useState(null);
-  const [error, setError] = useState(null);
+  const [, setError] = useState(null);
   const [verificationResult, setVerificationResult] = useState(null);
 
   /**
@@ -296,7 +295,7 @@ export function LocationVerification({
 
             <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 p-3">
               <p className="text-sm text-amber-800">
-                <strong>💡 Tip:</strong> Please move closer to the school and tap "Refresh Location" to try again.
+                <strong>💡 Tip:</strong> Please move closer to the school and tap &quot;Refresh Location&quot; to try again.
               </p>
             </div>
           </div>

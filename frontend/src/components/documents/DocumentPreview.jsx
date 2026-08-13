@@ -24,8 +24,6 @@ import {
   IconArrowLeft,
   IconMail,
   IconPhone,
-  IconMapPin,
-  IconWorld,
   IconUser,
 } from '@tabler/icons-react';
 import { cn } from '../../utils/helpers';
@@ -235,7 +233,6 @@ export function DocumentLetterhead({
   const secondaryColor = institution?.secondary_color || '#8b4513';
   // Use provided unit, or institution's tp_unit_name, or default fallback
   const effectiveUnit =  institution?.tp_unit_name || unit || 'Teaching Practice Coordination Unit';
-  console.log(institution)
   return (
     <div className="document-letterhead mb-1">
       {/* Main Header Section - Logo Left, Info Centered */}
@@ -298,7 +295,7 @@ export function DocumentLetterhead({
           className="text-xs italic text-center mt-1 font-medium"
           style={{ color: secondaryColor }}
         >
-          "{motto}"
+          &quot;{motto}&quot;
         </p>
       )}
       
@@ -400,16 +397,14 @@ export function DocumentWatermark({ institution, opacity = 0.08 }) {
  * Automatically fetches current session for consistent data across all documents
  * Can accept session prop directly to avoid duplicate API calls
  */
-export function DocumentFooter({ 
-  institution, 
+export function DocumentFooter({
   session: sessionProp,
-  showNote = true, 
-  showPageNumber = false,
+  showNote = true,
   referenceNumber,
   showCoordinator = true,
 }) {
   const [currentSession, setCurrentSession] = useState(null);
-  const [loadingSession, setLoadingSession] = useState(false);
+  const [, setLoadingSession] = useState(false);
   const { user } = useAuth();
 
   // Fetch current session if not provided as prop
@@ -460,7 +455,6 @@ export function DocumentFooter({
 
   if (!showNote) return null;
   
-  const primaryColor = institution?.primary_color || '#0c5b32';
   const hasCoordinatorInfo = currentSession?.coordinator_name || currentSession?.coordinator_phone || currentSession?.coordinator_email;
 
   return (

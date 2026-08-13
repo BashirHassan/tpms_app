@@ -26,8 +26,8 @@ import {
   SmtpForm,
   PaymentForm,
   GeneralForm,
-  INSTITUTION_TYPES,
 } from '../../components/forms/InstitutionFormSections';
+import { INSTITUTION_TYPES } from '../../components/forms/institutionConstants';
 import {
   IconBuilding,
   IconPalette,
