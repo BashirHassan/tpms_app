@@ -35,6 +35,7 @@ import { Select } from '../../components/ui/Select';
 import api from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import { formatCurrency, formatDateTime } from '../../utils/helpers';
+import { createExportAllHandler } from '../../utils/exportAll';
 
 const getStatusVariant = (status) => {
   const variants = {
@@ -147,6 +148,28 @@ function GlobalPaymentsPage() {
       setLoading(false);
     }
   }, [search, selectedStatus, selectedInstitution, startDate, endDate, pagination.limit]);
+
+  // Export every matching payment, not just the loaded page
+  const handleExportAll = useMemo(
+    () => createExportAllHandler(
+      async (page, limit) => {
+        const params = new URLSearchParams();
+        params.set('page', String(page));
+        params.set('limit', String(limit));
+        if (search) params.set('search', search);
+        if (selectedStatus) params.set('status', selectedStatus);
+        if (selectedInstitution) params.set('institution_id', selectedInstitution);
+        if (startDate) params.set('start_date', startDate);
+        if (endDate) params.set('end_date', endDate);
+
+        const response = await api.get(`/global/payments?${params}`);
+        const data = response.data.data || {};
+        return { rows: data.payments || [], total: data.pagination?.total };
+      },
+      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+    ),
+    [search, selectedStatus, selectedInstitution, startDate, endDate, toast]
+  );
 
   // Covers the initial load and every filter change — fetchPayments' identity
   // already tracks the filters, so a separate mount effect would double-fetch.
@@ -518,6 +541,7 @@ function GlobalPaymentsPage() {
               loading={loading}
               sortable
               exportable
+              onServerExport={handleExportAll}
               exportFilename="global_payments"
               toolbar={tableToolbar}
               emptyIcon={IconCreditCard}

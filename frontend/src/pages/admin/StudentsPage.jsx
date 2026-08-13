@@ -10,6 +10,7 @@ import { studentsApi, programsApi, sessionsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { formatFileSize } from '../../utils/helpers';
+import { createExportAllHandler } from '../../utils/exportAll';
 import { StatsCard } from '../../components/ui/StatsCard';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
@@ -93,22 +94,27 @@ function StudentsPage() {
   const [createdStudent, setCreatedStudent] = useState(null);
   const [copiedSuccessPin, setCopiedSuccessPin] = useState(false);
 
+  // Active filters, shared by the table fetch and the export
+  const filterParams = useMemo(() => {
+    const params = {};
+    if (search) params.search = search;
+    if (programFilter) params.program_id = programFilter;
+    if (selectedSession) params.session_id = selectedSession;
+    if (statusFilter) params.status = statusFilter;
+    return params;
+  }, [search, programFilter, selectedSession, statusFilter]);
+
   // Fetch students
   const fetchStudents = useCallback(async () => {
     if (!selectedSession) return;
-    
+
     setLoading(true);
     try {
-      const params = {
+      const response = await studentsApi.getAll({
+        ...filterParams,
         page: pagination.page,
         limit: pagination.limit,
-      };
-      if (search) params.search = search;
-      if (programFilter) params.program_id = programFilter;
-      if (selectedSession) params.session_id = selectedSession;
-      if (statusFilter) params.status = statusFilter;
-
-      const response = await studentsApi.getAll(params);
+      });
       setStudents(response.data.data || response.data || []);
       setPagination((prev) => ({
         ...prev,
@@ -119,7 +125,22 @@ function StudentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [pagination.page, pagination.limit, search, programFilter, selectedSession, statusFilter, toast]);
+  }, [filterParams, pagination.page, pagination.limit, selectedSession, toast]);
+
+  // Export every matching student, not just the loaded page
+  const handleExportAll = useMemo(
+    () => createExportAllHandler(
+      async (page, limit) => {
+        const response = await studentsApi.getAll({ ...filterParams, page, limit });
+        return {
+          rows: response.data.data || [],
+          total: response.data.pagination?.total,
+        };
+      },
+      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+    ),
+    [filterParams, toast]
+  );
 
   const fetchPrograms = async () => {
     try {
@@ -753,6 +774,7 @@ function StudentsPage() {
         loading={loading}
         sortable
         exportable
+        onServerExport={handleExportAll}
         exportFilename="students_export"
         toolbar={tableToolbar}
         emptyIcon={IconUsers}

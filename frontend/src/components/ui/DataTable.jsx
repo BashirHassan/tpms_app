@@ -122,6 +122,7 @@ const ExportModal = ({
   onExport,
   exportType,
   isExporting = false,
+  progress = null,
 }) => {
   const exportableColumns = useMemo(() =>
     columns.filter((col) => col.exportable !== false && (col.accessor || col.key) !== 'actions'),
@@ -155,24 +156,36 @@ const ExportModal = ({
     setSelectedColumns([]);
   };
 
-  const handleExport = () => {
+  // Stay open until the export finishes so the progress below is visible —
+  // a large export is many sequential requests and needs to look like work.
+  const handleExport = async () => {
     const columnsToExport = exportableColumns.filter((col) =>
       selectedColumns.includes(getColumnId(col))
     );
-    onExport(columnsToExport);
+    await onExport(columnsToExport);
     onClose();
   };
+
+  const percent =
+    progress?.total > 0
+      ? Math.min(100, Math.round((progress.loaded / progress.total) * 100))
+      : null;
 
   return (
     <Dialog
       isOpen={isOpen}
-      onClose={onClose}
+      // Block dismissal mid-export so the file can't be abandoned half-fetched
+      onClose={isExporting ? () => {} : onClose}
       title={`Export to ${exportType === 'excel' ? 'Excel' : 'PDF'}`}
-      description="Select the columns you want to include in the export"
+      description={
+        isExporting
+          ? 'Collecting every row that matches your current filters'
+          : 'Select the columns you want to include in the export'
+      }
       width="xl"
       footer={
         <>
-          <Button type="button" variant="outline" onClick={onClose}>
+          <Button type="button" variant="outline" onClick={onClose} disabled={isExporting}>
             Cancel
           </Button>
           <Button
@@ -180,7 +193,9 @@ const ExportModal = ({
             onClick={handleExport}
             disabled={selectedColumns.length === 0 || isExporting}
           >
-            {exportType === 'excel' ? (
+            {isExporting ? (
+              <IconLoader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : exportType === 'excel' ? (
               <IconFileSpreadsheet className="w-4 h-4 mr-2" />
             ) : (
               <IconFileTypePdf className="w-4 h-4 mr-2" />
@@ -190,6 +205,44 @@ const ExportModal = ({
         </>
       }
     >
+      {isExporting ? (
+        <div className="py-6" role="status" aria-live="polite">
+          <div className="flex items-center gap-3">
+            <IconLoader2 className="w-5 h-5 text-primary-600 animate-spin flex-shrink-0" />
+            <div className="min-w-0">
+              <p className="font-medium text-gray-900">
+                {progress?.phase === 'building'
+                  ? `Building the ${exportType === 'excel' ? 'Excel' : 'PDF'} file...`
+                  : 'Fetching rows...'}
+              </p>
+              <p className="text-sm text-gray-500">
+                {progress?.loaded
+                  ? `${formatNumber(progress.loaded)}${progress.total ? ` of ${formatNumber(progress.total)}` : ''} rows collected`
+                  : 'Starting export...'}
+              </p>
+            </div>
+          </div>
+
+          {/* Determinate where the API reports a total, indeterminate otherwise */}
+          <div className="mt-4 h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+            {percent == null ? (
+              <div className="h-full w-1/3 rounded-full bg-primary-500 animate-pulse" />
+            ) : (
+              <div
+                className="h-full rounded-full bg-primary-600 transition-all duration-300"
+                style={{ width: `${percent}%` }}
+              />
+            )}
+          </div>
+
+          <p className="mt-2 text-xs text-gray-400">
+            {percent == null
+              ? 'Large exports are fetched in batches — this can take a moment.'
+              : `${percent}% complete`}
+          </p>
+        </div>
+      ) : (
+      <>
       {/* Quick actions */}
       <div className="flex gap-2 mb-3">
         <Button
@@ -237,6 +290,8 @@ const ExportModal = ({
         <p className="text-sm text-amber-600 mt-2">
           Please select at least one column to export.
         </p>
+      )}
+      </>
       )}
     </Dialog>
   );
@@ -442,6 +497,7 @@ const DataTable = forwardRef(function DataTable(
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportType, setExportType] = useState(null); // 'excel' | 'pdf'
   const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(null); // { phase, loaded, total }
   const [lastClickedKey, setLastClickedKey] = useState(null);
 
   const tableContainerRef = useRef(null);
@@ -854,6 +910,7 @@ const DataTable = forwardRef(function DataTable(
 
   const handleExport = useCallback(async (selectedColumns) => {
     setIsExporting(true);
+    setExportProgress({ phase: 'fetching', loaded: 0, total: null });
     try {
       let dataForExport = sortedData;
 
@@ -863,6 +920,9 @@ const DataTable = forwardRef(function DataTable(
           columns: selectedColumns,
           rows: sortedData,
           filename: exportFilename,
+          // Lets a paged fetch report how many rows it has collected so far
+          onProgress: ({ loaded, total }) =>
+            setExportProgress({ phase: 'fetching', loaded, total }),
         });
         if (result === true) return;        // server handled fully (e.g. blob download)
         if (Array.isArray(result)) {
@@ -870,6 +930,15 @@ const DataTable = forwardRef(function DataTable(
         }
         // result === false → fall through with current-page sortedData
       }
+
+      setExportProgress({
+        phase: 'building',
+        loaded: dataForExport.length,
+        total: dataForExport.length,
+      });
+      // Yield a frame so the "Building..." state paints before the file
+      // generation blocks the main thread on a large sheet
+      await new Promise((resolve) => setTimeout(resolve, 60));
 
       if (exportType === 'excel') {
         await exportToExcel(dataForExport, selectedColumns, exportFilename);
@@ -880,6 +949,7 @@ const DataTable = forwardRef(function DataTable(
       console.error('Failed to export data:', error);
     } finally {
       setIsExporting(false);
+      setExportProgress(null);
     }
   }, [exportType, exportFilename, onServerExport, sortedData]);
 
@@ -1087,6 +1157,7 @@ const DataTable = forwardRef(function DataTable(
         columns={columns}
         exportType={exportType}
         isExporting={isExporting}
+        progress={exportProgress}
         onExport={handleExport}
       />
     </div>

@@ -36,6 +36,7 @@ import api from '../../api/client';
 import { authApi } from '../../api/auth';
 import { getInstitutionUrl } from '../../hooks/useSubdomain';
 import { formatDate, getRoleName } from '../../utils/helpers';
+import { createExportAllHandler } from '../../utils/exportAll';
 import { useToast } from '../../context/ToastContext';
 
 const ROLES = [
@@ -185,6 +186,24 @@ function GlobalUsersPage() {
       setLoading(false);
     }
   }, [search, role, institutionId, pagination.limit]);
+
+  // Export every matching user, not just the loaded page
+  const handleExportAll = useMemo(
+    () => createExportAllHandler(
+      async (page, limit) => {
+        const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+        if (search) params.set('search', search);
+        if (role) params.set('role', role);
+        if (institutionId) params.set('institution_id', institutionId);
+
+        const response = await api.get(`/global/users?${params}`);
+        const data = response.data.data || {};
+        return { rows: data.users || [], total: data.pagination?.total };
+      },
+      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+    ),
+    [search, role, institutionId, toast]
+  );
 
   // Covers the initial load and every filter change. fetchUsers' identity
   // already tracks search/role/institution/limit, so a separate mount effect
@@ -626,6 +645,7 @@ function GlobalUsersPage() {
               loading={loading}
               sortable
               exportable
+              onServerExport={handleExportAll}
               exportFilename="global_users"
               emptyIcon={IconUsers}
               emptyTitle="No users found"

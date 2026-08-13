@@ -18,6 +18,7 @@ import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { getRoleName, getStatusColor, formatDate } from '../../utils/helpers';
+import { createExportAllHandler } from '../../utils/exportAll';
 import { 
   IconPencil as IconEdit, 
   IconTrash, 
@@ -107,19 +108,24 @@ function UsersPage() {
   const [resetUser, setResetUser] = useState(null);
   const [copiedResetPassword, setCopiedResetPassword] = useState(false);
 
+  // Active filters, shared by the table fetch and the export
+  const filterParams = useMemo(() => {
+    const params = {};
+    if (search) params.search = search;
+    if (roleFilter) params.role = roleFilter;
+    if (statusFilter) params.status = statusFilter;
+    return params;
+  }, [search, roleFilter, statusFilter]);
+
   // Fetch users with pagination
   const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
-      const params = {
+      const response = await usersApi.getAll({
+        ...filterParams,
         page: pagination.page,
         limit: pagination.limit,
-      };
-      if (search) params.search = search;
-      if (roleFilter) params.role = roleFilter;
-      if (statusFilter) params.status = statusFilter;
-
-      const response = await usersApi.getAll(params);
+      });
       // API returns { success, data: users[], pagination }
       setUsers(response.data?.data || response.data || []);
       setPagination((prev) => ({
@@ -132,7 +138,22 @@ function UsersPage() {
     } finally {
       setLoading(false);
     }
-  }, [pagination.page, pagination.limit, search, roleFilter, statusFilter, toast]);
+  }, [filterParams, pagination.page, pagination.limit, toast]);
+
+  // Export every matching user, not just the loaded page
+  const handleExportAll = useMemo(
+    () => createExportAllHandler(
+      async (page, limit) => {
+        const response = await usersApi.getAll({ ...filterParams, page, limit });
+        return {
+          rows: response.data?.data || [],
+          total: response.data?.pagination?.total,
+        };
+      },
+      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+    ),
+    [filterParams, toast]
+  );
 
   // Fetch ranks for dropdown
   const fetchRanks = useCallback(async () => {
@@ -545,6 +566,7 @@ function UsersPage() {
         loading={loading}
         sortable
         exportable
+        onServerExport={handleExportAll}
         exportFilename="users"
         toolbar={tableToolbar}
         emptyTitle="No users found"

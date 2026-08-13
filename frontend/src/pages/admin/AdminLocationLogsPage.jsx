@@ -31,6 +31,7 @@ import {
   IconShieldCheck,
 } from '@tabler/icons-react';
 import { formatDate } from '../../utils/helpers';
+import { createExportAllHandler } from '../../utils/exportAll';
 
 function AdminLocationLogsPage() {
   const { hasRole } = useAuth();
@@ -85,19 +86,24 @@ function AdminLocationLogsPage() {
     }
   }, []);
 
+  // Active filters, shared by the table fetch and the export
+  const filterParams = useMemo(() => {
+    const params = {};
+    if (selectedSession) params.session_id = selectedSession;
+    if (selectedSupervisor) params.supervisor_id = selectedSupervisor;
+    if (selectedStatus) params.status = selectedStatus;
+    if (suspiciousOnly) params.suspicious_only = 'true';
+    return params;
+  }, [selectedSession, selectedSupervisor, selectedStatus, suspiciousOnly]);
+
   const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
-      const params = {
+      const response = await locationApi.getLocationLogs({
+        ...filterParams,
         page: pagination.page,
         limit: pagination.limit,
-      };
-      if (selectedSession) params.session_id = selectedSession;
-      if (selectedSupervisor) params.supervisor_id = selectedSupervisor;
-      if (selectedStatus) params.status = selectedStatus;
-      if (suspiciousOnly) params.suspicious_only = 'true';
-
-      const response = await locationApi.getLocationLogs(params);
+      });
       setLogs(response.data.data || []);
       setPagination((prev) => ({
         ...prev,
@@ -109,7 +115,22 @@ function AdminLocationLogsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedSession, selectedSupervisor, selectedStatus, suspiciousOnly, pagination.page, pagination.limit, toast]);
+  }, [filterParams, pagination.page, pagination.limit, toast]);
+
+  // Export every matching log, not just the loaded page
+  const handleExportAll = useMemo(
+    () => createExportAllHandler(
+      async (page, limit) => {
+        const response = await locationApi.getLocationLogs({ ...filterParams, page, limit });
+        return {
+          rows: response.data.data || [],
+          total: response.data.pagination?.total,
+        };
+      },
+      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+    ),
+    [filterParams, toast]
+  );
 
   const fetchStats = useCallback(async () => {
     try {
@@ -441,6 +462,8 @@ function AdminLocationLogsPage() {
             columns={columns}
             data={logs}
             loading={loading}
+            onServerExport={handleExportAll}
+            exportFilename="location_logs"
             pagination={{
               page: pagination.page,
               limit: pagination.limit,

@@ -7,6 +7,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { acceptancesApi, sessionsApi, schoolsApi, groupsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { createExportAllHandler } from '../../utils/exportAll';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -131,37 +132,24 @@ function AcceptancesPage() {
     }
   }, [selectedSession, fetchAcceptances, fetchStatistics]);
 
-  // Pulls every matching acceptance so exports cover all pages, not just the
-  // loaded one. Returning `false` lets DataTable fall back to the current page.
-  const fetchAllAcceptancesForExport = useCallback(async ({ rows } = {}) => {
-    if (!selectedSession) return Array.isArray(rows) ? rows : false;
+  // Export every matching acceptance, not just the loaded page
+  const handleExportAll = useMemo(
+    () => createExportAllHandler(
+      async (page, limit) => {
+        const params = { session_id: selectedSession, page, limit };
+        if (selectedSchool) params.school_id = selectedSchool;
+        if (search) params.search = search;
 
-    const baseParams = {
-      session_id: selectedSession,
-      limit: 500,
-    };
-
-    if (selectedSchool) baseParams.school_id = selectedSchool;
-    if (search) baseParams.search = search;
-
-    const firstResponse = await acceptancesApi.getAll({ ...baseParams, page: 1 });
-    const firstPageData = firstResponse.data.data || [];
-    const totalPages = firstResponse.data.pagination?.totalPages || 1;
-
-    if (totalPages <= 1) {
-      return firstPageData;
-    }
-
-    const pageRequests = [];
-    for (let page = 2; page <= totalPages; page++) {
-      pageRequests.push(acceptancesApi.getAll({ ...baseParams, page }));
-    }
-
-    const pageResponses = await Promise.all(pageRequests);
-    const remainingData = pageResponses.flatMap((response) => response.data.data || []);
-
-    return [...firstPageData, ...remainingData];
-  }, [selectedSession, selectedSchool, search]);
+        const response = await acceptancesApi.getAll(params);
+        return {
+          rows: response.data.data || [],
+          total: response.data.pagination?.total,
+        };
+      },
+      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+    ),
+    [selectedSession, selectedSchool, search, toast]
+  );
 
   // Helper to download image
   const handleDownload = async (url, filename) => {
@@ -458,7 +446,7 @@ function AcceptancesPage() {
         loading={loading}
         sortable
         exportable
-        onServerExport={fetchAllAcceptancesForExport}
+        onServerExport={handleExportAll}
         exportFilename="acceptances_export"
         emptyIcon={IconFileText}
         emptyTitle="No acceptances found"

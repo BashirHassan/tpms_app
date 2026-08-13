@@ -7,6 +7,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { paymentsApi, sessionsApi } from '../../api';
 import { useToast } from '../../context/ToastContext';
 import { formatCurrency, formatDateTime } from '../../utils/helpers';
+import { createExportAllHandler } from '../../utils/exportAll';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
@@ -69,15 +70,20 @@ function PaymentsPage() {
     }
   }, []);
 
+  // Active filters, shared by the table fetch and the export
+  const filterParams = useMemo(() => ({
+    session_id: selectedSession,
+    search: search || undefined,
+    status: selectedStatus || undefined,
+  }), [selectedSession, search, selectedStatus]);
+
   const fetchPayments = useCallback(async () => {
     setLoading(true);
     try {
       const response = await paymentsApi.getAll({
-        session_id: selectedSession,
+        ...filterParams,
         page: pagination.page,
         limit: pagination.limit,
-        search: search || undefined,
-        status: selectedStatus || undefined,
       });
       setPayments(response.data.data || response.data || []);
       setPagination((prev) => ({
@@ -89,7 +95,22 @@ function PaymentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedSession, pagination.page, pagination.limit, search, selectedStatus, toast]);
+  }, [filterParams, pagination.page, pagination.limit, toast]);
+
+  // Export every matching payment, not just the loaded page
+  const handleExportAll = useMemo(
+    () => createExportAllHandler(
+      async (page, limit) => {
+        const response = await paymentsApi.getAll({ ...filterParams, page, limit });
+        return {
+          rows: response.data.data || [],
+          total: response.data.pagination?.total,
+        };
+      },
+      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+    ),
+    [filterParams, toast]
+  );
 
   const fetchStatistics = useCallback(async () => {
     try {
@@ -504,6 +525,7 @@ function PaymentsPage() {
             loading={loading}
             sortable
             exportable
+            onServerExport={handleExportAll}
             exportFilename="payments"
             toolbar={tableToolbar}
             emptyIcon={IconCreditCard}

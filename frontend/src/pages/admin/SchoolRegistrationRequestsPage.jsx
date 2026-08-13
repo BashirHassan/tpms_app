@@ -25,6 +25,7 @@ import { masterSchoolsApi } from '../../api/masterSchools';
 import { sessionsApi } from '../../api';
 import { useToast } from '../../context/ToastContext';
 import { formatDateTime } from '../../utils/helpers';
+import { createExportAllHandler } from '../../utils/exportAll';
 import { Card, CardContent } from '../../components/ui/Card';
 import { StatsCard } from '../../components/ui/StatsCard';
 import { Button } from '../../components/ui/Button';
@@ -143,6 +144,21 @@ export default function SchoolRegistrationRequestsPage() {
       console.error('Failed to load statistics:', err);
     }
   }, [filters.session_id]);
+
+  // Export every matching request, not just the loaded page
+  const handleExportAll = useMemo(
+    () => createExportAllHandler(
+      async (page, limit) => {
+        const response = await schoolRegistrationRequestsApi.getAll({ ...filters, page, limit });
+        return {
+          rows: response.data.data || [],
+          total: response.data.pagination?.total,
+        };
+      },
+      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+    ),
+    [filters, toast]
+  );
 
   useEffect(() => {
     loadSessions();
@@ -417,6 +433,7 @@ export default function SchoolRegistrationRequestsPage() {
             loading={loading}
             sortable
             exportable
+            onServerExport={handleExportAll}
             exportFilename="school-registration-requests"
             emptyTitle="No school registration requests found"
             emptyDescription="Try adjusting your filters or check back later"

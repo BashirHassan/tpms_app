@@ -10,6 +10,7 @@ import { nigeriaGeoData } from '../../data/nigeria';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { formatCoordinate, formatFileSize } from '../../utils/helpers';
+import { createExportAllHandler } from '../../utils/exportAll';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -131,21 +132,26 @@ function MasterSchoolsPage() {
   const [parsedData, setParsedData] = useState([]);
 
   // Fetch data
+  // Active filters, shared by the table fetch and the export
+  const filterParams = useMemo(() => {
+    const params = {};
+    if (search) params.search = search;
+    if (typeFilter) params.school_type = typeFilter;
+    if (categoryFilter) params.category = categoryFilter;
+    if (stateFilter) params.state = stateFilter;
+    if (lgaFilter) params.lga = lgaFilter;
+    if (verifiedFilter) params.is_verified = verifiedFilter === 'verified' ? 1 : 0;
+    return params;
+  }, [search, typeFilter, categoryFilter, stateFilter, lgaFilter, verifiedFilter]);
+
   const fetchSchools = useCallback(async () => {
     setLoading(true);
     try {
-      const params = {
+      const response = await masterSchoolsApi.getAll({
+        ...filterParams,
         page: pagination.page,
         limit: pagination.limit,
-      };
-      if (search) params.search = search;
-      if (typeFilter) params.school_type = typeFilter;
-      if (categoryFilter) params.category = categoryFilter;
-      if (stateFilter) params.state = stateFilter;
-      if (lgaFilter) params.lga = lgaFilter;
-      if (verifiedFilter) params.is_verified = verifiedFilter === 'verified' ? 1 : 0;
-
-      const response = await masterSchoolsApi.getAll(params);
+      });
       setSchools(response.data.data || response.data || []);
       setPagination((prev) => ({
         ...prev,
@@ -157,17 +163,22 @@ function MasterSchoolsPage() {
     } finally {
       setLoading(false);
     }
-  }, [
-    pagination.page,
-    pagination.limit,
-    search,
-    typeFilter,
-    categoryFilter,
-    stateFilter,
-    lgaFilter,
-    verifiedFilter,
-    toast,
-  ]);
+  }, [filterParams, pagination.page, pagination.limit, toast]);
+
+  // Export every matching school, not just the loaded page
+  const handleExportAll = useMemo(
+    () => createExportAllHandler(
+      async (page, limit) => {
+        const response = await masterSchoolsApi.getAll({ ...filterParams, page, limit });
+        return {
+          rows: response.data.data || [],
+          total: response.data.meta?.total ?? response.data.pagination?.total,
+        };
+      },
+      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+    ),
+    [filterParams, toast]
+  );
 
   const fetchStates = useCallback(() => {
     try {
@@ -1165,6 +1176,8 @@ function MasterSchoolsPage() {
             keyField="id"
             loading={loading}
             sortable
+            onServerExport={handleExportAll}
+            exportFilename="master_schools"
             emptyTitle="No schools found"
             emptyIcon={IconSchool}
             onRowClick={(row) => setSelectedSchool(row)}

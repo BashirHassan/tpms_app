@@ -20,6 +20,7 @@ import { schoolUpdateRequestsApi } from '../../api/schoolUpdateRequestsApi';
 import { sessionsApi } from '../../api';
 import { useToast } from '../../context/ToastContext';
 import { formatDateTime } from '../../utils/helpers';
+import { createExportAllHandler } from '../../utils/exportAll';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
@@ -153,6 +154,24 @@ export default function SchoolUpdateRequestsPage() {
       console.error('Failed to load statistics:', err);
     }
   }, [activeTab, filters.session_id]);
+
+  // Export every matching request for the active tab, not just the loaded page
+  const handleExportAll = useMemo(
+    () => createExportAllHandler(
+      async (page, limit) => {
+        const params = { ...filters, page, limit };
+        const response = activeTab === 'principal'
+          ? await schoolUpdateRequestsApi.getPrincipalRequests(params)
+          : await schoolUpdateRequestsApi.getLocationRequests(params);
+        return {
+          rows: response.data.data || response.data || [],
+          total: response.data.pagination?.total,
+        };
+      },
+      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+    ),
+    [activeTab, filters, toast]
+  );
 
   // Load sessions on mount
   useEffect(() => {
@@ -530,6 +549,7 @@ export default function SchoolUpdateRequestsPage() {
             loading={loading}
             sortable
             exportable
+            onServerExport={handleExportAll}
             exportFilename={`${activeTab}-update-requests`}
             emptyTitle={`No ${activeTab} update requests found`}
             emptyDescription="Try adjusting your filters or check back later"

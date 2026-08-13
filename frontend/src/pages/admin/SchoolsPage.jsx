@@ -16,6 +16,7 @@ import { nigeriaGeoData } from '../../data/nigeria';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { formatCoordinate, formatDistance } from '../../utils/helpers';
+import { createExportAllHandler } from '../../utils/exportAll';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -107,24 +108,30 @@ function SchoolsPage() {
   const [allSchoolsData, setAllSchoolsData] = useState([]);
   const filterOptionsFetched = useRef(false);
 
+  // Active filters, shared by the table fetch and the export so an export
+  // always covers exactly the rows the current filters select
+  const filterParams = useMemo(() => {
+    const params = {};
+    if (search) params.search = search;
+    if (routeFilter) params.route_id = routeFilter;
+    if (typeFilter) params.school_type = typeFilter;
+    if (categoryFilter) params.category = categoryFilter;
+    if (locationCategoryFilter) params.location_category = locationCategoryFilter;
+    if (stateFilter) params.state = stateFilter;
+    if (lgaFilter) params.lga = lgaFilter;
+    return params;
+  }, [search, routeFilter, typeFilter, categoryFilter, locationCategoryFilter, stateFilter, lgaFilter]);
+
   // Fetch data
   // Depends on page/limit but only writes `total`, so it never re-triggers itself
   const fetchSchools = useCallback(async () => {
     setLoading(true);
     try {
-      const params = {
+      const response = await schoolsApi.getAll({
+        ...filterParams,
         page: pagination.page,
         limit: pagination.limit,
-      };
-      if (search) params.search = search;
-      if (routeFilter) params.route_id = routeFilter;
-      if (typeFilter) params.school_type = typeFilter;
-      if (categoryFilter) params.category = categoryFilter;
-      if (locationCategoryFilter) params.location_category = locationCategoryFilter;
-      if (stateFilter) params.state = stateFilter;
-      if (lgaFilter) params.lga = lgaFilter;
-
-      const response = await schoolsApi.getAll(params);
+      });
       setSchools(response.data.data || response.data || []);
       setPagination((prev) => ({
         ...prev,
@@ -135,18 +142,22 @@ function SchoolsPage() {
     } finally {
       setLoading(false);
     }
-  }, [
-    pagination.page,
-    pagination.limit,
-    search,
-    routeFilter,
-    typeFilter,
-    categoryFilter,
-    locationCategoryFilter,
-    stateFilter,
-    lgaFilter,
-    toast,
-  ]);
+  }, [filterParams, pagination.page, pagination.limit, toast]);
+
+  // Export every matching school, not just the loaded page
+  const handleExportAll = useMemo(
+    () => createExportAllHandler(
+      async (page, limit) => {
+        const response = await schoolsApi.getAll({ ...filterParams, page, limit });
+        return {
+          rows: response.data.data || [],
+          total: response.data.meta?.total ?? response.data.pagination?.total,
+        };
+      },
+      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+    ),
+    [filterParams, toast]
+  );
 
   const fetchRoutes = useCallback(async () => {
     try {
@@ -844,6 +855,7 @@ function SchoolsPage() {
             loading={loading}
             sortable
             exportable
+            onServerExport={handleExportAll}
             exportFilename="schools"
             emptyTitle="No schools found"
             emptyIcon={IconSchool}

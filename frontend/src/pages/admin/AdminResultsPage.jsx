@@ -40,6 +40,7 @@ import {
   IconArrowBack,
 } from '@tabler/icons-react';
 import { getOrdinal } from '../../utils/helpers';
+import { createExportAllHandler } from '../../utils/exportAll';
 
 function AdminResultsPage() {
   const { hasRole } = useAuth();
@@ -172,24 +173,24 @@ function AdminResultsPage() {
     }
   }, []);
 
+  // Active filters, shared by the table fetch and the export
+  const resultFilterParams = useMemo(() => {
+    const params = { session_id: selectedSession };
+    if (selectedSchool && selectedSchool !== 'all') params.school_id = selectedSchool;
+    if (searchTerm) params.search = searchTerm;
+    return params;
+  }, [selectedSession, selectedSchool, searchTerm]);
+
   const fetchStudentsWithResults = useCallback(async () => {
     if (!selectedSession) return;
 
     setLoading(true);
     try {
       const params = {
-        session_id: selectedSession,
+        ...resultFilterParams,
         page: pagination.page,
         limit: pagination.limit,
       };
-
-      if (selectedSchool && selectedSchool !== 'all') {
-        params.school_id = selectedSchool;
-      }
-
-      if (searchTerm) {
-        params.search = searchTerm;
-      }
 
       const response = await resultsApi.getAdminStudentsWithResults(params);
       const data = response.data.data || response.data || {};
@@ -237,7 +238,24 @@ function AdminResultsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedSession, pagination.page, pagination.limit, selectedSchool, searchTerm, toast]);
+  }, [resultFilterParams, selectedSession, pagination.page, pagination.limit, toast]);
+
+  // Export every matching student, not just the loaded page
+  const handleExportAll = useMemo(
+    () => createExportAllHandler(
+      async (page, limit) => {
+        const response = await resultsApi.getAdminStudentsWithResults({
+          ...resultFilterParams,
+          page,
+          limit,
+        });
+        const data = response.data.data || response.data || {};
+        return { rows: data.data || [], total: data.pagination?.total };
+      },
+      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+    ),
+    [resultFilterParams, toast]
+  );
 
   useEffect(() => {
     fetchSessions();
@@ -1227,6 +1245,8 @@ function AdminResultsPage() {
           sortable
           searchable={false}
           exportable={true}
+          onServerExport={handleExportAll}
+          exportFilename="student_results"
           headerActionsRight={tableHeaderActions}
           emptyIcon={IconUsers}
           emptyTitle="No students found"
