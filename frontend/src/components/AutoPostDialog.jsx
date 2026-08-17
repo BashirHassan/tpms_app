@@ -730,7 +730,7 @@ function AutoPostDialog({
           {step === 'success' ? 'Auto-Posting Complete' : 'Auto-Post Supervisors'}
         </div>
       }
-      width="2xl"
+      width="4xl"
       footer={renderFooter()}
     >
       {step === 'configure' && renderConfigureStep()}
