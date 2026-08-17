@@ -888,4 +888,6 @@ module.exports = {
   schemas,
   // Re-exported from services/autoPostingEngine for tests and existing callers
   runAutoPostingAlgorithm,
+  // Exported for testing
+  getAvailableSlots,
 };
