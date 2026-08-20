@@ -29,8 +29,11 @@ export function createAcceptancesApi(institutionId) {
     
     getStatistics: (sessionId) =>
       apiClient.get(`${basePath}/statistics`, { params: { session_id: sessionId } }),
-    
-    create: (data) => 
+
+    getFilterOptions: (sessionId) =>
+      apiClient.get(`${basePath}/filter-options`, { params: { session_id: sessionId } }),
+
+    create: (data) =>
       apiClient.post(basePath, data),
     
     update: (id, data) => 
@@ -75,6 +78,7 @@ export const acceptancesApi = {
   getById: (id) => apiClient.get(`${getBasePath()}/${id}`),
   getByStudent: (studentId) => apiClient.get(`${getBasePath()}/student/${studentId}`),
   getStatistics: (sessionId) => apiClient.get(`${getBasePath()}/statistics`, { params: { session_id: sessionId } }),
+  getFilterOptions: (sessionId) => apiClient.get(`${getBasePath()}/filter-options`, { params: { session_id: sessionId } }),
   create: (data) => apiClient.post(getBasePath(), data),
   update: (id, data) => apiClient.put(`${getBasePath()}/${id}`, data),
   // Review acceptance (approve/reject) - calls update endpoint

@@ -23,6 +23,7 @@ const upload = multer({
 
 router.get('/:institutionId/acceptances', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('student_management'), acceptanceController.getAll);
 router.get('/:institutionId/acceptances/statistics', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('student_management'), acceptanceController.getStatistics);
+router.get('/:institutionId/acceptances/filter-options', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('student_management'), acceptanceController.getFilterOptions);
 router.get('/:institutionId/acceptances/:id', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('student_management'), acceptanceController.getById);
 router.post('/:institutionId/acceptances', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('student_management'), validate(acceptanceController.schemas.create), acceptanceController.create);
 router.put('/:institutionId/acceptances/:id', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('student_management'), validate(acceptanceController.schemas.update), acceptanceController.update);

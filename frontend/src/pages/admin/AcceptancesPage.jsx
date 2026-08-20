@@ -40,6 +40,7 @@ function AcceptancesPage() {
   const [acceptances, setAcceptances] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [schools, setSchools] = useState([]);
+  const [filterOptions, setFilterOptions] = useState([]);
   const [statistics, setStatistics] = useState(null);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0 });
 
@@ -126,6 +127,15 @@ function AcceptancesPage() {
     }
   }, [selectedSession]);
 
+  const fetchFilterOptions = useCallback(async () => {
+    try {
+      const response = await acceptancesApi.getFilterOptions(selectedSession);
+      setFilterOptions(response.data.data || response.data || []);
+    } catch (err) {
+      console.error('Failed to load filter options:', err);
+    }
+  }, [selectedSession]);
+
   // Fetch data
   useEffect(() => {
     fetchSessions();
@@ -136,8 +146,9 @@ function AcceptancesPage() {
     if (selectedSession) {
       fetchAcceptances();
       fetchStatistics();
+      fetchFilterOptions();
     }
-  }, [selectedSession, fetchAcceptances, fetchStatistics]);
+  }, [selectedSession, fetchAcceptances, fetchStatistics, fetchFilterOptions]);
 
   // Export every matching acceptance, not just the loaded page
   const handleExportAll = useMemo(
@@ -213,22 +224,22 @@ function AcceptancesPage() {
     }
   }, [editingAcceptance, editSchool, selectedSession, fetchSchoolGroups]);
 
-  // Derive state/LGA filter options from the schools already loaded for the School filter
+  // Derive School/State/LGA filter options from schools that actually have acceptance records
   const filterStates = useMemo(() => {
-    const unique = [...new Set(schools.map((s) => normalizeLocationValue(s.state)).filter(Boolean))];
+    const unique = [...new Set(filterOptions.map((s) => normalizeLocationValue(s.state)).filter(Boolean))];
     return unique.sort();
-  }, [schools]);
+  }, [filterOptions]);
 
   const filterLgas = useMemo(() => {
     if (!stateFilter) return [];
     const unique = [...new Set(
-      schools
+      filterOptions
         .filter((s) => normalizeLocationValue(s.state) === normalizeLocationValue(stateFilter))
         .map((s) => normalizeLocationValue(s.lga))
         .filter(Boolean)
     )];
     return unique.sort();
-  }, [schools, stateFilter]);
+  }, [filterOptions, stateFilter]);
 
   // Table columns definition
   const columns = useMemo(() => [
@@ -358,7 +369,7 @@ function AcceptancesPage() {
       </div>
       <div className="lg:col-span-2">
         <SearchableSelect
-          options={schools}
+          options={filterOptions}
           value={selectedSchool || null}
           onChange={(val) => setSelectedSchool(val || '')}
           placeholder="All Schools"
@@ -417,6 +428,7 @@ function AcceptancesPage() {
       setEditingAcceptance(null);
       fetchAcceptances();
       fetchStatistics();
+      fetchFilterOptions();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update acceptance');
     } finally {
@@ -434,6 +446,7 @@ function AcceptancesPage() {
       setDeletingAcceptance(null);
       fetchAcceptances();
       fetchStatistics();
+      fetchFilterOptions();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to delete acceptance');
     } finally {

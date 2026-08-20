@@ -603,6 +603,37 @@ const getStatistics = async (req, res, next) => {
   }
 };
 
+/**
+ * Get distinct schools (with state/lga) that have acceptance records
+ * GET /:institutionId/acceptances/filter-options
+ */
+const getFilterOptions = async (req, res, next) => {
+  try {
+    const { institutionId } = req.params;
+    const { session_id } = req.query;
+
+    let sql = `
+      SELECT DISTINCT isv.id, ms.name, ms.state, ms.lga
+      FROM student_acceptances sa
+      JOIN institution_schools isv ON sa.institution_school_id = isv.id
+      JOIN master_schools ms ON isv.master_school_id = ms.id
+      WHERE sa.institution_id = ?
+    `;
+    const params = [parseInt(institutionId)];
+
+    if (session_id) {
+      sql += ' AND sa.session_id = ?';
+      params.push(parseInt(session_id));
+    }
+    sql += ' ORDER BY ms.name';
+
+    const schools = await query(sql, params);
+    res.json({ success: true, data: schools });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ============================================================================
 // STUDENT-FACING METHODS (for student portal)
 // ============================================================================
@@ -1038,6 +1069,7 @@ module.exports = {
   getAll,
   getById,
   getStatistics,
+  getFilterOptions,
   create,
   update,
   remove,
