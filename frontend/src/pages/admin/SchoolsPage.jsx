@@ -45,6 +45,7 @@ import {
   IconMap2,
   IconLink,
   IconShieldCheck,
+  IconGitMerge,
 } from '@tabler/icons-react';
 
 const normalizeLocationValue = (value) => String(value || '').trim().toUpperCase();
@@ -89,6 +90,15 @@ function SchoolsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [schoolToDelete, setSchoolToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Merge school modal (unlinks source, moves its history to target)
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [schoolToMerge, setSchoolToMerge] = useState(null);
+  const [mergeTargetId, setMergeTargetId] = useState('');
+  const [mergePreview, setMergePreview] = useState(null);
+  const [mergePreviewLoading, setMergePreviewLoading] = useState(false);
+  const [showMergeConfirm, setShowMergeConfirm] = useState(false);
+  const [merging, setMerging] = useState(false);
 
   // Link school modal (central registry)
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -478,6 +488,65 @@ function SchoolsPage() {
     }
   };
 
+  // Merge: pick a target school, preview what would move, then confirm
+  const handleMergeSchool = useCallback((school) => {
+    setSchoolToMerge(school);
+    setMergeTargetId('');
+    setMergePreview(null);
+    setShowMergeModal(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mergeTargetId || !schoolToMerge) {
+      setMergePreview(null);
+      return;
+    }
+    let cancelled = false;
+    setMergePreviewLoading(true);
+    schoolsApi.mergePreview(schoolToMerge.id, mergeTargetId)
+      .then((response) => {
+        if (!cancelled) setMergePreview(response.data.data);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          toast.error(err.response?.data?.message || 'Failed to load merge preview');
+          setMergePreview(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setMergePreviewLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [mergeTargetId, schoolToMerge, toast]);
+
+  const confirmMerge = async () => {
+    if (!schoolToMerge || !mergeTargetId) return;
+
+    setMerging(true);
+    try {
+      const response = await schoolsApi.merge(schoolToMerge.id, mergeTargetId);
+      const summary = response.data.data || {};
+      const movedTotal = Object.values(summary.moved || {}).reduce((a, b) => a + b, 0);
+      const extras = [];
+      if (summary.school_groups_merged) extras.push(`${summary.school_groups_merged} group(s) combined`);
+      if (summary.merged_groups_dropped) extras.push(`${summary.merged_groups_dropped} merged-group link(s) removed`);
+      toast.success(
+        `"${summary.source_name}" merged into "${summary.target_name}": ${movedTotal} record(s) moved` +
+        (extras.length ? `, ${extras.join(', ')}` : '')
+      );
+      setShowMergeConfirm(false);
+      setShowMergeModal(false);
+      setSchoolToMerge(null);
+      setMergeTargetId('');
+      setMergePreview(null);
+      fetchSchools();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to merge school');
+    } finally {
+      setMerging(false);
+    }
+  };
+
   // Any filter change invalidates the current page position
   const resetPage = () => setPagination((p) => (p.page === 1 ? p : { ...p, page: 1 }));
 
@@ -709,6 +778,15 @@ function SchoolsPage() {
               <Button
                 variant="ghost"
                 size="sm"
+                onClick={(e) => { e.stopPropagation(); handleMergeSchool(row); }}
+                className="text-gray-400 hover:text-primary-600 hover:bg-gray-100"
+                title="Merge into another school"
+              >
+                <IconGitMerge className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={(e) => { e.stopPropagation(); handleDeleteSchool(row.id); }}
                 className="text-gray-400 hover:text-red-600 hover:bg-red-50"
                 title="Delete"
@@ -720,7 +798,28 @@ function SchoolsPage() {
         </div>
       ),
     },
-  ], [getCategoryBadge, getLocationCategoryBadge, canEdit, handleViewSchool, openEditModal, handleDeleteSchool, handleToggleStatus, pagination.page, pagination.limit]);
+  ], [getCategoryBadge, getLocationCategoryBadge, canEdit, handleViewSchool, openEditModal, handleDeleteSchool, handleMergeSchool, handleToggleStatus, pagination.page, pagination.limit]);
+
+  // Target-school choices for the merge modal: every other school in this
+  // institution (uses the already-fetched filter-options dataset).
+  const mergeTargetOptions = useMemo(
+    () => allSchoolsData.filter((s) => s.id !== schoolToMerge?.id),
+    [allSchoolsData, schoolToMerge]
+  );
+
+  const MERGE_TABLE_LABELS = {
+    student_acceptances: 'Student acceptances',
+    supervisor_postings: 'Supervisor postings',
+    student_results: 'Student results',
+    monitor_assignments: 'Monitor assignments',
+    monitoring_reports: 'Monitoring reports',
+    school_location_update_requests: 'Location update requests',
+    school_principal_update_requests: 'Principal update requests',
+    supervision_location_logs: 'GPS visit logs',
+    school_registration_requests: 'School registration requests',
+    school_groups: 'School groups',
+    merged_groups: 'Merged-group links',
+  };
 
   return (
     <div className="space-y-4 px-2 sm:px-0">
@@ -1670,6 +1769,116 @@ function SchoolsPage() {
         confirmText="Delete"
         variant="danger"
         loading={deleting}
+      />
+
+      {/* Merge Modal - pick a target school */}
+      <Dialog
+        isOpen={showMergeModal}
+        onClose={() => {
+          setShowMergeModal(false);
+          setSchoolToMerge(null);
+          setMergeTargetId('');
+          setMergePreview(null);
+        }}
+        title="Merge School"
+        width="xl"
+        footer={
+          <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3">
+            <Button
+              variant="outline"
+              onClick={() => { setShowMergeModal(false); setSchoolToMerge(null); setMergeTargetId(''); setMergePreview(null); }}
+              className="w-full sm:w-auto"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => setShowMergeConfirm(true)}
+              disabled={!mergeTargetId || !mergePreview || mergePreviewLoading}
+              className="w-full sm:w-auto"
+            >
+              Continue
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {schoolToMerge && (
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Source school (will be unlinked)</div>
+              <div className="font-medium text-gray-900">{schoolToMerge.name}</div>
+              <div className="text-sm text-gray-500">
+                {schoolToMerge.ward ? `${schoolToMerge.ward}, ` : ''}{schoolToMerge.lga}, {schoolToMerge.state}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Merge into</label>
+            <Select
+              value={mergeTargetId}
+              onChange={(e) => setMergeTargetId(e.target.value ? parseInt(e.target.value) : '')}
+              className="w-full"
+            >
+              <option value="">Select target school</option>
+              {mergeTargetOptions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.ward || s.lga}, {s.state})
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          {mergePreviewLoading && (
+            <div className="text-sm text-gray-500">Loading preview...</div>
+          )}
+
+          {mergePreview && !mergePreviewLoading && (
+            <div className="bg-amber-50 rounded-lg p-4 space-y-2">
+              <div className="flex items-center gap-2 text-amber-800 font-medium text-sm">
+                <IconAlertTriangle className="w-4 h-4" />
+                This will move the following from &ldquo;{mergePreview.source.name}&rdquo; to &ldquo;{mergePreview.target.name}&rdquo;:
+              </div>
+              <ul className="text-sm text-amber-800 space-y-1">
+                {Object.entries(mergePreview.counts)
+                  .filter(([, count]) => count > 0)
+                  .map(([table, count]) => (
+                    <li key={table} className="flex justify-between">
+                      <span>{MERGE_TABLE_LABELS[table] || table}</span>
+                      <span className="font-medium">{count}</span>
+                    </li>
+                  ))}
+                {Object.values(mergePreview.counts).every((c) => !c) && (
+                  <li>No historical records are tied to this school.</li>
+                )}
+              </ul>
+              {mergePreview.group_conflicts > 0 && (
+                <p className="text-xs text-amber-700">
+                  {mergePreview.group_conflicts} school group(s) will be combined with an existing group on the target.
+                </p>
+              )}
+              {mergePreview.merged_group_conflicts > 0 && (
+                <p className="text-xs text-amber-700">
+                  {mergePreview.merged_group_conflicts} merged-group link(s) conflict with the target and will be removed instead of moved.
+                </p>
+              )}
+              <p className="text-xs text-amber-700 pt-1 border-t border-amber-200">
+                &ldquo;{mergePreview.source.name}&rdquo; will then be permanently unlinked from your institution. This cannot be undone.
+              </p>
+            </div>
+          )}
+        </div>
+      </Dialog>
+
+      {/* Merge Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showMergeConfirm}
+        onClose={() => setShowMergeConfirm(false)}
+        onConfirm={confirmMerge}
+        title="Confirm Merge"
+        message={mergePreview ? `Merge "${mergePreview.source.name}" into "${mergePreview.target.name}"? This cannot be undone.` : 'Confirm merge?'}
+        confirmText="Merge"
+        variant="warning"
+        loading={merging}
       />
     </div>
   );

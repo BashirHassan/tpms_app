@@ -16,6 +16,130 @@ const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 const { normalizeLocationValue, normalizeOptionalLocationValue } = require('../utils/locationNormalizer');
 
+// Tables carrying a plain institution_school_id FK with no unique constraint on
+// that column — safe to repoint with a single bulk UPDATE during a merge.
+const MERGE_PLAIN_TABLES = [
+  { table: 'student_acceptances', column: 'institution_school_id' },
+  { table: 'supervisor_postings', column: 'institution_school_id' },
+  { table: 'student_results', column: 'institution_school_id' },
+  { table: 'monitor_assignments', column: 'institution_school_id' },
+  { table: 'monitoring_reports', column: 'institution_school_id' },
+  { table: 'school_location_update_requests', column: 'institution_school_id' },
+  { table: 'school_principal_update_requests', column: 'institution_school_id' },
+  { table: 'supervision_location_logs', column: 'institution_school_id' },
+  { table: 'school_registration_requests', column: 'created_institution_school_id' },
+];
+
+/**
+ * Validates that source/target both belong to this institution and are distinct.
+ * Shared by the merge preview and the merge itself.
+ */
+const resolveMergePair = async (institutionId, sourceId, targetId) => {
+  if (sourceId === targetId) {
+    throw new ValidationError('Cannot merge a school into itself');
+  }
+
+  const rows = await query(
+    `SELECT isv.id, ms.name
+     FROM institution_schools isv
+     JOIN master_schools ms ON isv.master_school_id = ms.id
+     WHERE isv.id IN (?, ?) AND isv.institution_id = ?`,
+    [sourceId, targetId, institutionId]
+  );
+
+  const source = rows.find((r) => r.id === sourceId);
+  const target = rows.find((r) => r.id === targetId);
+
+  if (!source) throw new NotFoundError('Source school not found');
+  if (!target) throw new NotFoundError('Target school not found');
+
+  return { source, target };
+};
+
+/**
+ * Plans how school_groups rows move from source to target: rows whose
+ * (session_id, group_number) already exists on the target get merged
+ * (count added, source row dropped) instead of repointed, to avoid violating
+ * the unique_institution_school_group key.
+ * `exec` is an (sql, params) => rows function — works with both the plain
+ * `query` helper (preview, outside a transaction) and a conn.execute adapter
+ * (actual merge, inside a transaction).
+ */
+const planSchoolGroupMoves = async (exec, sourceId, targetId) => {
+  const sourceRows = await exec(
+    'SELECT id, session_id, group_number, current_count FROM school_groups WHERE institution_school_id = ?',
+    [sourceId]
+  );
+
+  const moves = [];
+  for (const row of sourceRows) {
+    const [existing] = await exec(
+      'SELECT id FROM school_groups WHERE institution_school_id = ? AND session_id = ? AND group_number = ?',
+      [targetId, row.session_id, row.group_number]
+    );
+    moves.push({
+      sourceRowId: row.id,
+      conflictRowId: existing ? existing.id : null,
+      currentCount: row.current_count,
+    });
+  }
+  return moves;
+};
+
+/**
+ * Plans how merged_groups rows move from source to target for both of its
+ * institution_school_id-shaped columns. A row is dropped instead of repointed
+ * if repointing would collide with an existing row (unique_merge_new /
+ * unique_secondary_new) or would make primary == secondary (degenerate
+ * self-merge once both sides point at the target).
+ */
+const planMergedGroupMoves = async (exec, sourceId, targetId) => {
+  const primaryRows = await exec(
+    `SELECT id, session_id, primary_group_number, secondary_institution_school_id, secondary_group_number
+     FROM merged_groups WHERE primary_institution_school_id = ?`,
+    [sourceId]
+  );
+  const secondaryRows = await exec(
+    `SELECT id, session_id, secondary_group_number, primary_institution_school_id, primary_group_number
+     FROM merged_groups WHERE secondary_institution_school_id = ?`,
+    [sourceId]
+  );
+
+  const plan = { primary: [], secondary: [] };
+
+  for (const row of primaryRows) {
+    const degenerate = row.secondary_institution_school_id === targetId;
+    let conflict = false;
+    if (!degenerate) {
+      const [existing] = await exec(
+        `SELECT id FROM merged_groups
+         WHERE session_id = ? AND primary_institution_school_id = ? AND primary_group_number = ?
+           AND secondary_institution_school_id = ? AND secondary_group_number = ?`,
+        [row.session_id, targetId, row.primary_group_number, row.secondary_institution_school_id, row.secondary_group_number]
+      );
+      conflict = Boolean(existing);
+    }
+    plan.primary.push({ id: row.id, drop: degenerate || conflict });
+  }
+
+  for (const row of secondaryRows) {
+    const degenerate = row.primary_institution_school_id === targetId;
+    let conflict = false;
+    if (!degenerate) {
+      const [existing] = await exec(
+        `SELECT id FROM merged_groups
+         WHERE session_id = ? AND primary_institution_school_id = ? AND primary_group_number = ?
+           AND secondary_institution_school_id = ? AND secondary_group_number = ?`,
+        [row.session_id, row.primary_institution_school_id, row.primary_group_number, targetId, row.secondary_group_number]
+      );
+      conflict = Boolean(existing);
+    }
+    plan.secondary.push({ id: row.id, drop: degenerate || conflict });
+  }
+
+  return plan;
+};
+
 // Validation schemas
 const schemas = {
   create: z.object({
@@ -73,6 +197,12 @@ const schemas = {
       student_capacity: z.number().int().min(0).optional(),
       geofence_radius_m: z.number().int().min(50).max(5000).optional(),
       notes: z.string().optional().nullable(),
+    }),
+  }),
+
+  merge: z.object({
+    body: z.object({
+      target_id: z.number().int().positive('Target school ID is required'),
     }),
   }),
 };
@@ -664,6 +794,167 @@ const remove = async (req, res, next) => {
 };
 
 /**
+ * Preview the effect of merging a source school into a target school —
+ * counts of historical records (across every session) that would move,
+ * plus how many school_groups/merged_groups rows would collide and merge
+ * instead of moving cleanly.
+ * GET /:institutionId/schools/:id/merge-preview?target_id=X
+ */
+const getMergePreview = async (req, res, next) => {
+  try {
+    const { institutionId, id } = req.params;
+    const { target_id } = req.query;
+
+    if (!target_id) {
+      throw new ValidationError('target_id is required');
+    }
+
+    const instId = parseInt(institutionId);
+    const sourceId = parseInt(id);
+    const targetId = parseInt(target_id);
+
+    const { source, target } = await resolveMergePair(instId, sourceId, targetId);
+
+    const counts = {};
+    for (const { table, column } of MERGE_PLAIN_TABLES) {
+      const [row] = await query(
+        `SELECT COUNT(*) as total FROM \`${table}\` WHERE \`${column}\` = ?`,
+        [sourceId]
+      );
+      counts[table] = row.total;
+    }
+
+    const groupMoves = await planSchoolGroupMoves(query, sourceId, targetId);
+    counts.school_groups = groupMoves.length;
+    const groupConflicts = groupMoves.filter((m) => m.conflictRowId).length;
+
+    const mgPlan = await planMergedGroupMoves(query, sourceId, targetId);
+    counts.merged_groups = mgPlan.primary.length + mgPlan.secondary.length;
+    const mergedGroupConflicts =
+      mgPlan.primary.filter((r) => r.drop).length + mgPlan.secondary.filter((r) => r.drop).length;
+
+    res.json({
+      success: true,
+      data: {
+        source: { id: source.id, name: source.name },
+        target: { id: target.id, name: target.name },
+        counts,
+        group_conflicts: groupConflicts,
+        merged_group_conflicts: mergedGroupConflicts,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Merge a source school into a target school within the same institution.
+ * Every historical record tied to the source (across every session) is
+ * repointed to the target, then the source is unlinked from the institution.
+ * The global master_schools registry is never touched.
+ * POST /:institutionId/schools/:id/merge
+ */
+const merge = async (req, res, next) => {
+  try {
+    const { institutionId, id } = req.params;
+    const { target_id } = req.body;
+
+    const instId = parseInt(institutionId);
+    const sourceId = parseInt(id);
+    const targetId = parseInt(target_id);
+
+    const { source, target } = await resolveMergePair(instId, sourceId, targetId);
+
+    const moved = {};
+    let groupsMoved = 0;
+    let groupsMerged = 0;
+    let mergedGroupsMoved = 0;
+    let mergedGroupsDropped = 0;
+
+    await transaction(async (conn) => {
+      const exec = async (sql, params) => {
+        const [rows] = await conn.execute(sql, params);
+        return rows;
+      };
+
+      for (const { table, column } of MERGE_PLAIN_TABLES) {
+        const result = await exec(
+          `UPDATE \`${table}\` SET \`${column}\` = ? WHERE \`${column}\` = ?`,
+          [targetId, sourceId]
+        );
+        moved[table] = result.affectedRows || 0;
+      }
+
+      const groupMoves = await planSchoolGroupMoves(exec, sourceId, targetId);
+      for (const move of groupMoves) {
+        if (move.conflictRowId) {
+          await conn.execute(
+            'UPDATE school_groups SET current_count = current_count + ? WHERE id = ?',
+            [move.currentCount, move.conflictRowId]
+          );
+          await conn.execute('DELETE FROM school_groups WHERE id = ?', [move.sourceRowId]);
+          groupsMerged++;
+        } else {
+          await conn.execute(
+            'UPDATE school_groups SET institution_school_id = ? WHERE id = ?',
+            [targetId, move.sourceRowId]
+          );
+          groupsMoved++;
+        }
+      }
+      moved.school_groups = groupsMoved + groupsMerged;
+
+      const mgPlan = await planMergedGroupMoves(exec, sourceId, targetId);
+      for (const row of mgPlan.primary) {
+        if (row.drop) {
+          await conn.execute('DELETE FROM merged_groups WHERE id = ?', [row.id]);
+          mergedGroupsDropped++;
+        } else {
+          await conn.execute(
+            'UPDATE merged_groups SET primary_institution_school_id = ? WHERE id = ?',
+            [targetId, row.id]
+          );
+          mergedGroupsMoved++;
+        }
+      }
+      for (const row of mgPlan.secondary) {
+        if (row.drop) {
+          await conn.execute('DELETE FROM merged_groups WHERE id = ?', [row.id]);
+          mergedGroupsDropped++;
+        } else {
+          await conn.execute(
+            'UPDATE merged_groups SET secondary_institution_school_id = ? WHERE id = ?',
+            [targetId, row.id]
+          );
+          mergedGroupsMoved++;
+        }
+      }
+      moved.merged_groups = mergedGroupsMoved;
+
+      await conn.execute(
+        'DELETE FROM institution_schools WHERE id = ? AND institution_id = ?',
+        [sourceId, instId]
+      );
+    });
+
+    res.json({
+      success: true,
+      message: `"${source.name}" merged into "${target.name}" and unlinked from your institution`,
+      data: {
+        source_name: source.name,
+        target_name: target.name,
+        moved,
+        school_groups_merged: groupsMerged,
+        merged_groups_dropped: mergedGroupsDropped,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Get schools with capacity info for posting
  * GET /:institutionId/schools/with-capacity
  */
@@ -1078,4 +1369,6 @@ module.exports = {
   downloadTemplate,
   exportSchools,
   updateStatus,
+  getMergePreview,
+  merge,
 };

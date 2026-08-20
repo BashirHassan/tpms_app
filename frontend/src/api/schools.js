@@ -74,9 +74,16 @@ export function createSchoolsApi(institutionId) {
     // New: Master schools linking
     searchMasterSchools: (params = {}) =>
       apiClient.get(`${basePath}/search-master`, { params }),
-    
+
     linkSchool: (data) =>
       apiClient.post(`${basePath}/link`, data),
+
+    // New: Merge a source school into a target school (same institution)
+    mergePreview: (id, targetId) =>
+      apiClient.get(`${basePath}/${id}/merge-preview`, { params: { target_id: targetId } }),
+
+    merge: (id, targetId) =>
+      apiClient.post(`${basePath}/${id}/merge`, { target_id: targetId }),
   };
 }
 
@@ -122,4 +129,7 @@ export const schoolsApi = {
   // New master schools linking
   searchMasterSchools: (params = {}) => apiClient.get(`${getBasePath()}/search-master`, { params }),
   linkSchool: (data) => apiClient.post(`${getBasePath()}/link`, data),
+  // New: Merge a source school into a target school (same institution)
+  mergePreview: (id, targetId) => apiClient.get(`${getBasePath()}/${id}/merge-preview`, { params: { target_id: targetId } }),
+  merge: (id, targetId) => apiClient.post(`${getBasePath()}/${id}/merge`, { target_id: targetId }),
 };

@@ -8,7 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const schoolController = require('../controllers/schoolController');
 const { authenticate } = require('../middleware/auth');
-const { requireInstitutionAccess, staffOnly } = require('../middleware/rbac');
+const { requireInstitutionAccess, staffOnly, isHeadOfTP } = require('../middleware/rbac');
 const { requireFeature } = require('../middleware/featureToggle');
 const validate = require('../middleware/validate');
 const { uploadRateLimiter } = require('../middleware/rateLimiter');
@@ -47,6 +47,8 @@ router.post('/:institutionId/schools', authenticate, requireInstitutionAccess(),
 router.put('/:institutionId/schools/:id', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('school_management'), validate(schoolController.schemas.update), schoolController.update);
 router.patch('/:institutionId/schools/:id/status', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('school_management'), schoolController.updateStatus);
 router.delete('/:institutionId/schools/:id', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('school_management'), schoolController.remove);
+router.get('/:institutionId/schools/:id/merge-preview', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('school_management'), schoolController.getMergePreview);
+router.post('/:institutionId/schools/:id/merge', authenticate, requireInstitutionAccess(), isHeadOfTP, requireFeature('school_management'), validate(schoolController.schemas.merge), schoolController.merge);
 router.post('/:institutionId/schools/upload', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('school_management'), uploadRateLimiter, upload.single('file'), schoolController.uploadFromExcel);
 
 module.exports = router;
