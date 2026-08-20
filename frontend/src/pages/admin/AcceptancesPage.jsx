@@ -346,7 +346,7 @@ function AcceptancesPage() {
   // Toolbar with search and filters, rendered inside the table's own header
   const tableToolbar = (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2 sm:gap-3 w-full">
-      <div className="relative sm:col-span-2">
+      <div className="relative">
         <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <Input
           type="text"
