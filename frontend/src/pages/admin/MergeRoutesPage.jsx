@@ -127,6 +127,8 @@ function MergeRoutesPage() {
           route_name: item.route_name || 'N/A',
           category: item.location_category === 'outside' ? 'Outside' : 'Inside',
           student_count: item.student_count,
+          state: item.state || '',
+          lga: item.lga || '',
         });
       } else {
         // Sum up students from all groups
@@ -153,6 +155,12 @@ function MergeRoutesPage() {
         </span>
         <span className="text-gray-400">•</span>
         <span>{school.student_count} students</span>
+        {(school.state || school.lga) && (
+          <>
+            <span className="text-gray-400">•</span>
+            <span>{[school.lga, school.state].filter(Boolean).join(', ')}</span>
+          </>
+        )}
       </div>
     </div>
   );

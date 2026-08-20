@@ -567,7 +567,7 @@ const getAvailableForMerge = async (req, res, next) => {
 
     const available = await query(
       `SELECT sa.institution_school_id, ms.name AS school_name, isv.location_category,
-              r.name AS route_name,
+              r.name AS route_name, ms.state, ms.lga,
               sa.group_number, COUNT(sa.student_id) AS student_count
        FROM student_acceptances sa
        JOIN institution_schools isv ON sa.institution_school_id = isv.id
@@ -579,7 +579,7 @@ const getAvailableForMerge = async (req, res, next) => {
          mg.secondary_group_number = sa.group_number AND
          mg.status = 'active'
        WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'approved' AND mg.id IS NULL
-       GROUP BY sa.institution_school_id, ms.name, isv.location_category, r.name, sa.group_number
+       GROUP BY sa.institution_school_id, ms.name, isv.location_category, r.name, ms.state, ms.lga, sa.group_number
        HAVING student_count > 0
        ORDER BY ms.name, sa.group_number`,
       [parseInt(institutionId), parseInt(session_id)]
@@ -646,6 +646,29 @@ const createMerge = async (req, res, next) => {
 
     if (duplicateMerge.length > 0) {
       throw new ConflictError('These groups are already merged');
+    }
+
+    // Check neither group already has an active posting - merging a group that's
+    // already independently posted would leave that posting at full price while
+    // also expecting it to become a zero-allowance dependent, causing double payment.
+    const existingPostings = await query(
+      `SELECT id FROM supervisor_postings
+       WHERE institution_id = ? AND session_id = ? AND status != 'cancelled'
+         AND (
+           (institution_school_id = ? AND group_number = ?)
+           OR (institution_school_id = ? AND group_number = ?)
+         )`,
+      [
+        parseInt(institutionId), parseInt(session_id),
+        parseInt(primary_school_id), parseInt(primary_group_number),
+        parseInt(secondary_school_id), parseInt(secondary_group_number)
+      ]
+    );
+
+    if (existingPostings.length > 0) {
+      throw new ConflictError(
+        'Cannot merge: one or both groups already have an active posting for this session. Cancel the existing posting(s) first.'
+      );
     }
 
     // Get session config for max students
@@ -732,7 +755,7 @@ const cancelMerge = async (req, res, next) => {
 
     // Verify the merge exists and belongs to this institution
     const existing = await query(
-      `SELECT id, primary_institution_school_id, primary_group_number, secondary_institution_school_id, secondary_group_number
+      `SELECT id, session_id, primary_institution_school_id, primary_group_number, secondary_institution_school_id, secondary_group_number
        FROM merged_groups
        WHERE id = ? AND institution_id = ? AND status = 'active'`,
       [parseInt(mergeId), parseInt(institutionId)]
@@ -742,12 +765,31 @@ const cancelMerge = async (req, res, next) => {
       throw new NotFoundError('Merged group not found');
     }
 
-    // Cancel the merge
+    // Block unmerge if the secondary group still has an active dependent posting -
+    // it must be cancelled first (from the Postings page) so it doesn't end up
+    // orphaned as an active, zero-allowance posting once the merge is gone.
+    const dependentPostings = await query(
+      `SELECT id FROM supervisor_postings
+       WHERE institution_id = ? AND session_id = ?
+             AND institution_school_id = ? AND group_number = ?
+             AND merged_with_posting_id IS NOT NULL
+             AND status != 'cancelled'`,
+      [
+        parseInt(institutionId), existing[0].session_id,
+        existing[0].secondary_institution_school_id, existing[0].secondary_group_number
+      ]
+    );
+
+    if (dependentPostings.length > 0) {
+      throw new ConflictError(
+        'Cannot unmerge: the secondary group has an active dependent posting. Cancel that posting first, then unmerge.'
+      );
+    }
+
+    // Delete the merge record entirely rather than soft-cancelling it
     await query(
-      `UPDATE merged_groups
-       SET status = 'cancelled', cancelled_by = ?, cancelled_at = NOW()
-       WHERE id = ? AND institution_id = ?`,
-      [req.user.id, parseInt(mergeId), parseInt(institutionId)]
+      `DELETE FROM merged_groups WHERE id = ? AND institution_id = ?`,
+      [parseInt(mergeId), parseInt(institutionId)]
     );
 
     // Audit log

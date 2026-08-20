@@ -405,8 +405,15 @@ const remove = async (req, res, next) => {
 
     // Soft delete by setting status to cancelled
     await query(
-      `UPDATE supervisor_postings SET status = 'cancelled', updated_at = NOW() 
+      `UPDATE supervisor_postings SET status = 'cancelled', updated_at = NOW()
        WHERE id = ? AND institution_id = ?`,
+      [parseInt(id), parseInt(institutionId)]
+    );
+
+    // Cascade-cancel any merged-secondary dependent postings tied to this posting
+    await query(
+      `UPDATE supervisor_postings SET status = 'cancelled', updated_at = NOW()
+       WHERE merged_with_posting_id = ? AND institution_id = ? AND status != 'cancelled'`,
       [parseInt(id), parseInt(institutionId)]
     );
 
