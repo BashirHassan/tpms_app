@@ -62,7 +62,7 @@ const getAll = async (req, res, next) => {
   try {
     const { institutionId } = req.params;
     const {
-      session_id, school_id, student_id, status, search,
+      session_id, school_id, student_id, status, search, state, lga,
       page = 1, offset
     } = req.query;
 
@@ -74,7 +74,7 @@ const getAll = async (req, res, next) => {
     let sql = `
       SELECT sa.*,
              st.registration_number, st.full_name as student_name,
-             ms.name as school_name, ms.official_code as school_code, ms.ward, ms.lga,
+             ms.name as school_name, ms.official_code as school_code, ms.ward, ms.lga, ms.state,
              isv.location_category,
              r.name as route_name,
              p.name as program_name,
@@ -108,9 +108,17 @@ const getAll = async (req, res, next) => {
       sql += ' AND sa.status = ?';
       params.push(status);
     }
+    if (state) {
+      sql += ' AND UPPER(ms.state) = ?';
+      params.push(normalizeLocationValue(state));
+    }
+    if (lga) {
+      sql += ' AND UPPER(ms.lga) = ?';
+      params.push(normalizeLocationValue(lga));
+    }
     if (search) {
-      sql += ' AND (st.full_name LIKE ? OR st.registration_number LIKE ?)';
-      params.push(`%${search}%`, `%${search}%`);
+      sql += ' AND (st.full_name LIKE ? OR st.registration_number LIKE ? OR ms.name LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     // Count query - create separate params for count to avoid mutation issues

@@ -25,7 +25,10 @@ import {
   IconTrash,
   IconPencil as IconEdit,
   IconPhoto,
+  IconSearch,
 } from '@tabler/icons-react';
+
+const normalizeLocationValue = (value) => String(value || '').trim().toUpperCase();
 
 function AcceptancesPage() {
   const { hasRole } = useAuth();
@@ -44,6 +47,8 @@ function AcceptancesPage() {
   const [selectedSession, setSelectedSession] = useState('');
   const [selectedSchool, setSelectedSchool] = useState('');
   const [search, setSearch] = useState('');
+  const [stateFilter, setStateFilter] = useState('');
+  const [lgaFilter, setLgaFilter] = useState('');
 
   // Modal state
   const [selectedAcceptance, setSelectedAcceptance] = useState(null);
@@ -96,6 +101,8 @@ function AcceptancesPage() {
       };
       if (selectedSchool) params.school_id = selectedSchool;
       if (search) params.search = search;
+      if (stateFilter) params.state = stateFilter;
+      if (lgaFilter) params.lga = lgaFilter;
 
       const response = await acceptancesApi.getAll(params);
       setAcceptances(response.data.data || response.data || []);
@@ -108,7 +115,7 @@ function AcceptancesPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedSession, selectedSchool, search, pagination.page, pagination.limit, toast]);
+  }, [selectedSession, selectedSchool, search, stateFilter, lgaFilter, pagination.page, pagination.limit, toast]);
 
   const fetchStatistics = useCallback(async () => {
     try {
@@ -139,6 +146,8 @@ function AcceptancesPage() {
         const params = { session_id: selectedSession, page, limit };
         if (selectedSchool) params.school_id = selectedSchool;
         if (search) params.search = search;
+        if (stateFilter) params.state = stateFilter;
+        if (lgaFilter) params.lga = lgaFilter;
 
         const response = await acceptancesApi.getAll(params);
         return {
@@ -148,7 +157,7 @@ function AcceptancesPage() {
       },
       { onError: () => toast.error('Could not load all pages — exported the current page instead') }
     ),
-    [selectedSession, selectedSchool, search, toast]
+    [selectedSession, selectedSchool, search, stateFilter, lgaFilter, toast]
   );
 
   // Helper to download image
@@ -204,8 +213,33 @@ function AcceptancesPage() {
     }
   }, [editingAcceptance, editSchool, selectedSession, fetchSchoolGroups]);
 
+  // Derive state/LGA filter options from the schools already loaded for the School filter
+  const filterStates = useMemo(() => {
+    const unique = [...new Set(schools.map((s) => normalizeLocationValue(s.state)).filter(Boolean))];
+    return unique.sort();
+  }, [schools]);
+
+  const filterLgas = useMemo(() => {
+    if (!stateFilter) return [];
+    const unique = [...new Set(
+      schools
+        .filter((s) => normalizeLocationValue(s.state) === normalizeLocationValue(stateFilter))
+        .map((s) => normalizeLocationValue(s.lga))
+        .filter(Boolean)
+    )];
+    return unique.sort();
+  }, [schools, stateFilter]);
+
   // Table columns definition
   const columns = useMemo(() => [
+    {
+      accessor: null,
+      header: '#',
+      sortable: false,
+      width: 50,
+      exportFormatter: (_, __, rowIndex) => rowIndex + 1,
+      render: (_, __, index) => (pagination.page - 1) * pagination.limit + index + 1,
+    },
     {
       accessor: 'student_name',
       header: 'Student',
@@ -239,6 +273,16 @@ function AcceptancesPage() {
           <p className="text-sm text-gray-500">{row.route_name}</p>
         </div>
       ),
+    },
+    {
+      accessor: 'state',
+      header: 'School State',
+      render: (value) => value || 'N/A',
+    },
+    {
+      accessor: 'lga',
+      header: 'School LGA',
+      render: (value) => value || 'N/A',
     },
     {
       accessor: 'location_category',
@@ -292,13 +336,73 @@ function AcceptancesPage() {
         </div>
       ),
     },
-  ], [canReview, openEditModal]);
+  ], [canReview, openEditModal, pagination.page, pagination.limit]);
 
-  // Toolbar with filters
   const handleSchoolChange = (schoolId) => {
     setEditSchool(schoolId);
     setEditGroup('1'); // Reset to group 1 when school changes
   };
+
+  // Toolbar with search and filters, rendered inside the table's own header
+  const tableToolbar = (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2 sm:gap-3 w-full">
+      <div className="relative sm:col-span-2">
+        <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <Input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name, reg number, or school..."
+          className="pl-9 text-sm"
+        />
+      </div>
+      <div className="lg:col-span-2">
+        <SearchableSelect
+          options={schools}
+          value={selectedSchool || null}
+          onChange={(val) => setSelectedSchool(val || '')}
+          placeholder="All Schools"
+          searchPlaceholder="Search schools..."
+          getOptionValue={(s) => s.id}
+          getOptionLabel={(s) => s.name}
+          clearable={true}
+          className="text-sm"
+        />
+      </div>
+      <Select
+        value={stateFilter}
+        onChange={(e) => { setStateFilter(e.target.value); setLgaFilter(''); }}
+        className="text-sm"
+      >
+        <option value="">All States</option>
+        {filterStates.map((s) => (
+          <option key={s} value={s}>{s}</option>
+        ))}
+      </Select>
+      <Select
+        value={lgaFilter}
+        onChange={(e) => setLgaFilter(e.target.value)}
+        disabled={!stateFilter}
+        className="text-sm"
+      >
+        <option value="">All LGAs</option>
+        {filterLgas.map((l) => (
+          <option key={l} value={l}>{l}</option>
+        ))}
+      </Select>
+      <Select
+        value={selectedSession}
+        onChange={(e) => setSelectedSession(e.target.value)}
+        className="text-sm"
+      >
+        {sessions.map((session) => (
+          <option key={session.id} value={session.id}>
+            {session.name} {session.is_current && '(Current)'}
+          </option>
+        ))}
+      </Select>
+    </div>
+  );
 
   const handleUpdate = async () => {
     if (!editingAcceptance) return;
@@ -392,52 +496,6 @@ function AcceptancesPage() {
         </div>
       )}
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-3 sm:p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
-            <div className="sm:col-span-2">
-              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Search</label>
-              <Input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by name or reg number..."
-                className="text-sm"
-              />
-            </div>
-            <div className="sm:col-span-1 lg:col-span-2">
-              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">School</label>
-              <SearchableSelect
-                options={schools}
-                value={selectedSchool || null}
-                onChange={(val) => setSelectedSchool(val || '')}
-                placeholder="All Schools"
-                searchPlaceholder="Search schools..."
-                getOptionValue={(s) => s.id}
-                getOptionLabel={(s) => s.name}
-                clearable={true}
-                className="text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Session</label>
-              <Select
-                value={selectedSession}
-                onChange={(e) => setSelectedSession(e.target.value)}
-                className="text-sm"
-              >
-                {sessions.map((session) => (
-                  <option key={session.id} value={session.id}>
-                    {session.name} {session.is_current && '(Current)'}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Acceptances Table */}
       <DataTable
         data={acceptances}
@@ -446,6 +504,7 @@ function AcceptancesPage() {
         loading={loading}
         sortable
         exportable
+        toolbar={tableToolbar}
         onServerExport={handleExportAll}
         exportFilename="acceptances_export"
         emptyIcon={IconFileText}
