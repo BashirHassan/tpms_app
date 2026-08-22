@@ -43,6 +43,7 @@ function RanksPage() {
   const [formData, setFormData] = useState({
     name: '',
     code: '',
+    priority_number: 99,
     local_running_allowance: 0,
     transport_per_km: 0,
     dsa: 0,
@@ -126,6 +127,7 @@ function RanksPage() {
     setFormData({
       name: '',
       code: '',
+      priority_number: 99,
       local_running_allowance: 0,
       transport_per_km: 0,
       dsa: 0,
@@ -143,6 +145,7 @@ function RanksPage() {
     setFormData({
       name: rank.name,
       code: rank.code,
+      priority_number: parseInt(rank.priority_number) || 99,
       local_running_allowance: parseFloat(rank.local_running_allowance) || 0,
       transport_per_km: parseFloat(rank.transport_per_km) || 0,
       dsa: parseFloat(rank.dsa) || 0,
@@ -387,7 +390,16 @@ function RanksPage() {
                     </div>
                     <div className="min-w-0">
                       <CardTitle className="text-base sm:text-lg truncate">{rank.name}</CardTitle>
-                      <IconBadge variant="outline" className="mt-1 text-xs">{rank.code}</IconBadge>
+                      <div className="flex items-center gap-1 mt-1">
+                        <IconBadge variant="outline" className="text-xs">{rank.code}</IconBadge>
+                        <Badge
+                          variant="info"
+                          className="text-xs"
+                          title="Auto-posting priority: 1 = highest seniority"
+                        >
+                          Priority {rank.priority_number ?? 99}
+                        </Badge>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -510,6 +522,25 @@ function RanksPage() {
                 placeholder="e.g., PROF"
               />
             </div>
+          </div>
+
+          {/* Auto-Posting Priority */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Priority Number (Auto-Posting)
+            </label>
+            <Input
+              type="number"
+              min="1"
+              max="99"
+              value={formData.priority_number}
+              onChange={(e) => setFormData({ ...formData, priority_number: parseInt(e.target.value) || 99 })}
+              placeholder="e.g., 1"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Seniority order used by auto-posting to pair rank with distance: 1 = highest priority
+              (longest journeys), higher numbers = lower priority.
+            </p>
           </div>
 
           {/* Allowance Components */}

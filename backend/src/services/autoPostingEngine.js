@@ -485,39 +485,33 @@ function runAutoPostingAlgorithm(
     weights: weightOverrides = {},
   } = options;
 
-  const weights = {
+  const baseWeights = {
     ...DEFAULT_WEIGHTS,
     ...weightOverrides,
     repeat: avoidRepeatSchools ? (weightOverrides.repeat ?? DEFAULT_WEIGHTS.repeat) : 0,
     priority: priorityEnabled ? (weightOverrides.priority ?? DEFAULT_WEIGHTS.priority) : 0,
   };
 
-  const assignments = [];
-  const warnings = [];
-  const empty = () => finish(assignments, warnings, supervisors, numberOfPostings, [], {});
-
   if (supervisors.length === 0) {
-    warnings.push('No eligible supervisors available');
-    return empty();
+    return finish([], ['No eligible supervisors available'], supervisors, numberOfPostings, [], {});
   }
 
   if (slots.length === 0) {
-    warnings.push('No available slots to assign');
-    return empty();
+    return finish([], ['No available slots to assign'], supervisors, numberOfPostings, [], {});
   }
 
   const eligibleSlots = slots.filter((slot) => slot.visit_number <= numberOfPostings);
 
   if (eligibleSlots.length === 0) {
-    warnings.push(
-      `No available slots for Visit 1${numberOfPostings > 1 ? ` through ${numberOfPostings}` : ''}`
-    );
-    return empty();
+    return finish([], [
+      `No available slots for Visit 1${numberOfPostings > 1 ? ` through ${numberOfPostings}` : ''}`,
+    ], supervisors, numberOfPostings, [], {});
   }
 
   if (maxAssignments <= 0) {
-    warnings.push('No postings could be created - the posting allocation for this session is exhausted');
-    return empty();
+    return finish([], [
+      'No postings could be created - the posting allocation for this session is exhausted',
+    ], supervisors, numberOfPostings, [], {});
   }
 
   // Rank normalised to [0,1] across this pool, so the bands stay comparable
@@ -534,118 +528,191 @@ function runAutoPostingAlgorithm(
   const travelTarget = maxTravel * 2;
 
   const clusterPlan = planClusters(supervisors, eligibleSlots, postingType, schoolHistory);
-  const context = {
-    weights, postingType, rankBand, maxTravel, travelTarget, avoidRepeatSchools, clusterPlan,
-  };
-  const state = createState(supervisors, schoolHistory);
   const sortedSlots = sortSlots(eligibleSlots, postingType, priorityEnabled);
 
-  let unassignedSlots = 0;
-  let quotaSkipped = 0;
+  /**
+   * Run one full greedy + local-search pass under a given set of weights.
+   * Always starts from a clean allocation state, so different weight choices can
+   * be compared on equal footing and the best one kept.
+   */
+  function runOnce(weights) {
+    const context = {
+      weights, postingType, rankBand, maxTravel, travelTarget, avoidRepeatSchools, clusterPlan,
+    };
+    const state = createState(supervisors, schoolHistory);
+    const assignments = [];
+    const warnings = [];
 
-  // ---- Greedy pass: each slot goes to its lowest-cost supervisor ----
-  for (const slot of sortedSlots) {
-    if (assignments.length >= maxAssignments) {
-      quotaSkipped++;
-      continue;
-    }
+    let unassignedSlots = 0;
+    let quotaSkipped = 0;
 
-    const cluster = clusterKeyFor(slot, postingType);
-    let best = null;
-    let bestScore = null;
+    // ---- Greedy pass: each slot goes to its lowest-cost supervisor ----
+    for (const slot of sortedSlots) {
+      if (assignments.length >= maxAssignments) {
+        quotaSkipped++;
+        continue;
+      }
 
-    // Baselines for the relative load/travel terms, over supervisors still free.
-    //
-    // When this slot's area has planned supervisors, the baseline is taken from
-    // *them* only. The plan already shares supervisors between areas in
-    // proportion to their size, so balance across areas is settled; charging a
-    // supervisor for getting ahead of someone working a different area would just
-    // push them out of their own, which is how a route leaks its last schools.
-    const plannedHere = [];
-    if (cluster !== null) {
-      for (const entry of state.values()) {
-        if (entry.count >= Number(entry.supervisor.remaining_slots)) continue;
-        if (clusterPlan.get(`${entry.supervisor.id}-${slot.visit_number}`) === cluster) {
-          plannedHere.push(entry);
+      const cluster = clusterKeyFor(slot, postingType);
+      let best = null;
+      let bestScore = null;
+
+      // Baselines for the relative load/travel terms, over supervisors still free.
+      //
+      // When this slot's area has planned supervisors, the baseline is taken from
+      // *them* only. The plan already shares supervisors between areas in
+      // proportion to their size, so balance across areas is settled; charging a
+      // supervisor for getting ahead of someone working a different area would just
+      // push them out of their own, which is how a route leaks its last schools.
+      const plannedHere = [];
+      if (cluster !== null) {
+        for (const entry of state.values()) {
+          if (entry.count >= Number(entry.supervisor.remaining_slots)) continue;
+          if (clusterPlan.get(`${entry.supervisor.id}-${slot.visit_number}`) === cluster) {
+            plannedHere.push(entry);
+          }
         }
       }
-    }
 
-    const baseline = plannedHere.length > 0 ? plannedHere : [...state.values()];
-    context.minCount = Infinity;
-    context.minDistance = Infinity;
-    for (const entry of baseline) {
-      if (entry.count >= Number(entry.supervisor.remaining_slots)) continue;
-      if (entry.count < context.minCount) context.minCount = entry.count;
-      if (entry.distance < context.minDistance) context.minDistance = entry.distance;
-    }
-    if (context.minCount === Infinity) context.minCount = 0;
-    if (context.minDistance === Infinity) context.minDistance = 0;
-
-    for (const entry of state.values()) {
-      // HARD constraint - capacity
-      if (entry.count >= Number(entry.supervisor.remaining_slots)) continue;
-
-      const score = marginalCost(entry, slot, cluster, context);
-      if (bestScore === null || score.total < bestScore.total) {
-        best = entry;
-        bestScore = score;
+      const baseline = plannedHere.length > 0 ? plannedHere : [...state.values()];
+      context.minCount = Infinity;
+      context.minDistance = Infinity;
+      for (const entry of baseline) {
+        if (entry.count >= Number(entry.supervisor.remaining_slots)) continue;
+        if (entry.count < context.minCount) context.minCount = entry.count;
+        if (entry.distance < context.minDistance) context.minDistance = entry.distance;
       }
+      if (context.minCount === Infinity) context.minCount = 0;
+      if (context.minDistance === Infinity) context.minDistance = 0;
+
+      for (const entry of state.values()) {
+        // HARD constraint - capacity
+        if (entry.count >= Number(entry.supervisor.remaining_slots)) continue;
+
+        const score = marginalCost(entry, slot, cluster, context);
+        if (bestScore === null || score.total < bestScore.total) {
+          best = entry;
+          bestScore = score;
+        }
+      }
+
+      if (!best) {
+        unassignedSlots++;
+        continue;
+      }
+
+      assignments.push({
+        supervisor_id: best.supervisor.id,
+        supervisor_name: best.supervisor.name,
+        rank_code: best.supervisor.rank_code,
+        priority_number: best.supervisor.priority_number,
+        school_id: slot.school_id,
+        school_name: slot.school_name,
+        group_number: slot.group_number,
+        visit_number: slot.visit_number,
+        distance_km: slot.distance_km,
+        route_id: slot.route_id,
+        route_name: slot.route_name,
+        lga: slot.lga,
+        repeat_school: bestScore.repeat === 1,
+        cluster_break: bestScore.affinity > 0,
+        _cluster: cluster,
+      });
+
+      applyAssignment(best, slot, cluster, 1);
     }
 
-    if (!best) {
-      unassignedSlots++;
-      continue;
+    // ---- Local search: swap supervisors while the total cost strictly falls ----
+    const costBefore = scoreSolution(state, context);
+    const searchResult = localSearch(assignments, state, context);
+    const costAfter = scoreSolution(state, context);
+
+    reflagAssignments(assignments, schoolHistory, postingType, avoidRepeatSchools);
+    for (const a of assignments) delete a._cluster;
+
+    if (quotaSkipped > 0) {
+      warnings.push(
+        `${quotaSkipped} slot(s) skipped - the posting allocation for this session is exhausted`
+      );
     }
 
-    assignments.push({
-      supervisor_id: best.supervisor.id,
-      supervisor_name: best.supervisor.name,
-      rank_code: best.supervisor.rank_code,
-      priority_number: best.supervisor.priority_number,
-      school_id: slot.school_id,
-      school_name: slot.school_name,
-      group_number: slot.group_number,
-      visit_number: slot.visit_number,
-      distance_km: slot.distance_km,
-      route_id: slot.route_id,
-      route_name: slot.route_name,
-      lga: slot.lga,
-      repeat_school: bestScore.repeat === 1,
-      cluster_break: bestScore.affinity > 0,
-      _cluster: cluster,
+    if (unassignedSlots > 0) {
+      warnings.push(
+        `${unassignedSlots} slot(s) could not be assigned (more slots than total supervisor capacity)`
+      );
+    }
+
+    return finish(assignments, warnings, supervisors, numberOfPostings, eligibleSlots, {
+      context,
+      costBefore,
+      costAfter,
+      searchResult,
+      quotaSkipped,
     });
-
-    applyAssignment(best, slot, cluster, 1);
   }
 
-  // ---- Local search: swap supervisors while the total cost strictly falls ----
-  const costBefore = scoreSolution(state, context);
-  const searchResult = localSearch(assignments, state, context);
-  const costAfter = scoreSolution(state, context);
+  const firstPass = runOnce(baseWeights);
+  if (baseWeights.priority <= 0) return firstPass;
 
-  reflagAssignments(assignments, schoolHistory, postingType, avoidRepeatSchools);
-  for (const a of assignments) delete a._cluster;
+  return tunePriorityWeight(runOnce, baseWeights, firstPass);
+}
 
-  if (quotaSkipped > 0) {
-    warnings.push(
-      `${quotaSkipped} slot(s) skipped - the posting allocation for this session is exhausted`
-    );
+/**
+ * Priority accuracy feedback loop.
+ *
+ * `priority_correlation` is the "accuracy number" - how well this run actually
+ * paired seniority with distance. A single fixed weight does not fit every pool
+ * (few ranks vs. many, tight vs. spread-out distances), so when the first pass
+ * under-shoots the target, the priority term is strengthened and re-run. The
+ * stronger pull is kept only when it *measurably improves* correlation without
+ * costing more repeats/affinity breaks or unbalancing posting counts further -
+ * otherwise escalation stops and the best attempt so far wins. Bounded to a few
+ * attempts so a pool that simply can't do better doesn't loop needlessly.
+ */
+const PRIORITY_TUNING = {
+  targetCorrelation: 0.6,
+  maxAttempts: 3,
+  boostFactor: 1.8,
+};
+
+function tunePriorityWeight(runOnce, baseWeights, firstResult) {
+  if (firstResult.statistics.total_assignments < 2) return firstResult;
+
+  let best = firstResult;
+  let bestWeight = baseWeights.priority;
+  let attempts = 0;
+
+  while (
+    attempts < PRIORITY_TUNING.maxAttempts &&
+    best.statistics.priority_correlation < PRIORITY_TUNING.targetCorrelation
+  ) {
+    attempts++;
+    const candidateWeight = bestWeight * PRIORITY_TUNING.boostFactor;
+    const candidate = runOnce({ ...baseWeights, priority: candidateWeight });
+
+    const bestLoadSpread = best.statistics.load.max - best.statistics.load.min;
+    const candidateLoadSpread = candidate.statistics.load.max - candidate.statistics.load.min;
+
+    const improved = candidate.statistics.priority_correlation > best.statistics.priority_correlation;
+    const noWorseQuality =
+      candidate.statistics.repeat_school_assignments <= best.statistics.repeat_school_assignments &&
+      candidate.statistics.affinity_breaks <= best.statistics.affinity_breaks &&
+      candidateLoadSpread <= Math.max(1, bestLoadSpread);
+
+    if (!improved || !noWorseQuality) break;
+
+    best = candidate;
+    bestWeight = candidateWeight;
   }
 
-  if (unassignedSlots > 0) {
-    warnings.push(
-      `${unassignedSlots} slot(s) could not be assigned (more slots than total supervisor capacity)`
-    );
-  }
+  best.statistics.priority_tuning = {
+    weight_used: Number(bestWeight.toFixed(2)),
+    attempts,
+    target_correlation: PRIORITY_TUNING.targetCorrelation,
+    achieved_correlation: best.statistics.priority_correlation,
+  };
 
-  return finish(assignments, warnings, supervisors, numberOfPostings, eligibleSlots, {
-    context,
-    costBefore,
-    costAfter,
-    searchResult,
-    quotaSkipped,
-  });
+  return best;
 }
 
 /**
@@ -1048,6 +1115,7 @@ function finish(assignments, warnings, supervisors, visitsIncluded, eligibleSlot
 module.exports = {
   runAutoPostingAlgorithm,
   DEFAULT_WEIGHTS,
+  PRIORITY_TUNING,
   // Exported for testing
   clusterKeyFor,
   standardDeviation,

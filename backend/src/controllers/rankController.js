@@ -15,6 +15,8 @@ const schemas = {
     body: z.object({
       name: z.string().min(2, 'Rank name must be at least 2 characters'),
       code: z.string().min(1, 'Rank code is required').max(20),
+      // Auto-posting seniority order: 1 = highest priority, larger = lower
+      priority_number: z.coerce.number().int().min(1).max(99).optional(),
       local_running_allowance: z.coerce.number().min(0).optional(),
       transport_per_km: z.coerce.number().min(0).optional(),
       dsa: z.coerce.number().min(0).optional(),
@@ -30,6 +32,7 @@ const schemas = {
     body: z.object({
       name: z.string().min(2).optional(),
       code: z.string().min(1).max(20).optional(),
+      priority_number: z.coerce.number().int().min(1).max(99).optional(),
       local_running_allowance: z.coerce.number().min(0).optional(),
       transport_per_km: z.coerce.number().min(0).optional(),
       dsa: z.coerce.number().min(0).optional(),
@@ -79,7 +82,7 @@ const getAll = async (req, res, next) => {
     const { status, search, limit = 100, offset = 0 } = req.query;
 
     let sql = `
-      SELECT r.id, r.institution_id, r.name, r.code,
+      SELECT r.id, r.institution_id, r.name, r.code, r.priority_number,
              r.local_running_allowance, r.transport_per_km,
              r.dsa, r.dta, r.tetfund, r.other_allowances,
              r.status, r.created_at, r.updated_at,
@@ -100,7 +103,8 @@ const getAll = async (req, res, next) => {
       params.push(searchTerm, searchTerm);
     }
 
-    sql += ' GROUP BY r.id ORDER BY r.name ASC';
+    // Seniority order first (auto-posting priority), then name within a tier
+    sql += ' GROUP BY r.id ORDER BY COALESCE(r.priority_number, 99) ASC, r.name ASC';
 
     const ranks = await query(sql, params);
 
@@ -172,6 +176,7 @@ const create = async (req, res, next) => {
     const {
       name,
       code,
+      priority_number = 99,
       local_running_allowance = 0,
       transport_per_km = 0,
       dsa = 0,
@@ -193,13 +198,14 @@ const create = async (req, res, next) => {
 
     const result = await query(
       `INSERT INTO ranks (
-        institution_id, name, code, local_running_allowance,
+        institution_id, name, code, priority_number, local_running_allowance,
         transport_per_km, dsa, dta, tetfund, other_allowances, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         parseInt(institutionId),
         name,
         code,
+        parseInt(priority_number) || 99,
         parseFloat(local_running_allowance) || 0,
         parseFloat(transport_per_km) || 0,
         parseFloat(dsa) || 0,
@@ -260,7 +266,7 @@ const update = async (req, res, next) => {
 
     // Build update query dynamically
     const allowedFields = [
-      'name', 'code', 'local_running_allowance', 'transport_per_km',
+      'name', 'code', 'priority_number', 'local_running_allowance', 'transport_per_km',
       'dsa', 'dta', 'tetfund', 'status'
     ];
 
@@ -272,6 +278,8 @@ const update = async (req, res, next) => {
         updateFields.push(`${field} = ?`);
         if (['local_running_allowance', 'transport_per_km', 'dsa', 'dta', 'tetfund'].includes(field)) {
           updateParams.push(parseFloat(updates[field]) || 0);
+        } else if (field === 'priority_number') {
+          updateParams.push(parseInt(updates[field]) || 99);
         } else {
           updateParams.push(updates[field]);
         }
