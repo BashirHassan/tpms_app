@@ -8,17 +8,23 @@
  * unit-testable and the controller is left with data fetching only.
  *
  * CONSTRAINT HIERARCHY
- *   HARD  capacity         a supervisor at remaining_slots is never considered
- *   HARD  slot uniqueness  each slot is assigned at most once
- *   HARD  dean ceiling     total assignments capped when a dean allocation applies
- *   soft  school variety   don't send a supervisor back to a school they cover
- *   soft  cluster affinity keep a supervisor inside one route/LGA per visit
- *   soft  rank <-> distance higher ranked supervisors take longer journeys
- *   soft  load balance     even posting counts
- *   soft  travel balance   even total kilometres
+ *   HARD  capacity          a supervisor at remaining_slots is never considered
+ *   HARD  slot uniqueness   each slot is assigned at most once
+ *   HARD  dean ceiling      total assignments capped when a dean allocation applies
+ *   HARD  priority tier     when priority is on, a slot's distance bucket restricts
+ *                           who can even be a candidate for it (see PRIORITY TIERS)
+ *   soft  school variety    don't send a supervisor back to a school they cover
+ *   soft  cluster affinity  keep a supervisor inside one route/LGA per visit
+ *   soft  load balance      even posting counts
+ *   soft  travel balance    even total kilometres
  *
  * Soft constraints are weighted penalties rather than hard blocks, so the engine
  * always produces the best achievable answer instead of refusing to fill a slot.
+ * Priority is deliberately NOT one of them: an earlier design paired rank with
+ * distance via a weighted cost term, tuned against several other soft costs, and
+ * it kept losing close comparisons in ways that were hard to fully bound - see
+ * PRIORITY TIERS below for why this is now a hard, deterministic partition
+ * instead.
  *
  * AFFINITY OBJECTIVE
  * For each (supervisor, visit) the engine tracks how many assignments fall in each
@@ -33,27 +39,18 @@
 /**
  * Default cost weights, ordered so the hierarchy above is explicit.
  * Exported so they can be tuned in one place, and overridden per call in tests.
- */
-/**
- * Default cost weights.
  *
- * `load` is charged per whole posting a supervisor is ahead of the least loaded
- * peer - a discrete jump, not a gradient. `priority` used to sit at 30, far below
- * that jump, which meant load only ever "let" rank decide when nothing else was
- * in play; the moment a slot's cost was close between two candidates - the normal
- * case once several supervisors share a route/LGA - load's 200-per-whole-posting
- * step swamped it outright, and which supervisor got the farthest school within
- * a shared area came down to load/repeat noise, not seniority. `priority` now
- * sits above `load` (matching the documented hierarchy, where rank <-> distance
- * outranks load balance) so it can actually win those comparisons, while staying
- * below `affinity`/`repeat` so cluster cohesion and school variety are still
- * respected first. Within a tier of equally loaded supervisors the load term is
- * zero for everyone, so affinity and rank do the actual choosing either way.
+ * There is deliberately no `priority` weight here - pairing rank with distance is
+ * a hard, deterministic bucket assignment (see PRIORITY TIERS), not one more
+ * soft cost to balance against `load`/`affinity`/`repeat`. `load` is charged per
+ * whole posting a supervisor is ahead of the least loaded peer *within their
+ * priority tier* (or within their planned cluster, when one exists) - a discrete
+ * jump, not a gradient - so a supervisor level with their tier-mates pays nothing
+ * and the softer terms decide.
  */
 const DEFAULT_WEIGHTS = {
   repeat: 2000,   // supervisor already covers this school
   affinity: 300,  // trip outside the supervisor's area for that visit
-  priority: 250,  // mismatch between rank band and distance band
   load: 200,      // per posting ahead of the least loaded supervisor
   travel: 1,      // per unit of normalised distance ahead of the lightest travel
 };
@@ -74,22 +71,6 @@ function clusterKeyFor(slot, postingType) {
   if (postingType === 'route_based') return `route:${slot.route_id ?? 'unassigned'}`;
   if (postingType === 'lga_based') return `lga:${slot.lga ?? 'unknown'}`;
   return null;
-}
-
-/**
- * Normalise values to [0,1]. Returns 0 for everything when all values match, so a
- * pool with a single rank (or a single distance) contributes no cost at all.
- */
-function makeNormaliser(values) {
-  const finite = values.filter((v) => Number.isFinite(v));
-  if (finite.length === 0) return () => 0;
-
-  const min = Math.min(...finite);
-  const max = Math.max(...finite);
-  const span = max - min;
-
-  if (span === 0) return () => 0;
-  return (value) => (Number.isFinite(value) ? (value - min) / span : 0);
 }
 
 function standardDeviation(values) {
@@ -146,6 +127,121 @@ function sortSlots(slots, postingType, priorityEnabled) {
     if (schoolCompare !== 0) return schoolCompare;
     return a.group_number - b.group_number;
   });
+}
+
+// ============================================================================
+// PRIORITY TIERS
+//
+// Priority used to be one more weighted term in the shared cost function,
+// self-tuned against a reported correlation statistic. Across several rounds of
+// fixes it kept losing close comparisons to `load`/`repeat`/`affinity` in ways
+// that were hard to fully bound, and real production runs still came out with a
+// junior rank averaging *more* distance than the most senior one.
+//
+// Priority is now a hard, deterministic partition computed up front: rank the
+// distinct ranks present, rank the distance (by whole route/LGA for clustered
+// posting types, by individual slot for random), and divide the distance ranking
+// into bands sized by each rank's share of total supervisor capacity - not an
+// equal split, since tiers are rarely evenly sized. The most senior band owns the
+// longest distances by construction; there is nothing left to tune. Everything
+// else (repeat avoidance, cluster cohesion, load balance) still applies, but only
+// decides who *within* a tier's band gets which specific slot.
+// ============================================================================
+
+/**
+ * Group eligible supervisors by distinct `priority_number`, ascending (1 = most
+ * senior first). Each tier's `capacity` is the summed `remaining_slots` of its
+ * members - the basis for proportional (not equal-N) bucket sizing.
+ */
+function computePriorityTiers(supervisors) {
+  const byRank = new Map();
+
+  for (const supervisor of supervisors) {
+    const rank = Number(supervisor.priority_number) || 99;
+    if (!byRank.has(rank)) {
+      byRank.set(rank, { priority_number: rank, supervisors: [], capacity: 0 });
+    }
+    const tier = byRank.get(rank);
+    tier.supervisors.push(supervisor);
+    tier.capacity += Math.max(0, Number(supervisor.remaining_slots) || 0);
+  }
+
+  return [...byRank.values()].sort((a, b) => a.priority_number - b.priority_number);
+}
+
+/**
+ * Cumulative cutoffs (in units of `totalUnits`) for each tier's proportional
+ * share of capacity. Cumulative rather than tier-local, so a unit that overshoots
+ * one tier's share automatically eats into the next tier's remaining room instead
+ * of being double-counted. The last tier absorbs whatever rounding remains.
+ */
+function computeTierThresholds(tiers, totalUnits) {
+  const totalCapacity = tiers.reduce((sum, tier) => sum + tier.capacity, 0);
+  if (totalCapacity <= 0 || tiers.length === 0) return tiers.map(() => totalUnits);
+
+  let cumulative = 0;
+  const thresholds = tiers.map((tier) => {
+    cumulative += (tier.capacity / totalCapacity) * totalUnits;
+    return cumulative;
+  });
+  thresholds[thresholds.length - 1] = totalUnits;
+  return thresholds;
+}
+
+/**
+ * Assign each unit (a whole route/LGA, or an individual slot for random posting)
+ * to the tier whose proportional distance band it falls in.
+ *
+ * `units` MUST already be sorted descending by distance. Walks the sorted list
+ * against the cumulative thresholds, advancing the tier pointer as the running
+ * weight total crosses each cutoff - advancing at most one tier per unit, so a
+ * single oversized atomic unit (a huge LGA) can't skip an entire small tier's
+ * window and leave it owning nothing. This doesn't fully eliminate the
+ * possibility of an empty tier (one unit could still exceed an entire tier's
+ * share), but real route/LGA sizes are rarely that disproportionate to tier
+ * capacities - treat a genuinely empty tier as an edge case to monitor, not
+ * something to solve further here.
+ *
+ * @param {Array<{key: string|number, weight: number, distance: number}>} units
+ * @param {Array} tiers - from computePriorityTiers
+ * @returns {Map} unit.key -> tier.priority_number
+ */
+function assignUnitsToTiers(units, tiers) {
+  const ownerOf = new Map();
+  if (tiers.length === 0) return ownerOf;
+
+  const totalUnits = units.reduce((sum, unit) => sum + unit.weight, 0);
+  const thresholds = computeTierThresholds(tiers, totalUnits);
+
+  let tierIndex = 0;
+  let running = 0;
+  for (const unit of units) {
+    if (tierIndex < tiers.length - 1 && running >= thresholds[tierIndex]) tierIndex++;
+    ownerOf.set(unit.key, tiers[tierIndex].priority_number);
+    running += unit.weight;
+  }
+
+  return ownerOf;
+}
+
+/**
+ * Deterministic overflow search order for a tier that can't cover its own
+ * bucketed demand: more-senior tiers first (closest first), then less-senior
+ * tiers (nearest first), only as a last resort.
+ *
+ * Spilling toward a more-senior tier first can never invert the rank ordering -
+ * a senior tier's own bucket is, by construction, already supposed to hold
+ * distances at least as large, so absorbing overflow there is safe. Spilling
+ * downward to a junior tier is exactly the failure mode this design fixes, so
+ * it's used only when no more-senior tier has any room at all.
+ *
+ * @returns {number[]} tier indices in search order
+ */
+function spilloverOrder(homeTierIndex, tiers) {
+  const order = [];
+  for (let i = homeTierIndex - 1; i >= 0; i--) order.push(i);
+  for (let i = homeTierIndex + 1; i < tiers.length; i++) order.push(i);
+  return order;
 }
 
 // ============================================================================
@@ -222,64 +318,91 @@ function applyAssignment(entry, slot, cluster, direction = 1) {
 }
 
 // ============================================================================
-// CLUSTER PLANNING
+// PRIORITY ALLOCATION PLANNING
 //
 // For route_based / lga_based, decide up front which area each supervisor will
-// work on each visit. Without this the greedy pass always finds an idle
-// supervisor cheapest (their load term is zero) and the areas scatter - which is
-// how the previous round-robin implementation behaved despite the documentation.
+// work on each visit - and, when priority is on, which priority tier each area
+// belongs to. Without an upfront plan the greedy pass always finds an idle
+// supervisor cheapest (their load term is zero) and the areas scatter.
 // ============================================================================
 
 /**
- * Plan supervisor -> area for every visit.
+ * Plan supervisor -> area for every visit, and area -> owning priority tier.
  *
- * Two stages, because a purely sequential greedy gets trapped: it hands out the
- * easy areas first and leaves the last supervisor holding the one area they
- * already covered. A pairwise improvement pass over the plan finds the rotation
- * that a sequential pass cannot.
+ * `tiers` is always at least one tier - callers pass a single synthetic tier
+ * holding every supervisor when priority is disabled, so the clustering/seating
+ * logic below is identical either way; only the *number* of tiers changes
+ * whether areas get partitioned by distance at all.
  *
- * Once a supervisor is locked into a route/LGA for a visit, every slot in that
- * area becomes theirs regardless of rank - the per-slot priority term in
- * `marginalCost` never gets a say. Without a rank-aware term here, a cluster's
- * distance (and so its pay) is handed out by whoever happens to have the fewest
- * repeated schools, which has no relationship to seniority and can easily send
- * the longest, best-paid route to the most junior supervisor left in the queue.
- * Folding a rank <-> cluster-distance mismatch into the same cost keeps repeat
- * avoidance dominant (it is still weighted far higher) while making sure ties -
- * the common case, since most supervisors start a fresh area at zero repeats -
- * are broken in favour of the intended pairing.
+ * Per visit:
+ *   1. Bucket slots into clusters (route or LGA) with slot/school/distance tallies.
+ *   2. Bucket clusters to tiers by aggregate distance, proportional to each
+ *      tier's capacity share (`assignUnitsToTiers`).
+ *   3. Within each tier, seat that tier's own supervisors to that tier's own
+ *      clusters in two phases:
+ *        Phase A - every owned cluster gets one seat, farthest first (a tier's
+ *          single member must not be handed a nearer-but-bigger owned cluster
+ *          over a farther-but-smaller one - that would defeat the bucket).
+ *        Phase B - clusters still under their capacity-driven `needed` seat
+ *          count get extra seats, largest-need first (a genuine packing
+ *          requirement, not a preference).
+ *      Both phases pick the tier's lowest-repeat-cost remaining member.
+ *   4. Pairwise swap-improvement within the tier's own seated set.
+ *   5. Any of a tier's owned clusters that couldn't get even one seat (the tier
+ *      ran out of members) spill to neighbouring tiers via `spilloverOrder`,
+ *      drawing only from each spillover tier's own *leftover* pool (members not
+ *      already seated to their own tier's clusters) - so nobody is ever seated
+ *      twice. A cluster that still can't be seated anywhere is left unplanned
+ *      and falls through to the generic per-slot fallback in `marginalCost`.
  *
- * @param {boolean} [options.priorityEnabled] - Pair higher ranks with longer routes
- * @param {(supervisor: Object) => number} [options.rankBand] - Rank normalised to [0,1], 0 = most senior
- * @param {{repeat: number, priority: number}} [options.weights] - Same weights the
- *   run is actually using, so a boosted priority term (from the tuning loop or a
- *   caller override) reaches cluster assignment too, not just per-slot cost
- * @returns {Map} Map<`${supervisorId}-${visit}`, cluster>
+ * @param {boolean} [options.priorityEnabled]
+ * @param {Array} [options.tiers] - from computePriorityTiers, or a single
+ *   synthetic tier when priority is disabled
+ * @returns {{
+ *   clusterPlan: Map<string, string>,        // '${supervisorId}-${visit}' -> clusterKey
+ *   clusterOwnerTier: Map<string, number>,    // '${clusterKey}-${visit}' -> priority_number
+ *   slotOwnerTier: Map<string, number>,       // slot.id -> priority_number (random only)
+ * }}
  */
-function planClusters(supervisors, slots, postingType, schoolHistory, options = {}) {
-  const {
-    priorityEnabled = false,
-    rankBand = () => 0,
-    weights = DEFAULT_WEIGHTS,
-  } = options;
+function planPriorityAllocation(supervisors, slots, postingType, schoolHistory, options = {}) {
+  const { priorityEnabled = false, tiers = [] } = options;
 
-  const plan = new Map();
-  if (postingType !== 'route_based' && postingType !== 'lga_based') return plan;
+  const effectiveTiers = tiers.length > 0
+    ? tiers
+    : [{ priority_number: null, supervisors, capacity: Infinity }];
+
+  const clusterPlan = new Map();
+  const clusterOwnerTier = new Map();
+  const slotOwnerTier = new Map();
+
+  const visits = [...new Set(slots.map((s) => s.visit_number))].sort((a, b) => a - b);
+
+  if (postingType !== 'route_based' && postingType !== 'lga_based') {
+    // random: no clustering, just bucket individual slots to a tier directly
+    if (priorityEnabled) {
+      for (const visit of visits) {
+        const visitSlots = slots.filter((s) => s.visit_number === visit);
+        const units = visitSlots
+          .map((s) => ({ key: s.id, weight: 1, distance: s.distance_km || 0 }))
+          .sort((a, b) => b.distance - a.distance);
+        const ownerOf = assignUnitsToTiers(units, effectiveTiers);
+        for (const slot of visitSlots) slotOwnerTier.set(slot.id, ownerOf.get(slot.id));
+      }
+    }
+    return { clusterPlan, clusterOwnerTier, slotOwnerTier };
+  }
 
   // Schools each supervisor already covers, grown as the plan is built visit by
   // visit so later visits know what earlier ones committed to
   const covered = new Map(
     supervisors.map((s) => [s.id, new Set(schoolHistory.get(s.id) || [])])
   );
-  const supervisorById = new Map(supervisors.map((s) => [s.id, s]));
-
-  const visits = [...new Set(slots.map((s) => s.visit_number))].sort((a, b) => a - b);
 
   for (const visit of visits) {
     const visitSlots = slots.filter((s) => s.visit_number === visit);
     if (visitSlots.length === 0) continue;
 
-    // cluster -> { slots, schools, distance }
+    // cluster -> { slots, schools, distance, needed, ownerTier }
     const clusters = new Map();
     for (const slot of visitSlots) {
       const key = clusterKeyFor(slot, postingType);
@@ -290,32 +413,20 @@ function planClusters(supervisors, slots, postingType, schoolHistory, options = 
       cluster.distance += slot.distance_km || 0;
     }
 
-    // How many supervisors each area needs
+    // How many supervisors each area genuinely needs (a capacity requirement)
     const targetPerSupervisor = Math.max(1, Math.ceil(visitSlots.length / supervisors.length));
     for (const cluster of clusters.values()) {
       cluster.needed = Math.max(1, Math.ceil(cluster.slots / targetPerSupervisor));
     }
 
-    // Areas that genuinely need more than one supervisor go first (a capacity
-    // requirement, not a preference). Among the rest - typically most areas, each
-    // needing exactly one seat - the farthest area claims its seat first when
-    // priority is on. With more areas than supervisors (routine for an
-    // institution with many LGAs/routes), the seat budget runs out before every
-    // area gets a dedicated supervisor; whichever areas miss out fall back to the
-    // generic per-slot cost, so leaving that miss to chance let a genuinely
-    // remote, high-value area go unrepresented while several short ones nearby
-    // got seated - the single biggest source of rank/distance mismatch in
-    // practice.
-    const ordered = [...clusters.values()].sort((a, b) => {
-      if (b.needed !== a.needed) return b.needed - a.needed;
-      return priorityEnabled ? b.distance - a.distance : b.slots - a.slots;
-    });
-
-    const seats = [];
-    for (const cluster of ordered) {
-      for (let i = 0; i < cluster.needed && seats.length < supervisors.length; i++) {
-        seats.push(cluster);
-      }
+    // Bucket whole clusters (not individual schools) to tiers, farthest first
+    const units = [...clusters.values()]
+      .map((c) => ({ key: c.key, weight: c.slots, distance: c.distance }))
+      .sort((a, b) => b.distance - a.distance);
+    const ownerOf = assignUnitsToTiers(units, effectiveTiers);
+    for (const cluster of clusters.values()) {
+      cluster.ownerTier = ownerOf.get(cluster.key);
+      clusterOwnerTier.set(`${cluster.key}-${visit}`, cluster.ownerTier);
     }
 
     // Cost of putting this supervisor in this area: how many of its schools they
@@ -327,79 +438,106 @@ function planClusters(supervisors, slots, postingType, schoolHistory, options = 
       return cost;
     };
 
-    // How far this cluster's total distance sits from "what this rank should be
-    // doing" - the busiest (longest) cluster in the visit wants the most senior
-    // rank band (0), the lightest wants the least senior (1)
-    const clusterDemandNormaliser = priorityEnabled
-      ? makeNormaliser([...clusters.values()].map((c) => c.distance))
-      : () => 0;
-
-    const priorityCost = (supervisorId, cluster) => {
-      if (!priorityEnabled) return 0;
-      const supervisor = supervisorById.get(supervisorId);
-      if (!supervisor) return 0;
-      const demand = 1 - clusterDemandNormaliser(cluster.distance);
-      return Math.abs(rankBand(supervisor) - demand);
-    };
-
-    // Repeat avoidance stays dominant at the configured ratio - this mostly
-    // decides the common case where repeat cost ties. Reads the run's actual
-    // weights (not the fixed defaults) so a boosted priority term reaches
-    // cluster assignment too, not just per-slot cost.
-    const combinedCost = (supervisorId, cluster) =>
-      weights.repeat * repeatCost(supervisorId, cluster) +
-      weights.priority * priorityCost(supervisorId, cluster);
-
-    // Stage 1 - greedy seat filling
-    const unassigned = supervisors.map((s) => s.id);
-    const seated = []; // [{ supervisorId, cluster }]
-
-    for (const cluster of seats) {
-      if (unassigned.length === 0) break;
+    const pickCheapest = (pool, cluster) => {
       let bestIndex = 0;
       let bestCost = Infinity;
-      for (let i = 0; i < unassigned.length; i++) {
-        const cost = combinedCost(unassigned[i], cluster);
+      for (let i = 0; i < pool.length; i++) {
+        const cost = repeatCost(pool[i], cluster);
         if (cost < bestCost) {
           bestCost = cost;
           bestIndex = i;
         }
       }
-      seated.push({ supervisorId: unassigned.splice(bestIndex, 1)[0], cluster });
-    }
+      return pool.splice(bestIndex, 1)[0];
+    };
 
-    // Stage 2 - swap areas between two supervisors while the total falls
-    let improved = true;
-    while (improved) {
-      improved = false;
-      for (let i = 0; i < seated.length; i++) {
-        for (let j = i + 1; j < seated.length; j++) {
-          const a = seated[i];
-          const b = seated[j];
-          if (a.cluster === b.cluster) continue;
+    const allSeated = [];
+    const tierPools = [];
+    const unseededByTier = [];
 
-          const before = combinedCost(a.supervisorId, a.cluster) + combinedCost(b.supervisorId, b.cluster);
-          const after = combinedCost(a.supervisorId, b.cluster) + combinedCost(b.supervisorId, a.cluster);
+    for (let tierIndex = 0; tierIndex < effectiveTiers.length; tierIndex++) {
+      const tier = effectiveTiers[tierIndex];
+      const ownClusters = [...clusters.values()].filter((c) => c.ownerTier === tier.priority_number);
+      const pool = tier.supervisors.map((s) => s.id);
+      const seated = [];
 
-          if (after < before) {
-            const carried = a.cluster;
-            a.cluster = b.cluster;
-            b.cluster = carried;
-            improved = true;
+      if (ownClusters.length > 0) {
+        // Phase A - every owned cluster gets one seat, farthest first
+        const byDistanceDesc = [...ownClusters].sort((a, b) => b.distance - a.distance);
+        for (const cluster of byDistanceDesc) {
+          if (pool.length === 0) break;
+          seated.push({ supervisorId: pickCheapest(pool, cluster), cluster });
+        }
+
+        // Phase B - extra seats for clusters still under `needed`, largest-need first
+        const byNeededDesc = [...ownClusters].sort((a, b) => b.needed - a.needed);
+        for (const cluster of byNeededDesc) {
+          while (
+            pool.length > 0 &&
+            seated.filter((s) => s.cluster === cluster).length < cluster.needed
+          ) {
+            seated.push({ supervisorId: pickCheapest(pool, cluster), cluster });
+          }
+        }
+
+        // Stage 2 - swap areas between two supervisors while the total falls,
+        // same tier only (nothing to swap across tiers now)
+        let improved = true;
+        while (improved) {
+          improved = false;
+          for (let i = 0; i < seated.length; i++) {
+            for (let j = i + 1; j < seated.length; j++) {
+              const a = seated[i];
+              const b = seated[j];
+              if (a.cluster === b.cluster) continue;
+
+              const before = repeatCost(a.supervisorId, a.cluster) + repeatCost(b.supervisorId, b.cluster);
+              const after = repeatCost(a.supervisorId, b.cluster) + repeatCost(b.supervisorId, a.cluster);
+
+              if (after < before) {
+                const carried = a.cluster;
+                a.cluster = b.cluster;
+                b.cluster = carried;
+                improved = true;
+              }
+            }
           }
         }
       }
+
+      allSeated.push(...seated);
+      tierPools.push(pool); // leftover members, available for spillover donation
+
+      const unseeded = ownClusters.filter((c) => !seated.some((s) => s.cluster === c));
+      if (unseeded.length > 0) unseededByTier.push({ tierIndex, unseeded });
     }
 
-    for (const { supervisorId, cluster } of seated) {
-      plan.set(`${supervisorId}-${visit}`, cluster.key);
+    // Spillover - a tier that couldn't seat one of its own clusters (it has
+    // fewer members than clusters it owns) borrows from a neighbouring tier's
+    // leftover pool, more-senior first
+    for (const { tierIndex, unseeded } of unseededByTier) {
+      for (const cluster of unseeded) {
+        for (const spillIndex of spilloverOrder(tierIndex, effectiveTiers)) {
+          const spillPool = tierPools[spillIndex];
+          if (spillPool.length === 0) continue;
+          allSeated.push({ supervisorId: pickCheapest(spillPool, cluster), cluster });
+          clusterOwnerTier.set(`${cluster.key}-${visit}`, effectiveTiers[spillIndex].priority_number);
+          break;
+        }
+        // If no tier anywhere has room, the cluster is left unplanned - it falls
+        // through to the generic per-slot fallback in marginalCost, unchanged.
+      }
+    }
+
+    for (const { supervisorId, cluster } of allSeated) {
+      clusterPlan.set(`${supervisorId}-${visit}`, cluster.key);
       // Assume the plan is honoured, so the next visit avoids these schools
       const schools = covered.get(supervisorId);
       if (schools) for (const schoolId of cluster.schools) schools.add(schoolId);
     }
   }
 
-  return plan;
+  return { clusterPlan, clusterOwnerTier, slotOwnerTier };
 }
 
 // ============================================================================
@@ -412,7 +550,7 @@ function planClusters(supervisors, slots, postingType, schoolHistory, options = 
  * the local search optimise the same objective.
  */
 function marginalCost(entry, slot, cluster, context) {
-  const { weights, rankBand, maxTravel } = context;
+  const { weights, maxTravel } = context;
 
   // School variety - only the extra visits to a covered school are charged
   const repeat = schoolCountOf(entry, slot.school_id) > 0 ? 1 : 0;
@@ -420,18 +558,16 @@ function marginalCost(entry, slot, cluster, context) {
   // Affinity, measured against the area this supervisor was planned into for this
   // visit. Falls back to their actual dominant area when there is no plan (which
   // happens once the plan is exhausted, e.g. more capacity than the area holds).
+  // Cross-tier poaching is no longer possible - `eligibleCandidates` already
+  // restricts the candidate pool to the slot's owning priority tier before this
+  // is ever called - so an out-of-area candidate only ever pays the ordinary,
+  // flat overflow cost.
   let affinity = 0;
   if (cluster !== null && weights.affinity > 0) {
     const planned = context.clusterPlan.get(`${entry.supervisor.id}-${slot.visit_number}`);
 
     if (planned !== undefined) {
-      // A cluster whose own planned team still has room should not be poachable
-      // just because this one slot happens to suit an outsider's rank/distance
-      // target unusually well - a single priority mismatch can otherwise swing
-      // well past the ordinary out-of-area cost. Only once the team's own
-      // capacity is genuinely exhausted does overflow become the soft,
-      // expected case.
-      affinity = planned === cluster ? 0 : (context.clusterHasRoom ? 20 : 1);
+      affinity = planned === cluster ? 0 : 1;
     } else {
       const clusters = entry.clusterCounts.get(slot.visit_number);
       if (!clusters || clusters.size === 0) {
@@ -445,48 +581,26 @@ function marginalCost(entry, slot, cluster, context) {
     }
   }
 
-  // Priority as a distance-share target rather than per-slot matching.
-  //
-  // Matching each slot to a rank cannot survive count balancing: once every
-  // supervisor must end up with a similar number of postings, each one takes a
-  // slot from every distance band and the pairing washes out. Instead each rank
-  // gets a target share of total distance - best rank aims high, lowest aims low -
-  // and the cost is how far this assignment moves them from that target. Long
-  // journeys then accumulate on senior staff without disturbing posting counts.
-  let priority = 0;
-  if (weights.priority > 0) {
-    const target = (1 - rankBand(entry.supervisor)) * context.travelTarget;
-    const before = Math.abs(entry.distance - target);
-    const after = Math.abs(entry.distance + (slot.distance_km || 0) - target);
-    priority = (after - before) / Math.max(context.travelTarget, 1);
-  }
-
   // Load and travel are measured *relative to the lightest peer*, so a supervisor
   // level with everyone else pays nothing and the softer terms decide. Using
-  // absolute counts would make the whole pool more expensive as the run fills,
-  // drowning out priority and scattering the rank-to-distance pairing.
+  // absolute counts would make the whole pool more expensive as the run fills.
   const load = Math.max(0, entry.count - context.minCount);
 
-  // A strong priority pull can otherwise starve a poorly-matched supervisor
-  // entirely: if every slot's distance suits someone else better, `load`'s
-  // per-whole-posting gradient alone isn't enough to stop them being skipped for
-  // a *second* posting while a peer still has zero. Getting everyone their first
-  // posting is treated as close to inviolable - the same tier as avoiding a
-  // repeat school - so it always wins over rank/distance preference; only once
-  // nobody in this baseline is still empty-handed does priority get to decide
-  // who takes the extra one.
+  // Getting everyone their first posting is treated as close to inviolable - the
+  // same tier as avoiding a repeat school - so nobody in a baseline is skipped
+  // for a second posting while a peer still has zero.
   const leavesSomeoneEmpty = context.minCount === 0 && load > 0;
 
   // Travel balance is only meaningful when ranks are NOT being paired to
-  // distance - with priority on, an uneven travel spread is the intended outcome
-  const travel = weights.priority > 0 || maxTravel <= 0
+  // distance - with priority on, an uneven travel spread (within a tier's own
+  // band) is the intended outcome
+  const travel = context.priorityEnabled || maxTravel <= 0
     ? 0
     : Math.max(0, entry.distance - context.minDistance) / maxTravel;
 
   const total =
     weights.repeat * repeat +
     weights.affinity * affinity +
-    weights.priority * priority +
     weights.load * load +
     weights.travel * travel +
     (leavesSomeoneEmpty ? weights.repeat : 0);
@@ -524,20 +638,6 @@ function solutionCost(state, context) {
   return total;
 }
 
-/**
- * How far a supervisor's accumulated travel sits from the target for their rank.
- * A property of the supervisor, not of any single assignment, so swaps delta it
- * by re-reading both supervisors after the exchange.
- */
-function priorityCostOf(entry, context) {
-  if (context.weights.priority === 0 || !entry) return 0;
-  const target = (1 - context.rankBand(entry.supervisor)) * context.travelTarget;
-  return (
-    context.weights.priority *
-    (Math.abs(entry.distance - target) / Math.max(context.travelTarget, 1))
-  );
-}
-
 // ============================================================================
 // MAIN ALGORITHM
 // ============================================================================
@@ -572,11 +672,10 @@ function runAutoPostingAlgorithm(
     weights: weightOverrides = {},
   } = options;
 
-  const baseWeights = {
+  const weights = {
     ...DEFAULT_WEIGHTS,
     ...weightOverrides,
     repeat: avoidRepeatSchools ? (weightOverrides.repeat ?? DEFAULT_WEIGHTS.repeat) : 0,
-    priority: priorityEnabled ? (weightOverrides.priority ?? DEFAULT_WEIGHTS.priority) : 0,
   };
 
   if (supervisors.length === 0) {
@@ -601,237 +700,191 @@ function runAutoPostingAlgorithm(
     ], supervisors, numberOfPostings, [], {});
   }
 
-  // Rank normalised to [0,1] across this pool, so the bands stay comparable
-  // however many distinct ranks the institution actually uses
-  const rankNormaliser = makeNormaliser(supervisors.map((s) => Number(s.priority_number) || 99));
-  const rankBand = (supervisor) => rankNormaliser(Number(supervisor.priority_number) || 99);
-
   const totalDistance = eligibleSlots.reduce((sum, s) => sum + (s.distance_km || 0), 0);
   const maxTravel = Math.max(totalDistance / supervisors.length, 1);
 
-  // Distance the top-ranked supervisor aims for. Twice the mean, so the best rank
-  // targets roughly double the average journey load and the lowest targets zero,
-  // averaging out to the mean across the pool.
-  const travelTarget = maxTravel * 2;
-
   const sortedSlots = sortSlots(eligibleSlots, postingType, priorityEnabled);
 
-  /**
-   * Run one full greedy + local-search pass under a given set of weights.
-   * Always starts from a clean allocation state, so different weight choices can
-   * be compared on equal footing and the best one kept.
-   *
-   * The cluster plan is rebuilt per attempt (not hoisted out) - it depends on the
-   * weights too, so a boosted priority term from the tuning loop actually reaches
-   * which supervisor gets which route/LGA, not only the per-slot fallback cost.
-   */
-  function runOnce(weights) {
-    const clusterPlan = planClusters(supervisors, eligibleSlots, postingType, schoolHistory, {
-      priorityEnabled, rankBand, weights,
-    });
-    const context = {
-      weights, postingType, rankBand, maxTravel, travelTarget, avoidRepeatSchools, clusterPlan,
-    };
-    const state = createState(supervisors, schoolHistory);
-    const assignments = [];
-    const warnings = [];
+  // Priority tiers and the up-front area/tier plan are computed once - there is
+  // nothing weight-dependent left to retry with, unlike the old self-tuning loop.
+  const tiers = priorityEnabled ? computePriorityTiers(supervisors) : [];
+  const { clusterPlan, clusterOwnerTier, slotOwnerTier } = planPriorityAllocation(
+    supervisors, eligibleSlots, postingType, schoolHistory, { priorityEnabled, tiers }
+  );
+  const effectiveTiers = tiers.length > 0 ? tiers : [{ priority_number: null, supervisors, capacity: Infinity }];
 
-    let unassignedSlots = 0;
-    let quotaSkipped = 0;
-
-    // ---- Greedy pass: each slot goes to its lowest-cost supervisor ----
-    for (const slot of sortedSlots) {
-      if (assignments.length >= maxAssignments) {
-        quotaSkipped++;
-        continue;
-      }
-
-      const cluster = clusterKeyFor(slot, postingType);
-      let best = null;
-      let bestScore = null;
-
-      // Baselines for the relative load/travel terms, over supervisors still free.
-      //
-      // When this slot's area has planned supervisors, the baseline is taken from
-      // *them* only. The plan already shares supervisors between areas in
-      // proportion to their size, so balance across areas is settled; charging a
-      // supervisor for getting ahead of someone working a different area would just
-      // push them out of their own, which is how a route leaks its last schools.
-      const plannedHere = [];
-      if (cluster !== null) {
-        for (const entry of state.values()) {
-          if (entry.count >= Number(entry.supervisor.remaining_slots)) continue;
-          if (clusterPlan.get(`${entry.supervisor.id}-${slot.visit_number}`) === cluster) {
-            plannedHere.push(entry);
-          }
-        }
-      }
-
-      const baseline = plannedHere.length > 0 ? plannedHere : [...state.values()];
-      context.minCount = Infinity;
-      context.minDistance = Infinity;
-      for (const entry of baseline) {
-        if (entry.count >= Number(entry.supervisor.remaining_slots)) continue;
-        if (entry.count < context.minCount) context.minCount = entry.count;
-        if (entry.distance < context.minDistance) context.minDistance = entry.distance;
-      }
-      if (context.minCount === Infinity) context.minCount = 0;
-      if (context.minDistance === Infinity) context.minDistance = 0;
-
-      // Whether this cluster's own planned team still has unfilled capacity -
-      // `plannedHere` already excludes anyone at their cap, so a non-empty list
-      // means the team hasn't finished covering its own area yet. Read by
-      // marginalCost to decide how hard an outsider taking this slot should be
-      // discouraged: a genuinely exhausted plan should overflow softly, but a
-      // plan that still has room shouldn't be poachable just because a
-      // particular slot happens to suit someone else's rank/distance target
-      // unusually well.
-      context.clusterHasRoom = cluster !== null && plannedHere.length > 0;
-
-      for (const entry of state.values()) {
-        // HARD constraint - capacity
-        if (entry.count >= Number(entry.supervisor.remaining_slots)) continue;
-
-        const score = marginalCost(entry, slot, cluster, context);
-        if (bestScore === null || score.total < bestScore.total) {
-          best = entry;
-          bestScore = score;
-        }
-      }
-
-      if (!best) {
-        unassignedSlots++;
-        continue;
-      }
-
-      assignments.push({
-        supervisor_id: best.supervisor.id,
-        supervisor_name: best.supervisor.name,
-        rank_code: best.supervisor.rank_code,
-        priority_number: best.supervisor.priority_number,
-        school_id: slot.school_id,
-        school_name: slot.school_name,
-        group_number: slot.group_number,
-        visit_number: slot.visit_number,
-        distance_km: slot.distance_km,
-        route_id: slot.route_id,
-        route_name: slot.route_name,
-        lga: slot.lga,
-        repeat_school: bestScore.repeat === 1,
-        cluster_break: bestScore.affinity > 0,
-        _cluster: cluster,
-      });
-
-      applyAssignment(best, slot, cluster, 1);
-    }
-
-    // ---- Local search: swap supervisors while the total cost strictly falls ----
-    const costBefore = scoreSolution(state, context);
-    const searchResult = localSearch(assignments, state, context);
-    const costAfter = scoreSolution(state, context);
-
-    reflagAssignments(assignments, schoolHistory, postingType, avoidRepeatSchools);
-    for (const a of assignments) delete a._cluster;
-
-    if (quotaSkipped > 0) {
-      warnings.push(
-        `${quotaSkipped} slot(s) skipped - the posting allocation for this session is exhausted`
-      );
-    }
-
-    if (unassignedSlots > 0) {
-      warnings.push(
-        `${unassignedSlots} slot(s) could not be assigned (more slots than total supervisor capacity)`
-      );
-    }
-
-    return finish(assignments, warnings, supervisors, numberOfPostings, eligibleSlots, {
-      context,
-      costBefore,
-      costAfter,
-      searchResult,
-      quotaSkipped,
-    });
-  }
-
-  const firstPass = runOnce(baseWeights);
-  if (baseWeights.priority <= 0) return firstPass;
-
-  return tunePriorityWeight(runOnce, baseWeights, firstPass);
-}
-
-/**
- * Priority accuracy feedback loop.
- *
- * `priority_correlation` is the "accuracy number" - how well this run actually
- * paired seniority with distance. A single fixed weight does not fit every pool
- * (few ranks vs. many, tight vs. spread-out distances), so when the first pass
- * under-shoots the target, the priority term is strengthened and re-run. The
- * stronger pull is kept only when it *measurably improves* correlation without
- * costing more repeats/affinity breaks or unbalancing posting counts further -
- * otherwise escalation stops and the best attempt so far wins. Bounded to a few
- * attempts so a pool that simply can't do better doesn't loop needlessly.
- */
-const PRIORITY_TUNING = {
-  targetCorrelation: 0.6,
-  maxAttempts: 3,
-  boostFactor: 1.8,
-};
-
-function tunePriorityWeight(runOnce, baseWeights, firstResult) {
-  if (firstResult.statistics.total_assignments < 2) return firstResult;
-
-  let best = firstResult;
-  let bestWeight = baseWeights.priority;
-  let attempts = 0;
-
-  while (
-    attempts < PRIORITY_TUNING.maxAttempts &&
-    best.statistics.priority_correlation < PRIORITY_TUNING.targetCorrelation
-  ) {
-    attempts++;
-    const candidateWeight = bestWeight * PRIORITY_TUNING.boostFactor;
-    const candidate = runOnce({ ...baseWeights, priority: candidateWeight });
-
-    const bestLoadSpread = best.statistics.load.max - best.statistics.load.min;
-    const candidateLoadSpread = candidate.statistics.load.max - candidate.statistics.load.min;
-
-    const improved = candidate.statistics.priority_correlation > best.statistics.priority_correlation;
-    const noWorseQuality =
-      candidate.statistics.repeat_school_assignments <= best.statistics.repeat_school_assignments &&
-      candidate.statistics.affinity_breaks <= best.statistics.affinity_breaks &&
-      candidateLoadSpread <= Math.max(1, bestLoadSpread);
-
-    if (!improved || !noWorseQuality) break;
-
-    best = candidate;
-    bestWeight = candidateWeight;
-  }
-
-  best.statistics.priority_tuning = {
-    weight_used: Number(bestWeight.toFixed(2)),
-    attempts,
-    target_correlation: PRIORITY_TUNING.targetCorrelation,
-    achieved_correlation: best.statistics.priority_correlation,
+  const context = {
+    weights, postingType, maxTravel, avoidRepeatSchools, priorityEnabled,
+    clusterPlan, clusterOwnerTier, slotOwnerTier, tiers: effectiveTiers,
   };
+  const state = createState(supervisors, schoolHistory);
+  const assignments = [];
+  const warnings = [];
 
-  return best;
-}
+  let unassignedSlots = 0;
+  let quotaSkipped = 0;
 
-/**
- * Whole-solution score: structural cost from the state plus each supervisor's
- * distance-to-target gap.
- */
-function scoreSolution(state, context) {
-  let total = solutionCost(state, context);
+  /**
+   * The candidate pool for one slot: hard-restricted to the priority tier that
+   * owns this slot's distance bucket (cluster, for route/lga_based; the slot
+   * itself, for random). `allowSpillover` gates whether `spilloverOrder`'s
+   * neighbouring tiers are considered when the home tier has no capacity left -
+   * see the two-pass loop below for why this must be a separate, later pass
+   * rather than falling back immediately. When priority is disabled there is
+   * only one (synthetic) tier, so this is simply everyone.
+   */
+  function eligibleCandidates(slot, cluster, allowSpillover) {
+    if (!priorityEnabled) return [...state.values()];
 
-  if (context.weights.priority > 0) {
-    for (const entry of state.values()) {
-      total += priorityCostOf(entry, context);
+    const homeTierNum = cluster !== null
+      ? clusterOwnerTier.get(`${cluster}-${slot.visit_number}`)
+      : slotOwnerTier.get(slot.id);
+
+    if (homeTierNum == null) return [...state.values()];
+
+    const homeIndex = effectiveTiers.findIndex((t) => t.priority_number === homeTierNum);
+    const withCapacity = (tierNum) => [...state.values()].filter((e) =>
+      (Number(e.supervisor.priority_number) || 99) === tierNum &&
+      e.count < Number(e.supervisor.remaining_slots)
+    );
+
+    let pool = withCapacity(homeTierNum);
+    if (pool.length > 0 || !allowSpillover) return pool;
+
+    for (const idx of spilloverOrder(homeIndex, effectiveTiers)) {
+      pool = withCapacity(effectiveTiers[idx].priority_number);
+      if (pool.length > 0) return pool;
     }
+    return [];
   }
 
-  return total;
+  /**
+   * Assign one slot to its lowest-cost eligible candidate. Returns false without
+   * mutating anything if there is no eligible candidate (capacity exhausted for
+   * every tier this slot is allowed to draw from under the current pass).
+   */
+  function assignSlot(slot, cluster, allowSpillover) {
+    const candidates = eligibleCandidates(slot, cluster, allowSpillover).filter(
+      (entry) => entry.count < Number(entry.supervisor.remaining_slots)
+    );
+    if (candidates.length === 0) return false;
+
+    // Baseline for the relative load/travel terms. When this slot's cluster has
+    // its own planned team within the candidate pool, the baseline is taken from
+    // *them* only - the plan already shares supervisors between areas in
+    // proportion to their size, so balance across areas is settled; charging a
+    // supervisor for getting ahead of someone working a different area would
+    // just push them out of their own, which is how a route leaks its schools
+    // to an idle outsider.
+    const plannedHere = cluster !== null
+      ? candidates.filter(
+          (entry) => clusterPlan.get(`${entry.supervisor.id}-${slot.visit_number}`) === cluster
+        )
+      : [];
+    const baseline = plannedHere.length > 0 ? plannedHere : candidates;
+
+    context.minCount = Infinity;
+    context.minDistance = Infinity;
+    for (const entry of baseline) {
+      if (entry.count < context.minCount) context.minCount = entry.count;
+      if (entry.distance < context.minDistance) context.minDistance = entry.distance;
+    }
+    if (context.minCount === Infinity) context.minCount = 0;
+    if (context.minDistance === Infinity) context.minDistance = 0;
+
+    let best = null;
+    let bestScore = null;
+    for (const entry of candidates) {
+      const score = marginalCost(entry, slot, cluster, context);
+      if (bestScore === null || score.total < bestScore.total) {
+        best = entry;
+        bestScore = score;
+      }
+    }
+
+    if (!best) return false;
+
+    assignments.push({
+      supervisor_id: best.supervisor.id,
+      supervisor_name: best.supervisor.name,
+      rank_code: best.supervisor.rank_code,
+      priority_number: best.supervisor.priority_number,
+      school_id: slot.school_id,
+      school_name: slot.school_name,
+      group_number: slot.group_number,
+      visit_number: slot.visit_number,
+      distance_km: slot.distance_km,
+      route_id: slot.route_id,
+      route_name: slot.route_name,
+      lga: slot.lga,
+      repeat_school: bestScore.repeat === 1,
+      cluster_break: bestScore.affinity > 0,
+      _cluster: cluster,
+    });
+
+    applyAssignment(best, slot, cluster, 1);
+    return true;
+  }
+
+  // ---- Greedy pass, two rounds ----
+  //
+  // Priority-restricted candidate pools are computed per slot, and slots are
+  // processed grouped by cluster (see sortSlots), not by which tier "gets there
+  // first". Left as one pass, an early-processed cluster's overflow could spill
+  // into a still-untouched tier and consume capacity that tier's *own* cluster
+  // needs later in the same run - most visible across combined multi-visit runs,
+  // where a supervisor's total capacity is shared across every visit's own
+  // cluster. Round 1 gives every cluster first claim on its own tier's capacity,
+  // in full, before anyone is allowed to draw on a neighbouring tier at all.
+  // Round 2 then handles only what's left, with spillover allowed - by which
+  // point every tier's genuine leftover capacity (not just a per-slot snapshot)
+  // is known.
+  const deferredSlots = [];
+  for (const slot of sortedSlots) {
+    if (assignments.length >= maxAssignments) {
+      quotaSkipped++;
+      continue;
+    }
+    const cluster = clusterKeyFor(slot, postingType);
+    if (!assignSlot(slot, cluster, false)) deferredSlots.push(slot);
+  }
+
+  for (const slot of deferredSlots) {
+    if (assignments.length >= maxAssignments) {
+      quotaSkipped++;
+      continue;
+    }
+    const cluster = clusterKeyFor(slot, postingType);
+    if (!assignSlot(slot, cluster, true)) unassignedSlots++;
+  }
+
+  // ---- Local search: swap supervisors while the total cost strictly falls ----
+  const costBefore = solutionCost(state, context);
+  const searchResult = localSearch(assignments, state, context);
+  const costAfter = solutionCost(state, context);
+
+  reflagAssignments(assignments, schoolHistory, postingType, avoidRepeatSchools);
+  for (const a of assignments) delete a._cluster;
+
+  if (quotaSkipped > 0) {
+    warnings.push(
+      `${quotaSkipped} slot(s) skipped - the posting allocation for this session is exhausted`
+    );
+  }
+
+  if (unassignedSlots > 0) {
+    warnings.push(
+      `${unassignedSlots} slot(s) could not be assigned (more slots than total supervisor capacity)`
+    );
+  }
+
+  return finish(assignments, warnings, supervisors, numberOfPostings, eligibleSlots, {
+    context,
+    costBefore,
+    costAfter,
+    searchResult,
+    quotaSkipped,
+  });
 }
 
 // ============================================================================
@@ -843,7 +896,10 @@ function scoreSolution(state, context) {
  *
  * Each slot keeps its own school/group/visit, so a swap only exchanges who goes
  * where - posting counts and capacity are untouched by construction, which means
- * the hard constraints survive the search automatically.
+ * the hard constraints survive the search automatically. Swaps never cross a
+ * priority tier boundary - that would undo the deterministic bucket assignment -
+ * so `a`/`b` are skipped whenever their `priority_number` differs; within a tier
+ * there is nothing left to swap over except repeat/affinity/travel.
  *
  * Only assignments that currently carry a penalty are used as swap candidates, and
  * each swap is evaluated with an exact local delta rather than a global rebuild,
@@ -866,6 +922,7 @@ function localSearch(assignments, state, context) {
     for (const a of candidates) {
       for (const b of assignments) {
         if (a === b || a.supervisor_id === b.supervisor_id) continue;
+        if (a.priority_number !== b.priority_number) continue;
 
         if (++comparisons > LOCAL_SEARCH_MAX_COMPARISONS) {
           return { swaps_applied: swapsApplied, passes: pass + 1, budget_exhausted: true };
@@ -910,8 +967,8 @@ function swapDelta(a, b, state, context) {
 
 /**
  * Combined contribution of the two supervisors currently holding `a` and `b`:
- * repeats, affinity, travel spread, and the priority term for those assignments.
- * Posting counts are unchanged by a swap, so the load term is deliberately omitted.
+ * repeats, affinity, and travel spread. Posting counts are unchanged by a swap,
+ * so the load term is deliberately omitted.
  */
 function pairCost(a, b, state, context) {
   const { weights } = context;
@@ -933,9 +990,6 @@ function pairCost(a, b, state, context) {
 
     total += weights.travel * (entry.distance / Math.max(context.maxTravel, 1));
   }
-
-  if (entryA) total += priorityCostOf(entryA, context);
-  if (entryB) total += priorityCostOf(entryB, context);
 
   return total;
 }
@@ -1100,10 +1154,9 @@ function finish(assignments, warnings, supervisors, visitsIncluded, eligibleSlot
   const travels = Object.values(bySupervisor).map((s) => s.distance);
   const supervisorsWithPostings = Object.keys(bySupervisor).length;
 
-  // Mean journey length per rank band. This is the readable proof that seniority
-  // is being honoured: the figures should fall as priority_number rises. A single
-  // correlation number hides this, because the most senior bands all saturate on
-  // whatever the longest available journeys are.
+  // Mean journey length per rank band - the readable, deterministic proof that
+  // seniority is honoured: since priority is now a hard bucket assignment, these
+  // figures should fall as priority_number rises, not just correlate loosely.
   const rankBuckets = new Map();
   for (const a of assignments) {
     const band = Number(a.priority_number) || 99;
@@ -1121,7 +1174,8 @@ function finish(assignments, warnings, supervisors, visitsIncluded, eligibleSlot
       mean_km: Number((bucket.distance / bucket.count).toFixed(1)),
     }));
 
-  // Kept as a secondary summary. Negated so positive means "better rank -> further".
+  // Pure reporting/QA metric - proves the bucketing worked, doesn't drive
+  // anything. Negated so positive means "better rank -> further".
   let priorityCorrelation = 0;
   if (assignments.length >= 2) {
     priorityCorrelation = -correlation(
@@ -1218,10 +1272,12 @@ function finish(assignments, warnings, supervisors, visitsIncluded, eligibleSlot
 module.exports = {
   runAutoPostingAlgorithm,
   DEFAULT_WEIGHTS,
-  PRIORITY_TUNING,
   // Exported for testing
   clusterKeyFor,
   standardDeviation,
   correlation,
-  planClusters,
+  computePriorityTiers,
+  computeTierThresholds,
+  assignUnitsToTiers,
+  planPriorityAllocation,
 };

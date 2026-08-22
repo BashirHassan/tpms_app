@@ -11,6 +11,7 @@ const {
   runAutoPostingAlgorithm,
   standardDeviation,
   correlation,
+  assignUnitsToTiers,
 } = require('../../src/services/autoPostingEngine');
 
 // ============================================================================
@@ -372,6 +373,236 @@ describe('rank to distance pairing', () => {
     // 20 schools, 20 supervisors, 5 remaining_slots each - everyone has ample
     // room, so nobody should be shut out entirely
     expect(statistics.supervisors_none).toBe(0);
+  });
+});
+
+// ============================================================================
+// PRIORITY TIER BUCKETING
+//
+// Priority is no longer a weighted cost term - it's a deterministic partition
+// computed up front (see PRIORITY TIERS in the engine). These tests cover the
+// bucketing math directly, plus the exact production shape (uneven tier sizes,
+// combined multi-visit runs) that kept producing a negative rank/distance
+// correlation under the old weighted design.
+// ============================================================================
+
+describe('priority tier bucketing', () => {
+  it('sizes each tier\'s distance band proportional to its capacity, not an equal split', () => {
+    const tiers = [
+      { priority_number: 1, capacity: 10 },
+      { priority_number: 2, capacity: 30 },
+      { priority_number: 3, capacity: 60 },
+    ];
+    // 10 units of equal weight, already sorted descending by distance
+    const units = Array.from({ length: 10 }, (_, i) => ({
+      key: `u${i}`, weight: 1, distance: 100 - i * 10,
+    }));
+
+    const ownerOf = assignUnitsToTiers(units, tiers);
+
+    // Total capacity 100 -> tier1 (10%) gets 1 unit, tier2 (30%) gets 3, tier3 (60%) gets 6
+    const countByTier = new Map();
+    for (const owner of ownerOf.values()) {
+      countByTier.set(owner, (countByTier.get(owner) || 0) + 1);
+    }
+    expect(countByTier.get(1)).toBe(1);
+    expect(countByTier.get(2)).toBe(3);
+    expect(countByTier.get(3)).toBe(6);
+
+    // The most senior tier owns the single farthest unit; the last tier
+    // (absorbing the rounding remainder) owns the nearest
+    expect(ownerOf.get('u0')).toBe(1);
+    expect(ownerOf.get('u9')).toBe(3);
+  });
+
+  it('does not let one oversized unit skip a later tier entirely', () => {
+    const tiers = [
+      { priority_number: 1, capacity: 1 },
+      { priority_number: 2, capacity: 1 },
+      { priority_number: 3, capacity: 1 },
+    ];
+    // The first unit alone is huge relative to the total - large enough that a
+    // naive `while`-loop walk would cross tier 1's AND tier 2's thresholds in
+    // one step and leave tier 2 owning nothing
+    const units = [
+      { key: 'big', weight: 8, distance: 100 },
+      { key: 'small1', weight: 1, distance: 50 },
+      { key: 'small2', weight: 1, distance: 10 },
+    ];
+
+    const ownerOf = assignUnitsToTiers(units, tiers);
+
+    const owners = new Set(ownerOf.values());
+    expect(owners.size).toBe(3);
+  });
+
+  // Regression: this is the exact shape (70 supervisors, four uneven priority
+  // tiers, an LGA count that comfortably outnumbers the tiers, two combined
+  // visits) that produced a -26% priority_correlation in production under the
+  // old weighted-cost design, with a non-senior rank averaging *more* distance
+  // than the most senior one. Deterministic bucketing should make that
+  // structurally impossible.
+  it('keeps rank strictly senior-favouring at production scale with uneven tiers', () => {
+    const rankWeights = [[3, 8], [4, 28], [5, 22], [7, 12]]; // [priority_number, count]
+    const priorities = [];
+    rankWeights.forEach(([rank, count]) => {
+      for (let i = 0; i < count; i++) priorities.push(rank);
+    });
+    const supervisors = makeSupervisors(70, { remainingSlots: 8, priorities });
+
+    const lgaBase = [95, 15, 22, 40, 60, 18, 30, 75, 12, 50, 85]; // 11 LGAs
+    const slots = [];
+    let schoolId = 0;
+    for (let visit = 1; visit <= 2; visit++) {
+      lgaBase.forEach((base, lgaIndex) => {
+        for (let s = 0; s < 12; s++) {
+          schoolId++;
+          const jitter = (s % 5) * 4 - 8; // modest within-LGA spread
+          slots.push({
+            id: `${schoolId}-1-${visit}`,
+            school_id: schoolId,
+            school_name: `School ${schoolId}`,
+            group_number: 1,
+            visit_number: visit,
+            route_id: lgaIndex + 1,
+            route_name: `Route ${lgaIndex + 1}`,
+            lga: `LGA ${lgaIndex + 1}`,
+            distance_km: Math.max(3, base + jitter),
+          });
+        }
+      });
+    }
+
+    const { statistics } = runAutoPostingAlgorithm(supervisors, slots, 2, 'lga_based', true);
+
+    const means = statistics.distance_by_rank.map((band) => band.mean_km);
+    for (let i = 1; i < means.length; i++) {
+      expect(means[i]).toBeLessThanOrEqual(means[i - 1]);
+    }
+    expect(statistics.priority_correlation).toBeGreaterThan(0.6);
+  });
+
+  // Regression: with only one supervisor per tier and a tier's own cluster
+  // needing more schools than that one member's capacity, overflow used to
+  // spill in raw processing order - which could hand it to whichever tier
+  // happened to still have room, including a junior one, purely by chance of
+  // when its cluster was processed. Spillover must prefer a more-senior tier
+  // with room over a junior one.
+  it('spills overflow to a more senior tier before a junior one', () => {
+    const supervisors = [
+      { id: 1, name: 'S1a', rank_code: 'X', priority_number: 1, current_postings: 0, remaining_slots: 2 },
+      { id: 2, name: 'S1b', rank_code: 'X', priority_number: 1, current_postings: 0, remaining_slots: 2 },
+      { id: 3, name: 'S2', rank_code: 'X', priority_number: 2, current_postings: 0, remaining_slots: 50 },
+      { id: 4, name: 'S3', rank_code: 'X', priority_number: 3, current_postings: 0, remaining_slots: 2 },
+    ];
+
+    // 6 LGAs, 1 school each. Tier 2's single (high-remaining_slots) member gets
+    // most of the LGAs bucketed to it by capacity share, but can only be homed
+    // to one - the rest overflow and must be picked up elsewhere.
+    const lgaDistances = [100, 90, 80, 70, 60, 50];
+    const slots = lgaDistances.map((distance_km, i) => ({
+      id: `${i + 1}-1-1`,
+      school_id: i + 1,
+      school_name: `School ${i + 1}`,
+      group_number: 1,
+      visit_number: 1,
+      route_id: i + 1,
+      route_name: `Route ${i + 1}`,
+      lga: `LGA${i}`,
+      distance_km,
+    }));
+
+    const { assignments } = runAutoPostingAlgorithm(supervisors, slots, 1, 'lga_based', true);
+
+    // Tier 1 (supervisor 2, the spare member of the senior tier) must absorb at
+    // least one overflow cluster before tier 3 (the junior tier) gets any
+    const tier1Distances = assignments.filter((a) => a.supervisor_id === 2).map((a) => a.distance_km);
+    const tier3Distances = assignments.filter((a) => a.supervisor_id === 4).map((a) => a.distance_km);
+
+    expect(tier1Distances.length).toBeGreaterThan(0);
+    if (tier3Distances.length > 0) {
+      expect(Math.max(...tier1Distances)).toBeGreaterThan(Math.max(...tier3Distances));
+    }
+
+    // Nobody is left out entirely
+    const bySupervisor = new Map();
+    for (const a of assignments) bySupervisor.set(a.supervisor_id, (bySupervisor.get(a.supervisor_id) || 0) + 1);
+    for (const s of supervisors) expect(bySupervisor.get(s.id) || 0).toBeGreaterThan(0);
+  });
+
+  it('never lets a local-search swap cross a priority tier boundary', () => {
+    const supervisors = makeSupervisors(4, { remainingSlots: 10, priorities: [1, 1, 2, 2] });
+    const slots = Array.from({ length: 10 }, (_, i) => ({
+      id: `${i + 1}-1-1`,
+      school_id: i + 1,
+      school_name: `School ${i + 1}`,
+      group_number: 1,
+      visit_number: 1,
+      distance_km: (i + 1) * 10,
+    }));
+
+    // Force an otherwise-attractive repeat that local search must resolve by
+    // moving supervisor 1 (senior) off the two farthest schools they already cover
+    const schoolHistory = new Map([[1, new Set([9, 10])]]);
+
+    const { statistics } = runAutoPostingAlgorithm(
+      supervisors, slots, 1, 'random', true, { schoolHistory }
+    );
+
+    expect(statistics.local_search.swaps_applied).toBeGreaterThan(0);
+    expect(statistics.repeat_school_assignments).toBe(0);
+
+    const means = statistics.distance_by_rank.map((band) => band.mean_km);
+    for (let i = 1; i < means.length; i++) {
+      expect(means[i]).toBeLessThanOrEqual(means[i - 1]);
+    }
+  });
+
+  it('buckets each visit independently rather than pooling distance globally', () => {
+    const supervisors = makeSupervisors(2, { remainingSlots: 5, priorities: [1, 2] });
+
+    const slots = [];
+    // Visit 1: a short-range cluster of distances (5-25km)
+    for (let i = 1; i <= 5; i++) {
+      slots.push({
+        id: `v1-${i}`, school_id: i, school_name: `S${i}`, group_number: 1,
+        visit_number: 1, distance_km: i * 5,
+      });
+    }
+    // Visit 2: an entirely different, much longer range (520-600km) - visit 1's
+    // "far" (25km) is nowhere near visit 2's "near" (520km)
+    for (let i = 1; i <= 5; i++) {
+      slots.push({
+        id: `v2-${i}`, school_id: 100 + i, school_name: `S${100 + i}`, group_number: 1,
+        visit_number: 2, distance_km: 500 + i * 20,
+      });
+    }
+
+    const { assignments } = runAutoPostingAlgorithm(supervisors, slots, 2, 'random', true);
+
+    for (const visit of [1, 2]) {
+      const seniorDistances = assignments
+        .filter((a) => a.visit_number === visit && a.priority_number === 1)
+        .map((a) => a.distance_km);
+      const juniorDistances = assignments
+        .filter((a) => a.visit_number === visit && a.priority_number === 2)
+        .map((a) => a.distance_km);
+
+      expect(seniorDistances.length).toBeGreaterThan(0);
+      expect(juniorDistances.length).toBeGreaterThan(0);
+      // Within THIS visit's own range, senior must average farther than junior
+      const mean = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+      expect(mean(seniorDistances)).toBeGreaterThan(mean(juniorDistances));
+    }
+  });
+
+  it('never reports a priority_tuning statistic - there is nothing left to tune', () => {
+    const supervisors = makeSupervisors(4, { remainingSlots: 6, priorities: [1, 2, 3, 4] });
+    const slots = makeClusteredSlots({ clusters: [20], visits: 1 });
+
+    const { statistics } = runAutoPostingAlgorithm(supervisors, slots, 1, 'random', true);
+
+    expect(statistics.priority_tuning).toBeUndefined();
   });
 });
 

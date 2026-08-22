@@ -34,25 +34,26 @@ This document outlines the implementation of an **automated posting system** tha
 
 The allocation strategy lives in `backend/src/services/autoPostingEngine.js` as pure functions - no database access - so it can be reasoned about and unit tested in isolation. The controller only fetches data, applies the dean allocation, and persists the result.
 
-**Constraint hierarchy.** Capacity, slot uniqueness and the dean ceiling are *hard* - never violated. Everything else is a weighted penalty, so the engine always returns the best achievable answer rather than refusing to fill a slot:
+**Constraint hierarchy.** Capacity, slot uniqueness, the dean ceiling, and - when priority is on - the priority tier a slot's distance falls in are *hard*, never violated. Everything else is a weighted penalty, so the engine always returns the best achievable answer rather than refusing to fill a slot:
 
 | Weight | Constraint | Meaning |
 | --- | --- | --- |
 | 2000 | `repeat` | Supervisor already covers this school |
 | 300 | `affinity` | Trip outside the supervisor's area for that visit |
 | 200 | `load` | Per posting ahead of the least loaded peer |
-| 30 | `priority` | Distance accumulated away from the target for that rank |
 | 1 | `travel` | Distance ahead of the lightest peer (disabled when priority is on) |
 
-**Cluster planning.** For `route_based` / `lga_based`, the engine first decides which area each supervisor works on each visit. Areas get seats in proportion to their size, supervisors are seated to minimise the school repeats it would force, and then a pairwise pass swaps areas between supervisors while the total falls - which finds the rotation a sequential pass cannot (e.g. three supervisors cycling A→B→C between visits so none revisits a school).
+There is deliberately no `priority` weight. An earlier design paired rank with distance via a weighted cost term, tuned against the other weights above with a self-correcting feedback loop that boosted it when a reported correlation statistic fell short. In practice it kept losing close comparisons - especially once several supervisors shared a route/LGA - in ways that were hard to fully bound, and real production runs could still come out with a junior rank averaging *more* distance than the most senior one. Priority is now a **hard, deterministic partition** computed once per visit, before the weighted terms below ever run: rank the distinct priority tiers present, rank the distance (whole route/LGA aggregate for `route_based`/`lga_based`, individual slot for `random`), and divide the distance ranking into bands sized by each tier's *share of total supervisor capacity* (not an equal split - an 8-supervisor senior tier and a 28-supervisor mid tier get proportionally different shares). The most senior band owns the longest distances by construction, so there is nothing left to tune. See `computePriorityTiers` / `assignUnitsToTiers` / `spilloverOrder` in `autoPostingEngine.js`.
+
+**Cluster planning.** For `route_based` / `lga_based`, the engine first decides which area each supervisor works on each visit, and - when priority is on - which priority tier owns each area. Within a tier, that tier's own areas get seats in proportion to their size (farthest area first, when a tier's capacity can't cover every area it owns), supervisors are seated to minimise the school repeats it would force, and a pairwise pass swaps areas between supervisors of the *same* tier while the total falls. An area a tier genuinely can't seat (fewer members than areas it owns) spills to a neighbouring tier - a more senior one first, since that can never invert the intended rank ordering, falling to a junior tier only as a last resort.
 
 Without this stage the greedy always finds an idle supervisor cheapest, because their load term is zero, and the areas scatter. That is precisely how the earlier round-robin implementation behaved despite this document promising otherwise.
 
-**Load is measured within the planned area.** The plan settles balance *between* areas; charging a supervisor for getting ahead of someone working a different area would push them out of their own, leaking a route's last few schools.
+**Load is measured within the planned area, and within the eligible priority tier.** The plan settles balance *between* areas; charging a supervisor for getting ahead of someone working a different area (or a different priority tier) would push them out of their own, leaking a route's last few schools - or, worse, letting a poorer-matched supervisor from another tier absorb it instead.
 
-**Priority is a distance-share target, not per-slot matching.** Matching each slot to a rank cannot survive count balancing - once everyone must end up with a similar number of postings, each takes a slot from every distance band and the pairing washes out. Instead each rank targets a share of total distance (top rank aims for roughly twice the mean, the lowest for zero), and the cost is how far an assignment moves them from it. Senior staff accumulate the long journeys **without** taking more postings than anyone else.
+**Assignment happens in two rounds.** A slot's eligible candidates are hard-restricted to the priority tier that owns its distance bucket, with spillover to a neighbouring tier allowed only when that tier is genuinely out of capacity. Naively allowing spillover in the same pass slots are otherwise processed in can let an early-processed area's overflow consume capacity that a later area's rightful tier still needs - most visible across combined multi-visit runs, where a supervisor's total capacity is shared across every visit's own area. Round 1 gives every area first claim on its own tier's capacity, in full, before anyone may draw on a neighbouring tier at all; round 2 then handles only what's left, with spillover allowed.
 
-**Local search.** A bounded pass then swaps the supervisors of two assignments whenever the total cost strictly falls. Because a swap only exchanges who goes where, posting counts and capacity are untouched by construction, so the hard constraints survive optimisation automatically. Only penalised assignments are considered as swap candidates, and each swap is evaluated with an exact local delta rather than a global rebuild.
+**Local search.** A bounded pass then swaps the supervisors of two assignments whenever the total cost strictly falls, never across a priority tier boundary (that would undo the deterministic bucket assignment). Because a swap only exchanges who goes where, posting counts and capacity are untouched by construction, so the hard constraints survive optimisation automatically. Only penalised assignments are considered as swap candidates, and each swap is evaluated with an exact local delta rather than a global rebuild.
 
 ### Measured Effect
 
@@ -79,6 +80,7 @@ Both preview and execute return, alongside the counts:
 - `load` - `{ min, max, stddev }` postings per supervisor
 - `travel_km` - `{ min, max, mean }` per supervisor
 - `distance_by_rank` - mean journey per rank band, the readable proof seniority is honoured
+- `priority_correlation` - pure reporting/QA metric (negated Pearson correlation between rank and distance); since priority is now a deterministic bucket assignment rather than a tuned weight, this proves the bucketing worked instead of driving anything
 - `local_search` - `{ swaps_applied, passes, cost_before, cost_after }`
 - `quota_skipped` - slots dropped because a dean's allocation did not cover them
 - `data_quality` - supervisors with no rank, schools with no distance
@@ -383,6 +385,16 @@ RETURN slots[0] OR NULL if empty
 > **Key Constraint:** Once a supervisor receives their first posting for a visit (e.g., Visit 1), all subsequent Visit 1 postings must be in the same route/LGA. This allows Visit 2 to be in a completely different location.
 
 ### Route/LGA Assignment Strategy (Per-Visit)
+
+> **Note:** the pseudocode below is legacy and does not reflect the current
+> engine - see "The Allocation Engine" near the top of this document for the
+> actual design. It's kept here pending a full rewrite of this section; the
+> gist below (rank areas by distance, hand the farthest to the most senior
+> supervisors) is directionally right but the real implementation buckets by
+> each priority tier's *capacity share* (not a 1:1 per-supervisor walk) and
+> seats within a tier using repeat-avoidance, not a plain "best available"
+> pick - see `planPriorityAllocation`/`assignUnitsToTiers` in
+> `autoPostingEngine.js`.
 
 For route-based and LGA-based posting, assignments are tracked **per visit**:
 

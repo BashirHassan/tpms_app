@@ -273,14 +273,9 @@ function AutoPostDialog({
               Senior ranks (lower number) should show longer average journeys.
             </p>
 
-            {statistics.priority_tuning && (
-              <p className="text-xs text-gray-500 mt-2">
-                Priority accuracy: {Math.round((statistics.priority_correlation ?? 0) * 100)}%
-                {statistics.priority_tuning.attempts > 0 && (
-                  <> - strengthened over {statistics.priority_tuning.attempts} attempt(s) to improve the fit.</>
-                )}
-              </p>
-            )}
+            <p className="text-xs text-gray-500 mt-2">
+              Priority accuracy: {Math.round((statistics.priority_correlation ?? 0) * 100)}%
+            </p>
           </div>
         )}
       </div>
