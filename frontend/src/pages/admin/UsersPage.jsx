@@ -77,6 +77,7 @@ function UsersPage() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [rankFilter, setRankFilter] = useState('');
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
@@ -114,8 +115,9 @@ function UsersPage() {
     if (search) params.search = search;
     if (roleFilter) params.role = roleFilter;
     if (statusFilter) params.status = statusFilter;
+    if (rankFilter) params.rank_id = rankFilter;
     return params;
-  }, [search, roleFilter, statusFilter]);
+  }, [search, roleFilter, statusFilter, rankFilter]);
 
   // Fetch users with pagination
   const fetchUsers = useCallback(async () => {
@@ -497,7 +499,7 @@ function UsersPage() {
 
   // Toolbar with filters
   const tableToolbar = (
-    <div className="flex items-center gap-4 flex-wrap">
+    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
       <Input
         placeholder="Search users..."
         value={search}
@@ -505,46 +507,64 @@ function UsersPage() {
           setSearch(e.target.value);
           setPagination((p) => ({ ...p, page: 1 })); // Reset to page 1 on search
         }}
-        className="w-64"
+        className="w-full sm:w-64"
       />
-      <Select
-        value={roleFilter}
-        onChange={(e) => {
-          setRoleFilter(e.target.value);
-          setPagination((p) => ({ ...p, page: 1 }));
-        }}
-        className="w-auto"
-      >
-        <option value="">All Roles</option>
-        {roleOptions.map((r) => (
-          <option key={r.value} value={r.value}>{r.label}</option>
-        ))}
-      </Select>
-      <Select
-        value={statusFilter}
-        onChange={(e) => {
-          setStatusFilter(e.target.value);
-          setPagination((p) => ({ ...p, page: 1 }));
-        }}
-        className="w-auto"
-      >
-        <option value="">All Status</option>
-        <option value="active">Active</option>
-        <option value="inactive">Inactive</option>
-      </Select>
-      <Button 
-        variant="ghost" 
-        size="sm" 
-        onClick={() => { 
-          setSearch(''); 
-          setRoleFilter(''); 
-          setStatusFilter(''); 
-          setPagination((p) => ({ ...p, page: 1 }));
-        }}
-        title="Reset filters"
-      >
-        <IconRefresh className="w-4 h-4" />
-      </Button>
+      <div className="grid grid-cols-2 gap-3 sm:flex sm:items-center sm:gap-4">
+        <Select
+          value={roleFilter}
+          onChange={(e) => {
+            setRoleFilter(e.target.value);
+            setPagination((p) => ({ ...p, page: 1 }));
+          }}
+          className="w-full sm:w-auto"
+        >
+          <option value="">All Roles</option>
+          {roleOptions.map((r) => (
+            <option key={r.value} value={r.value}>{r.label}</option>
+          ))}
+        </Select>
+        <Select
+          value={rankFilter}
+          onChange={(e) => {
+            setRankFilter(e.target.value);
+            setPagination((p) => ({ ...p, page: 1 }));
+          }}
+          className="w-full sm:w-auto"
+        >
+          <option value="">All Ranks</option>
+          {ranks.map((rank) => (
+            <option key={rank.id} value={rank.id}>{rank.name}</option>
+          ))}
+        </Select>
+        <Select
+          value={statusFilter}
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+            setPagination((p) => ({ ...p, page: 1 }));
+          }}
+          className="w-full sm:w-auto"
+        >
+          <option value="">All Status</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </Select>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setSearch('');
+            setRoleFilter('');
+            setStatusFilter('');
+            setRankFilter('');
+            setPagination((p) => ({ ...p, page: 1 }));
+          }}
+          title="Reset filters"
+          className="w-full sm:w-auto justify-center"
+        >
+          <IconRefresh className="w-4 h-4" />
+          <span className="sm:hidden ml-2">Reset filters</span>
+        </Button>
+      </div>
     </div>
   );
 

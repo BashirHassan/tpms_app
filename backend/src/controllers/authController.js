@@ -1101,7 +1101,7 @@ const register = async (req, res, next) => {
 const getAllUsers = async (req, res, next) => {
   try {
     const { institutionId } = req.params;
-    const { role, status, search, page = 1, limit = 20 } = req.query;
+    const { role, status, search, rank_id, page = 1, limit = 20 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const isSuperAdmin = req.user?.role === ROLES.SUPER_ADMIN;
 
@@ -1145,6 +1145,13 @@ const getAllUsers = async (req, res, next) => {
       countSql += ' AND status = ?';
       params.push(status);
       countParams.push(status);
+    }
+
+    if (rank_id) {
+      sql += ' AND u.rank_id = ?';
+      countSql += ' AND rank_id = ?';
+      params.push(parseInt(rank_id));
+      countParams.push(parseInt(rank_id));
     }
 
     if (search) {
