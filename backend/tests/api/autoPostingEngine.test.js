@@ -266,6 +266,61 @@ describe('rank to distance pairing', () => {
     expect(seniorDistance).toBeGreaterThan(juniorDistance);
     expect(seniorDistance).toBeGreaterThanOrEqual(200);
   });
+
+  // Regression: with more routes/LGAs than supervisors - routine for an
+  // institution with many LGAs and a modest supervisor pool - the seat budget in
+  // planClusters runs out before every area gets a dedicated supervisor. The
+  // areas left unseated used to be whichever ones happened to sit later in
+  // insertion order, not the least consequential ones, so a genuinely remote,
+  // high-value area could miss out on rank-aware assignment entirely while
+  // several short, nearby areas got seated. That produced exactly the pattern
+  // seen in production: one non-senior rank averaging far more distance than
+  // every senior rank, with no consistent ordering otherwise.
+  it('keeps rank order intact when routes outnumber supervisors', () => {
+    const supervisors = makeSupervisors(4, {
+      remainingSlots: 8,
+      priorities: [3, 4, 5, 7],
+    });
+
+    // 8 LGAs, only 4 supervisors - half the areas cannot get a dedicated seat.
+    // Two are remote (180km, 160km); the rest are short local trips.
+    const lgaDistances = [180, 20, 25, 30, 15, 22, 18, 160];
+    const slots = [];
+    let schoolId = 0;
+    lgaDistances.forEach((distance, lgaIndex) => {
+      for (let s = 0; s < 2; s++) {
+        schoolId++;
+        slots.push({
+          id: `${schoolId}-1-1`,
+          school_id: schoolId,
+          school_name: `School ${schoolId}`,
+          group_number: 1,
+          visit_number: 1,
+          route_id: lgaIndex + 1,
+          route_name: `Route ${lgaIndex + 1}`,
+          lga: `LGA ${lgaIndex + 1}`,
+          distance_km: distance,
+        });
+      }
+    });
+
+    const { assignments } = runAutoPostingAlgorithm(supervisors, slots, 1, 'lga_based', true);
+
+    const distanceBySupervisor = new Map();
+    for (const a of assignments) {
+      distanceBySupervisor.set(
+        a.supervisor_id,
+        (distanceBySupervisor.get(a.supervisor_id) || 0) + (a.distance_km || 0)
+      );
+    }
+
+    // Mean journey must fall in lockstep with seniority - no rank should average
+    // more than a less-senior rank ahead of it
+    const meansByPriority = supervisors.map((s) => distanceBySupervisor.get(s.id) || 0);
+    for (let i = 1; i < meansByPriority.length; i++) {
+      expect(meansByPriority[i]).toBeLessThanOrEqual(meansByPriority[i - 1]);
+    }
+  });
 });
 
 // ============================================================================

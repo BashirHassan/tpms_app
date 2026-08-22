@@ -244,10 +244,17 @@ function applyAssignment(entry, slot, cluster, direction = 1) {
  *
  * @param {boolean} [options.priorityEnabled] - Pair higher ranks with longer routes
  * @param {(supervisor: Object) => number} [options.rankBand] - Rank normalised to [0,1], 0 = most senior
+ * @param {{repeat: number, priority: number}} [options.weights] - Same weights the
+ *   run is actually using, so a boosted priority term (from the tuning loop or a
+ *   caller override) reaches cluster assignment too, not just per-slot cost
  * @returns {Map} Map<`${supervisorId}-${visit}`, cluster>
  */
 function planClusters(supervisors, slots, postingType, schoolHistory, options = {}) {
-  const { priorityEnabled = false, rankBand = () => 0 } = options;
+  const {
+    priorityEnabled = false,
+    rankBand = () => 0,
+    weights = DEFAULT_WEIGHTS,
+  } = options;
 
   const plan = new Map();
   if (postingType !== 'route_based' && postingType !== 'lga_based') return plan;
@@ -276,14 +283,30 @@ function planClusters(supervisors, slots, postingType, schoolHistory, options = 
       cluster.distance += slot.distance_km || 0;
     }
 
-    // How many supervisors each area needs, largest area first
+    // How many supervisors each area needs
     const targetPerSupervisor = Math.max(1, Math.ceil(visitSlots.length / supervisors.length));
-    const ordered = [...clusters.values()].sort((a, b) => b.slots - a.slots);
+    for (const cluster of clusters.values()) {
+      cluster.needed = Math.max(1, Math.ceil(cluster.slots / targetPerSupervisor));
+    }
+
+    // Areas that genuinely need more than one supervisor go first (a capacity
+    // requirement, not a preference). Among the rest - typically most areas, each
+    // needing exactly one seat - the farthest area claims its seat first when
+    // priority is on. With more areas than supervisors (routine for an
+    // institution with many LGAs/routes), the seat budget runs out before every
+    // area gets a dedicated supervisor; whichever areas miss out fall back to the
+    // generic per-slot cost, so leaving that miss to chance let a genuinely
+    // remote, high-value area go unrepresented while several short ones nearby
+    // got seated - the single biggest source of rank/distance mismatch in
+    // practice.
+    const ordered = [...clusters.values()].sort((a, b) => {
+      if (b.needed !== a.needed) return b.needed - a.needed;
+      return priorityEnabled ? b.distance - a.distance : b.slots - a.slots;
+    });
 
     const seats = [];
     for (const cluster of ordered) {
-      const needed = Math.max(1, Math.ceil(cluster.slots / targetPerSupervisor));
-      for (let i = 0; i < needed && seats.length < supervisors.length; i++) {
+      for (let i = 0; i < cluster.needed && seats.length < supervisors.length; i++) {
         seats.push(cluster);
       }
     }
@@ -312,11 +335,13 @@ function planClusters(supervisors, slots, postingType, schoolHistory, options = 
       return Math.abs(rankBand(supervisor) - demand);
     };
 
-    // Repeat avoidance stays dominant (same ratio as the main cost function) -
-    // this only decides the common case where repeat cost ties
+    // Repeat avoidance stays dominant at the configured ratio - this mostly
+    // decides the common case where repeat cost ties. Reads the run's actual
+    // weights (not the fixed defaults) so a boosted priority term reaches
+    // cluster assignment too, not just per-slot cost.
     const combinedCost = (supervisorId, cluster) =>
-      DEFAULT_WEIGHTS.repeat * repeatCost(supervisorId, cluster) +
-      DEFAULT_WEIGHTS.priority * priorityCost(supervisorId, cluster);
+      weights.repeat * repeatCost(supervisorId, cluster) +
+      weights.priority * priorityCost(supervisorId, cluster);
 
     // Stage 1 - greedy seat filling
     const unassigned = supervisors.map((s) => s.id);
@@ -565,17 +590,21 @@ function runAutoPostingAlgorithm(
   // averaging out to the mean across the pool.
   const travelTarget = maxTravel * 2;
 
-  const clusterPlan = planClusters(supervisors, eligibleSlots, postingType, schoolHistory, {
-    priorityEnabled, rankBand,
-  });
   const sortedSlots = sortSlots(eligibleSlots, postingType, priorityEnabled);
 
   /**
    * Run one full greedy + local-search pass under a given set of weights.
    * Always starts from a clean allocation state, so different weight choices can
    * be compared on equal footing and the best one kept.
+   *
+   * The cluster plan is rebuilt per attempt (not hoisted out) - it depends on the
+   * weights too, so a boosted priority term from the tuning loop actually reaches
+   * which supervisor gets which route/LGA, not only the per-slot fallback cost.
    */
   function runOnce(weights) {
+    const clusterPlan = planClusters(supervisors, eligibleSlots, postingType, schoolHistory, {
+      priorityEnabled, rankBand, weights,
+    });
     const context = {
       weights, postingType, rankBand, maxTravel, travelTarget, avoidRepeatSchools, clusterPlan,
     };
