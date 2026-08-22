@@ -321,6 +321,58 @@ describe('rank to distance pairing', () => {
       expect(meansByPriority[i]).toBeLessThanOrEqual(meansByPriority[i - 1]);
     }
   });
+
+  // Regression: strengthening the priority term to actually win rank-to-distance
+  // comparisons (see above) opened a second failure mode. When a cluster has wide
+  // internal distance variance, ONE of its individual schools can be a better
+  // priority match for an outsider than for the cluster's own planned team -
+  // outweighing the flat out-of-area cost outright. Left unguarded, an outsider
+  // "poaches" that school, and if several outsiders do this to the same small
+  // cluster before its own team gets a turn, some of that team's members can end
+  // up with zero postings for the whole visit - a real supervisor doing no work
+  // (and earning no allowance) that round, purely because the schools happened
+  // to suit someone else's rank slightly better.
+  it('never leaves a planned supervisor with zero postings to a better-matched outsider', () => {
+    const priorities = [];
+    for (let i = 0; i < 5; i++) priorities.push(3, 4, 5, 7);
+    const supervisors = makeSupervisors(20, { remainingSlots: 5, priorities });
+
+    // 4 LGAs, each with 5 schools spanning a wide internal range - exactly the
+    // shape that let a well-matched outsider outbid a cluster's own team member
+    const lgaSchoolDistances = {
+      'LGA A': [10, 30, 50, 70, 90],
+      'LGA B': [15, 35, 55, 75, 95],
+      'LGA C': [12, 32, 52, 72, 92],
+      'LGA D': [18, 38, 58, 78, 98],
+    };
+
+    const slots = [];
+    let schoolId = 0;
+    let routeId = 0;
+    for (const [lga, distances] of Object.entries(lgaSchoolDistances)) {
+      routeId++;
+      for (const distance_km of distances) {
+        schoolId++;
+        slots.push({
+          id: `${schoolId}-1-1`,
+          school_id: schoolId,
+          school_name: `School ${schoolId}`,
+          group_number: 1,
+          visit_number: 1,
+          route_id: routeId,
+          route_name: `Route ${routeId}`,
+          lga,
+          distance_km,
+        });
+      }
+    }
+
+    const { statistics } = runAutoPostingAlgorithm(supervisors, slots, 1, 'lga_based', true);
+
+    // 20 schools, 20 supervisors, 5 remaining_slots each - everyone has ample
+    // room, so nobody should be shut out entirely
+    expect(statistics.supervisors_none).toBe(0);
+  });
 });
 
 // ============================================================================

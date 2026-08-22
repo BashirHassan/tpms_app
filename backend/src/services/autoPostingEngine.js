@@ -38,16 +38,23 @@
  * Default cost weights.
  *
  * `load` is charged per whole posting a supervisor is ahead of the least loaded
- * peer, so it is deliberately larger than `priority` and `affinity`: being two
- * postings ahead should outweigh any area or rank preference, which is what keeps
- * the workload even. Within a tier of equally loaded supervisors the load term is
- * zero for everyone, so affinity and rank do the actual choosing.
+ * peer - a discrete jump, not a gradient. `priority` used to sit at 30, far below
+ * that jump, which meant load only ever "let" rank decide when nothing else was
+ * in play; the moment a slot's cost was close between two candidates - the normal
+ * case once several supervisors share a route/LGA - load's 200-per-whole-posting
+ * step swamped it outright, and which supervisor got the farthest school within
+ * a shared area came down to load/repeat noise, not seniority. `priority` now
+ * sits above `load` (matching the documented hierarchy, where rank <-> distance
+ * outranks load balance) so it can actually win those comparisons, while staying
+ * below `affinity`/`repeat` so cluster cohesion and school variety are still
+ * respected first. Within a tier of equally loaded supervisors the load term is
+ * zero for everyone, so affinity and rank do the actual choosing either way.
  */
 const DEFAULT_WEIGHTS = {
   repeat: 2000,   // supervisor already covers this school
   affinity: 300,  // trip outside the supervisor's area for that visit
+  priority: 250,  // mismatch between rank band and distance band
   load: 200,      // per posting ahead of the least loaded supervisor
-  priority: 30,   // mismatch between rank band and distance band
   travel: 1,      // per unit of normalised distance ahead of the lightest travel
 };
 
@@ -418,7 +425,13 @@ function marginalCost(entry, slot, cluster, context) {
     const planned = context.clusterPlan.get(`${entry.supervisor.id}-${slot.visit_number}`);
 
     if (planned !== undefined) {
-      affinity = planned === cluster ? 0 : 1;
+      // A cluster whose own planned team still has room should not be poachable
+      // just because this one slot happens to suit an outsider's rank/distance
+      // target unusually well - a single priority mismatch can otherwise swing
+      // well past the ordinary out-of-area cost. Only once the team's own
+      // capacity is genuinely exhausted does overflow become the soft,
+      // expected case.
+      affinity = planned === cluster ? 0 : (context.clusterHasRoom ? 20 : 1);
     } else {
       const clusters = entry.clusterCounts.get(slot.visit_number);
       if (!clusters || clusters.size === 0) {
@@ -454,6 +467,16 @@ function marginalCost(entry, slot, cluster, context) {
   // drowning out priority and scattering the rank-to-distance pairing.
   const load = Math.max(0, entry.count - context.minCount);
 
+  // A strong priority pull can otherwise starve a poorly-matched supervisor
+  // entirely: if every slot's distance suits someone else better, `load`'s
+  // per-whole-posting gradient alone isn't enough to stop them being skipped for
+  // a *second* posting while a peer still has zero. Getting everyone their first
+  // posting is treated as close to inviolable - the same tier as avoiding a
+  // repeat school - so it always wins over rank/distance preference; only once
+  // nobody in this baseline is still empty-handed does priority get to decide
+  // who takes the extra one.
+  const leavesSomeoneEmpty = context.minCount === 0 && load > 0;
+
   // Travel balance is only meaningful when ranks are NOT being paired to
   // distance - with priority on, an uneven travel spread is the intended outcome
   const travel = weights.priority > 0 || maxTravel <= 0
@@ -465,7 +488,8 @@ function marginalCost(entry, slot, cluster, context) {
     weights.affinity * affinity +
     weights.priority * priority +
     weights.load * load +
-    weights.travel * travel;
+    weights.travel * travel +
+    (leavesSomeoneEmpty ? weights.repeat : 0);
 
   return { total, repeat, affinity };
 }
@@ -653,6 +677,16 @@ function runAutoPostingAlgorithm(
       }
       if (context.minCount === Infinity) context.minCount = 0;
       if (context.minDistance === Infinity) context.minDistance = 0;
+
+      // Whether this cluster's own planned team still has unfilled capacity -
+      // `plannedHere` already excludes anyone at their cap, so a non-empty list
+      // means the team hasn't finished covering its own area yet. Read by
+      // marginalCost to decide how hard an outsider taking this slot should be
+      // discouraged: a genuinely exhausted plan should overflow softly, but a
+      // plan that still has room shouldn't be poachable just because a
+      // particular slot happens to suit someone else's rank/distance target
+      // unusually well.
+      context.clusterHasRoom = cluster !== null && plannedHere.length > 0;
 
       for (const entry of state.values()) {
         // HARD constraint - capacity
