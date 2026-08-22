@@ -9,7 +9,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { locationApi, sessionsApi, usersApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
@@ -27,7 +27,6 @@ import {
   IconUser,
   IconSchool,
   IconLoader2,
-  IconChartBar,
   IconShieldCheck,
 } from '@tabler/icons-react';
 import { formatDate } from '../../utils/helpers';
@@ -320,6 +319,54 @@ function AdminLocationLogsPage() {
     label: s.name,
   }));
 
+  // Toolbar with filters
+  const tableToolbar = (
+    <div className="flex items-center gap-3 flex-wrap">
+      <Select
+        value={selectedSession}
+        onChange={(e) => setSelectedSession(e.target.value)}
+        className="w-auto"
+      >
+        <option value="">All Sessions</option>
+        {sessionOptions.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </Select>
+
+      <div className="w-48">
+        <SearchableSelect
+          options={[{ value: 'all', label: 'All Supervisors' }, ...supervisorOptions]}
+          value={selectedSupervisor || 'all'}
+          onChange={(val) => setSelectedSupervisor(val === 'all' ? '' : val)}
+          placeholder="Select Supervisor"
+        />
+      </div>
+
+      <Select
+        value={selectedStatus}
+        onChange={(e) => setSelectedStatus(e.target.value)}
+        className="w-auto"
+      >
+        <option value="">All Status</option>
+        <option value="validated">Validated</option>
+        <option value="pending">Pending</option>
+        <option value="overridden">Overridden</option>
+      </Select>
+
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={suspiciousOnly}
+          onChange={(e) => setSuspiciousOnly(e.target.checked)}
+          className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+        />
+        <span className="text-sm text-gray-700 whitespace-nowrap">Suspicious only</span>
+      </label>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -397,84 +444,23 @@ function AdminLocationLogsPage() {
         </div>
       )}
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:flex lg:gap-4 flex-1">
-              <Select
-                value={selectedSession}
-                onChange={(e) => setSelectedSession(e.target.value)}
-                className="col-span-2 sm:col-span-1 lg:w-48"
-              >
-                <option value="">All Sessions</option>
-                {sessionOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </Select>
-
-              <div className="col-span-2 sm:col-span-1 lg:w-48">
-                <SearchableSelect
-                  options={[{ value: 'all', label: 'All Supervisors' }, ...supervisorOptions]}
-                  value={selectedSupervisor || 'all'}
-                  onChange={(val) => setSelectedSupervisor(val === 'all' ? '' : val)}
-                  placeholder="Select Supervisor"
-                />
-              </div>
-
-              <Select
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
-                className="lg:w-40"
-              >
-                <option value="">All Status</option>
-                <option value="validated">Validated</option>
-                <option value="pending">Pending</option>
-                <option value="overridden">Overridden</option>
-              </Select>
-
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={suspiciousOnly}
-                  onChange={(e) => setSuspiciousOnly(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                />
-                <span className="text-sm text-gray-700 whitespace-nowrap">Suspicious only</span>
-              </label>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Logs Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <IconChartBar className="h-5 w-5 text-primary-600" />
-            Location Logs ({pagination.total})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <DataTable
-            columns={columns}
-            data={logs}
-            loading={loading}
-            onServerExport={handleExportAll}
-            exportFilename="location_logs"
-            pagination={{
-              page: pagination.page,
-              limit: pagination.limit,
-              total: pagination.total,
-              onPageChange: (page) => setPagination((prev) => ({ ...prev, page })),
-              onLimitChange: (limit) => setPagination((prev) => ({ ...prev, limit, page: 1 })),
-            }}
-            emptyMessage="No location logs found"
-          />
-        </CardContent>
-      </Card>
+      <DataTable
+        columns={columns}
+        data={logs}
+        loading={loading}
+        onServerExport={handleExportAll}
+        exportFilename="location_logs"
+        toolbar={tableToolbar}
+        pagination={{
+          page: pagination.page,
+          limit: pagination.limit,
+          total: pagination.total,
+          onPageChange: (page) => setPagination((prev) => ({ ...prev, page })),
+          onLimitChange: (limit) => setPagination((prev) => ({ ...prev, limit, page: 1 })),
+        }}
+        emptyMessage="No location logs found"
+      />
 
       {/* Detail Dialog */}
       <Dialog

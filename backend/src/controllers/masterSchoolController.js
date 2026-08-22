@@ -20,7 +20,6 @@ const CHILD_TABLES_BY_INSTITUTION_SCHOOL = [
   'student_acceptances',
   'supervisor_postings',
   'student_results',
-  'school_groups',
   'monitor_assignments',
   'monitoring_reports',
   'school_location_update_requests',

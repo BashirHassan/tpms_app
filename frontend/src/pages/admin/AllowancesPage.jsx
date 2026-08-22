@@ -193,12 +193,14 @@ function AllowancesPage() {
       {
         accessor: 'file_number',
         header: 'File Number',
+        searchable: false,
         render: (value, row) => row._isTotalsRow ? '' : (value || 'N/A'),
         exportFormatter: (value, row) => row._isTotalsRow ? '' : (value || 'N/A'),
       },
       {
         accessor: 'rank_code',
         header: 'Rank',
+        searchable: false,
         render: (value, row) => row._isTotalsRow ? '' : (
           <span title={row.rank_name || ''}>{value || 'N/A'}</span>
         ),
@@ -207,6 +209,7 @@ function AllowancesPage() {
       {
         accessor: 'faculty_code',
         header: 'Faculty',
+        searchable: false,
         render: (value, row) => row._isTotalsRow ? '' : (
           <span title={row.faculty_name || ''}>{value || 'N/A'}</span>
         ),
@@ -215,6 +218,7 @@ function AllowancesPage() {
       {
         accessor: 'total_postings',
         header: 'Total Postings',
+        searchable: false,
         render: (value, row) => (
           <div className="flex items-center justify-center gap-1">
             <span className="font-semibold">{value}</span>
@@ -230,6 +234,7 @@ function AllowancesPage() {
         accessor: 'local_running',
         header: 'Local Running',
         align: 'right',
+        searchable: false,
         render: (value, row) => (
           <span className={row._isTotalsRow ? 'font-bold text-primary-700' : ''}>
             {formatCurrency(value)}
@@ -241,6 +246,7 @@ function AllowancesPage() {
         accessor: 'transport',
         header: 'Transport',
         align: 'right',
+        searchable: false,
         render: (value, row) => (
           <span className={row._isTotalsRow ? 'font-bold text-primary-700' : ''}>
             {formatCurrency(value)}
@@ -252,6 +258,7 @@ function AllowancesPage() {
         accessor: 'dsa',
         header: 'DSA',
         align: 'right',
+        searchable: false,
         render: (value, row) => (
           <span className={row._isTotalsRow ? 'font-bold text-primary-700' : ''}>
             {formatCurrency(value)}
@@ -263,6 +270,7 @@ function AllowancesPage() {
         accessor: 'dta',
         header: 'DTA',
         align: 'right',
+        searchable: false,
         render: (value, row) => (
           <span className={row._isTotalsRow ? 'font-bold text-primary-700' : ''}>
             {formatCurrency(value)}
@@ -274,6 +282,7 @@ function AllowancesPage() {
         accessor: 'subtotal',
         header: 'Subtotal',
         align: 'right',
+        searchable: false,
         render: (value, row) => (
           <span className={`font-medium ${row._isTotalsRow ? 'font-bold text-primary-700' : ''}`}>
             {formatCurrency(value)}
@@ -285,6 +294,7 @@ function AllowancesPage() {
         accessor: 'tetfund',
         header: 'TETFund',
         align: 'right',
+        searchable: false,
         render: (value, row) => (
           <Badge variant={row._isTotalsRow ? 'primary' : 'info'} className={`font-mono ${row._isTotalsRow ? 'font-bold' : ''}`}>
             {formatCurrency(value)}
@@ -296,6 +306,7 @@ function AllowancesPage() {
         accessor: 'total',
         header: 'Total',
         align: 'right',
+        searchable: false,
         render: (_, row) => (
           <span className={`font-bold ${row._isTotalsRow ? 'text-primary-800 text-base' : 'text-green-600'}`}>
             {formatCurrency((parseFloat(row.subtotal) || 0) + (parseFloat(row.tetfund) || 0))}
@@ -307,6 +318,7 @@ function AllowancesPage() {
         accessor: 'balance',
         header: 'Balance',
         align: 'right',
+        searchable: false,
         render: (value, row) => (
           <span className={`font-bold ${row._isTotalsRow ? 'text-primary-800 text-base' : 'text-primary-600'}`}>
             {formatCurrency(row.subtotal - row.tetfund)}
@@ -681,6 +693,8 @@ function AllowancesPage() {
             columns={getCurrentColumns()}
             loading={loading}
             sortable
+            searchable={activeTab === 'by-supervisor'}
+            searchPlaceholder="Search supervisor name..."
             exportable
             exportFilename={`allowances-${activeTab}-${new Date().toISOString().split('T')[0]}`}
             rowClassName={(row) => row._isTotalsRow ? 'bg-primary-50 border-t-2 border-primary-300' : ''}

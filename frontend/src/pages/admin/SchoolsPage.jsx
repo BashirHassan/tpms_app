@@ -23,6 +23,7 @@ import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
 import { DataTable } from '../../components/ui/DataTable';
 import { Select } from '../../components/ui/Select';
+import { SearchableSelect, SchoolOptionRenderer, SchoolSelectedRenderer, schoolFilterFn } from '../../components/ui/SearchableSelect';
 import { Dialog } from '../../components/ui/Dialog';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import {
@@ -528,7 +529,7 @@ function SchoolsPage() {
       const summary = response.data.data || {};
       const movedTotal = Object.values(summary.moved || {}).reduce((a, b) => a + b, 0);
       const extras = [];
-      if (summary.school_groups_merged) extras.push(`${summary.school_groups_merged} group(s) combined`);
+      if (summary.groups_merged) extras.push(`${summary.groups_merged} group(s) combined`);
       if (summary.merged_groups_dropped) extras.push(`${summary.merged_groups_dropped} merged-group link(s) removed`);
       toast.success(
         `"${summary.source_name}" merged into "${summary.target_name}": ${movedTotal} record(s) moved` +
@@ -817,7 +818,7 @@ function SchoolsPage() {
     school_principal_update_requests: 'Principal update requests',
     supervision_location_logs: 'GPS visit logs',
     school_registration_requests: 'School registration requests',
-    school_groups: 'School groups',
+    groups: 'Student groups',
     merged_groups: 'Merged-group links',
   };
 
@@ -1813,19 +1814,20 @@ function SchoolsPage() {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Merge into</label>
-            <Select
+            <SearchableSelect
+              label="Merge into"
+              options={mergeTargetOptions}
               value={mergeTargetId}
-              onChange={(e) => setMergeTargetId(e.target.value ? parseInt(e.target.value) : '')}
-              className="w-full"
-            >
-              <option value="">Select target school</option>
-              {mergeTargetOptions.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.ward || s.lga}, {s.state})
-                </option>
-              ))}
-            </Select>
+              onChange={(value) => setMergeTargetId(value ? parseInt(value) : '')}
+              placeholder="Select target school"
+              searchPlaceholder="Search schools..."
+              getOptionValue={(s) => s.id}
+              getOptionLabel={(s) => s.name}
+              renderOption={SchoolOptionRenderer}
+              renderSelected={SchoolSelectedRenderer}
+              filterFn={schoolFilterFn}
+              required
+            />
           </div>
 
           {mergePreviewLoading && (
@@ -1853,7 +1855,7 @@ function SchoolsPage() {
               </ul>
               {mergePreview.group_conflicts > 0 && (
                 <p className="text-xs text-amber-700">
-                  {mergePreview.group_conflicts} school group(s) will be combined with an existing group on the target.
+                  {mergePreview.group_conflicts} group(s) will be combined with an existing group on the target.
                 </p>
               )}
               {mergePreview.merged_group_conflicts > 0 && (

@@ -14,7 +14,6 @@ import {
   IconRefresh,
   IconExternalLink,
   IconClock,
-  IconFilter,
 } from '@tabler/icons-react';
 import { schoolUpdateRequestsApi } from '../../api/schoolUpdateRequestsApi';
 import { sessionsApi } from '../../api';
@@ -252,6 +251,12 @@ export default function SchoolUpdateRequestsPage() {
   // Column definitions for principal requests
   const principalColumns = useMemo(() => [
     {
+      accessor: 'sn',
+      header: 'S/N',
+      sortable: false,
+      render: (_, __, index) => (pagination.page - 1) * pagination.limit + index + 1,
+    },
+    {
       accessor: 'school_name',
       header: 'School',
       render: (value, row) => (
@@ -306,10 +311,16 @@ export default function SchoolUpdateRequestsPage() {
         </div>
       ),
     },
-  ], []);
+  ], [pagination.page, pagination.limit]);
 
   // Column definitions for location requests
   const locationColumns = useMemo(() => [
+    {
+      accessor: 'sn',
+      header: 'S/N',
+      sortable: false,
+      render: (_, __, index) => (pagination.page - 1) * pagination.limit + index + 1,
+    },
     {
       accessor: 'school_name',
       header: 'School',
@@ -400,10 +411,50 @@ export default function SchoolUpdateRequestsPage() {
         </div>
       ),
     },
-  ], []);
+  ], [pagination.page, pagination.limit]);
 
   // Get current columns based on active tab
   const columns = activeTab === 'principal' ? principalColumns : locationColumns;
+
+  // Toolbar with filters
+  const tableToolbar = (
+    <div className="flex items-center gap-3 flex-wrap">
+      <Input
+        placeholder="Search by school name..."
+        value={filters.search}
+        onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+        onKeyDown={(e) => e.key === 'Enter' && loadRequests()}
+        className="w-64"
+      />
+      <Select
+        value={filters.status}
+        onChange={(e) => {
+          setFilters({ ...filters, status: e.target.value });
+          setPagination((p) => ({ ...p, page: 1 }));
+        }}
+        className="w-auto"
+      >
+        <option value="">All Status</option>
+        <option value="pending">Pending</option>
+        <option value="approved">Approved</option>
+        <option value="rejected">Rejected</option>
+      </Select>
+      <Select
+        value={filters.session_id}
+        onChange={(e) => {
+          setFilters({ ...filters, session_id: e.target.value });
+          setPagination((p) => ({ ...p, page: 1 }));
+        }}
+        className="w-auto"
+      >
+        {sessions.map((session) => (
+          <option key={session.id} value={session.id}>
+            {session.name} {session.is_current && '(Current)'}
+          </option>
+        ))}
+      </Select>
+    </div>
+  );
 
   return (
     <div className="space-y-3 sm:space-y-4">
@@ -494,79 +545,31 @@ export default function SchoolUpdateRequestsPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-3 sm:p-4">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-            <IconFilter className="w-5 h-5 text-gray-400 hidden sm:block" />
-            <Input
-              placeholder="Search by school name..."
-              value={filters.search}
-              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-              onKeyDown={(e) => e.key === 'Enter' && loadRequests()}
-              className="flex-1 text-sm"
-            />
-            <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-4">
-              <Select
-                value={filters.status}
-                onChange={(e) => {
-                  setFilters({ ...filters, status: e.target.value });
-                  setPagination((p) => ({ ...p, page: 1 }));
-                }}
-                className="text-sm sm:w-40"
-              >
-                <option value="">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-              </Select>
-              <Select
-                value={filters.session_id}
-                onChange={(e) => {
-                  setFilters({ ...filters, session_id: e.target.value });
-                  setPagination((p) => ({ ...p, page: 1 }));
-                }}
-                className="text-sm sm:w-48"
-              >
-                {sessions.map((session) => (
-                  <option key={session.id} value={session.id}>
-                    {session.name} {session.is_current && '(Current)'}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Requests Table */}
-      <Card>
-        <CardContent className="p-0">
-          <DataTable
-            data={requests}
-            columns={columns}
-            keyField="id"
-            loading={loading}
-            sortable
-            exportable
-            onServerExport={handleExportAll}
-            exportFilename={`${activeTab}-update-requests`}
-            emptyTitle={`No ${activeTab} update requests found`}
-            emptyDescription="Try adjusting your filters or check back later"
-            pagination={{
-              page: pagination.page,
-              limit: pagination.limit,
-              total: pagination.total,
-              onPageChange: (page) => setPagination((p) => ({ ...p, page })),
-              onLimitChange: (limit) => setPagination((p) => ({ ...p, limit, page: 1 })),
-            }}
-            onRowClick={(row) => {
-              setSelectedRequest(row);
-              setShowDetailModal(true);
-            }}
-          />
-        </CardContent>
-      </Card>
+      <DataTable
+        data={requests}
+        columns={columns}
+        keyField="id"
+        loading={loading}
+        sortable
+        exportable
+        onServerExport={handleExportAll}
+        exportFilename={`${activeTab}-update-requests`}
+        toolbar={tableToolbar}
+        emptyTitle={`No ${activeTab} update requests found`}
+        emptyDescription="Try adjusting your filters or check back later"
+        pagination={{
+          page: pagination.page,
+          limit: pagination.limit,
+          total: pagination.total,
+          onPageChange: (page) => setPagination((p) => ({ ...p, page })),
+          onLimitChange: (limit) => setPagination((p) => ({ ...p, limit, page: 1 })),
+        }}
+        onRowClick={(row) => {
+          setSelectedRequest(row);
+          setShowDetailModal(true);
+        }}
+      />
 
       {/* Detail Modal */}
       <Dialog

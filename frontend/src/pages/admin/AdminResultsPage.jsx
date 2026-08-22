@@ -28,8 +28,6 @@ import {
   IconCheck,
   IconX,
   IconCalendar,
-  IconSchool,
-  IconFilter,
   IconEdit,
   IconListDetails,
   IconAlertCircle,
@@ -38,6 +36,7 @@ import {
   IconTrash,
   IconGripVertical,
   IconArrowBack,
+  IconSearch,
 } from '@tabler/icons-react';
 import { getOrdinal } from '../../utils/helpers';
 import { createExportAllHandler } from '../../utils/exportAll';
@@ -719,6 +718,12 @@ function AdminResultsPage() {
   const studentsColumns = useMemo(() => {
     const baseColumns = [
       {
+        accessor: 'sn',
+        header: 'S/N',
+        sortable: false,
+        render: (_, __, index) => (pagination.page - 1) * pagination.limit + index + 1,
+      },
+      {
         accessor: 'registration_number',
         header: 'Reg. Number',
         render: (value) => (
@@ -1000,7 +1005,7 @@ function AdminResultsPage() {
     });
 
     return baseColumns;
-  }, [maxVisits, scoringType, totalMaxScore, pendingChanges, savingChanges, canEdit, handleScoreChange, toast, openAdvancedDialog, scoringCriteria]);
+  }, [maxVisits, scoringType, totalMaxScore, pendingChanges, savingChanges, canEdit, handleScoreChange, toast, openAdvancedDialog, scoringCriteria, pagination.page, pagination.limit]);
 
   // Table header actions
   const saveDisabled = savingChanges || (scoringType === 'advanced' && !allAdvancedCriteriaFilled);
@@ -1047,6 +1052,54 @@ function AdminResultsPage() {
       <div className="font-medium truncate text-gray-900">
         {school.id === 'all' ? 'All Schools' : `${school.name} (${school.student_count} students)`}
       </div>
+    </div>
+  );
+
+  // Table toolbar: search, school filter, session selection
+  const tableToolbar = (
+    <div className="grid grid-cols-2 lg:grid-cols-4 items-center gap-2 flex-1">
+      <div className="relative w-full col-span-2 lg:col-span-1">
+        <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <Input
+          type="text"
+          placeholder="Reg. No. or Name"
+          value={searchTerm}
+          onChange={(e) => {
+            setSearchTerm(e.target.value);
+            setPagination(prev => ({ ...prev, page: 1 }));
+          }}
+          className="pl-9 pr-3"
+        />
+      </div>
+      <div className="col-span-2 lg:col-span-2">
+        <SearchableSelect
+          options={[{ id: 'all', name: 'All Schools', student_count: '' }, ...schools]}
+          value={selectedSchool}
+          onChange={(value) => {
+            setSelectedSchool(value || 'all');
+            setPagination(prev => ({ ...prev, page: 1 }));
+          }}
+          placeholder="All Schools"
+          searchPlaceholder="Search schools..."
+          getOptionValue={(s) => s?.id?.toString() ?? ''}
+          getOptionLabel={(s) => !s ? '' : s.id === 'all' ? 'All Schools' : `${s.name} (${s.student_count} students)`}
+          renderOption={renderSchoolOption}
+          renderSelected={renderSchoolSelected}
+          maxDisplayed={100}
+          emptyMessage="No schools found"
+        />
+      </div>
+      <Select
+        value={selectedSession}
+        onChange={(e) => handleSessionChange(e.target.value)}
+        className="text-sm"
+      >
+        {sessions.map((session) => (
+          <option key={session.id} value={session.id.toString()}>
+            {session.name} {session.is_current ? '(Current)' : ''}
+          </option>
+        ))}
+      </Select>
     </div>
   );
 
@@ -1145,73 +1198,6 @@ function AdminResultsPage() {
         </div>
       )}
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-3 sm:p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {/* Search */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                <IconFilter className="w-4 h-4 inline mr-1" />
-                Search
-              </label>
-              <Input
-                type="text"
-                placeholder="Reg. No. or Name"
-                value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value);
-                  setPagination(prev => ({ ...prev, page: 1 }));
-                }}
-              />
-            </div>
-
-            {/* School Filter */}
-            <div className="sm:col-span-2">
-              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                <IconSchool className="w-4 h-4 inline mr-1" />
-                School
-              </label>
-              <SearchableSelect
-                options={[{ id: 'all', name: 'All Schools', student_count: '' }, ...schools]}
-                value={selectedSchool}
-                onChange={(value) => {
-                  setSelectedSchool(value || 'all');
-                  setPagination(prev => ({ ...prev, page: 1 }));
-                }}
-                placeholder="All Schools"
-                searchPlaceholder="Search schools..."
-                getOptionValue={(s) => s?.id?.toString() ?? ''}
-                getOptionLabel={(s) => !s ? '' : s.id === 'all' ? 'All Schools' : `${s.name} (${s.student_count} students)`}
-                renderOption={renderSchoolOption}
-                renderSelected={renderSchoolSelected}
-                maxDisplayed={100}
-                emptyMessage="No schools found"
-              />
-            </div>
-
-            {/* Session Selection */}
-            <div>
-              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                <IconCalendar className="w-4 h-4 inline mr-1" />
-                Session
-              </label>
-              <Select
-                value={selectedSession}
-                onChange={(e) => handleSessionChange(e.target.value)}
-                className="text-sm"
-              >
-                {sessions.map((session) => (
-                  <option key={session.id} value={session.id.toString()}>
-                    {session.name} {session.is_current ? '(Current)' : ''}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Session Info Banner */}
       {sessionInfo && (
         <div className="flex flex-wrap gap-2 rounded-lg border border-primary-200 bg-rimary-50 p-3">
@@ -1247,6 +1233,7 @@ function AdminResultsPage() {
           exportable={true}
           onServerExport={handleExportAll}
           exportFilename="student_results"
+          toolbar={tableToolbar}
           headerActionsRight={tableHeaderActions}
           emptyIcon={IconUsers}
           emptyTitle="No students found"

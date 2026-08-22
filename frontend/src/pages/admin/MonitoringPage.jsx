@@ -398,6 +398,12 @@ function MonitoringPage() {
   // Assignment table columns
   const assignmentColumns = useMemo(() => [
     {
+      accessor: 'sn',
+      header: 'S/N',
+      sortable: false,
+      render: (_, __, index) => index + 1,
+    },
+    {
       accessor: 'monitor_name',
       header: 'Monitor',
       render: (_, row) => (
@@ -466,6 +472,12 @@ function MonitoringPage() {
 
   // My assignments columns (for monitors)
   const myAssignmentColumns = useMemo(() => [
+    {
+      accessor: 'sn',
+      header: 'S/N',
+      sortable: false,
+      render: (_, __, index) => index + 1,
+    },
     {
       accessor: 'school_name',
       header: 'School',
@@ -712,6 +724,12 @@ function MonitoringPage() {
 
   // Reports columns
   const reportColumns = useMemo(() => [
+    {
+      accessor: 'sn',
+      header: 'S/N',
+      sortable: false,
+      render: (_, __, index) => index + 1,
+    },
     {
       accessor: 'school_name',
       header: 'School',

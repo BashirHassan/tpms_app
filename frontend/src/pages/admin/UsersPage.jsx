@@ -380,6 +380,12 @@ function UsersPage() {
   // Table columns
   const columns = useMemo(() => [
     {
+      accessor: 'sn',
+      header: 'S/N',
+      sortable: false,
+      render: (_, __, index) => (pagination.page - 1) * pagination.limit + index + 1,
+    },
+    {
       key: 'name',
       header: 'Name',
       sortable: true,
@@ -487,7 +493,7 @@ function UsersPage() {
         </div>
       ) : null
     }
-  ], [canEdit, currentUser, isSuperAdmin, handleDelete, handleResetPassword]);
+  ], [canEdit, currentUser, isSuperAdmin, handleDelete, handleResetPassword, pagination.page, pagination.limit]);
 
   // Toolbar with filters
   const tableToolbar = (

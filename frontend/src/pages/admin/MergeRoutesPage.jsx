@@ -305,6 +305,12 @@ function MergeRoutesPage() {
   const mergedColumns = useMemo(
     () => [
       {
+        accessor: 'sn',
+        header: 'S/N',
+        sortable: false,
+        render: (_, __, index) => index + 1,
+      },
+      {
         accessor: 'primary_school_name',
         header: 'Primary Route',
         render: (value, row) => (

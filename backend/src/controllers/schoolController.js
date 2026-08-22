@@ -57,33 +57,34 @@ const resolveMergePair = async (institutionId, sourceId, targetId) => {
 };
 
 /**
- * Plans how school_groups rows move from source to target: rows whose
- * (session_id, group_number) already exists on the target get merged
- * (count added, source row dropped) instead of repointed, to avoid violating
- * the unique_institution_school_group key.
+ * Groups don't live in a table of their own (see groupController.js): a "group" is
+ * just the (institution_school_id, session_id, group_number) tuple on
+ * student_acceptances. Since student_acceptances is already bulk-repointed by
+ * MERGE_PLAIN_TABLES above, every group moves for free — the only thing worth
+ * reporting is how many source groups land on a same-numbered target group in the
+ * same session and end up combined.
  * `exec` is an (sql, params) => rows function — works with both the plain
  * `query` helper (preview, outside a transaction) and a conn.execute adapter
- * (actual merge, inside a transaction).
+ * (actual merge, inside a transaction — must be called before the bulk repoint).
  */
-const planSchoolGroupMoves = async (exec, sourceId, targetId) => {
-  const sourceRows = await exec(
-    'SELECT id, session_id, group_number, current_count FROM school_groups WHERE institution_school_id = ?',
+const countGroupOverlap = async (exec, sourceId, targetId) => {
+  const [{ total: totalGroups }] = await exec(
+    'SELECT COUNT(DISTINCT session_id, group_number) as total FROM student_acceptances WHERE institution_school_id = ?',
     [sourceId]
   );
-
-  const moves = [];
-  for (const row of sourceRows) {
-    const [existing] = await exec(
-      'SELECT id FROM school_groups WHERE institution_school_id = ? AND session_id = ? AND group_number = ?',
-      [targetId, row.session_id, row.group_number]
-    );
-    moves.push({
-      sourceRowId: row.id,
-      conflictRowId: existing ? existing.id : null,
-      currentCount: row.current_count,
-    });
-  }
-  return moves;
+  const [{ total: conflicts }] = await exec(
+    `SELECT COUNT(DISTINCT src.session_id, src.group_number) as total
+     FROM student_acceptances src
+     WHERE src.institution_school_id = ?
+       AND EXISTS (
+         SELECT 1 FROM student_acceptances tgt
+         WHERE tgt.institution_school_id = ?
+           AND tgt.session_id = src.session_id
+           AND tgt.group_number = src.group_number
+       )`,
+    [sourceId, targetId]
+  );
+  return { totalGroups, conflicts };
 };
 
 /**
@@ -796,7 +797,7 @@ const remove = async (req, res, next) => {
 /**
  * Preview the effect of merging a source school into a target school —
  * counts of historical records (across every session) that would move,
- * plus how many school_groups/merged_groups rows would collide and merge
+ * plus how many groups/merged_groups rows would collide and combine
  * instead of moving cleanly.
  * GET /:institutionId/schools/:id/merge-preview?target_id=X
  */
@@ -824,9 +825,8 @@ const getMergePreview = async (req, res, next) => {
       counts[table] = row.total;
     }
 
-    const groupMoves = await planSchoolGroupMoves(query, sourceId, targetId);
-    counts.school_groups = groupMoves.length;
-    const groupConflicts = groupMoves.filter((m) => m.conflictRowId).length;
+    const { totalGroups, conflicts: groupConflicts } = await countGroupOverlap(query, sourceId, targetId);
+    counts.groups = totalGroups;
 
     const mgPlan = await planMergedGroupMoves(query, sourceId, targetId);
     counts.merged_groups = mgPlan.primary.length + mgPlan.secondary.length;
@@ -866,9 +866,11 @@ const merge = async (req, res, next) => {
 
     const { source, target } = await resolveMergePair(instId, sourceId, targetId);
 
+    // Must run before the student_acceptances repoint below — once source's rows
+    // point at targetId, this overlap query can no longer tell them apart.
+    const { conflicts: groupsMerged } = await countGroupOverlap(query, sourceId, targetId);
+
     const moved = {};
-    let groupsMoved = 0;
-    let groupsMerged = 0;
     let mergedGroupsMoved = 0;
     let mergedGroupsDropped = 0;
 
@@ -885,25 +887,6 @@ const merge = async (req, res, next) => {
         );
         moved[table] = result.affectedRows || 0;
       }
-
-      const groupMoves = await planSchoolGroupMoves(exec, sourceId, targetId);
-      for (const move of groupMoves) {
-        if (move.conflictRowId) {
-          await conn.execute(
-            'UPDATE school_groups SET current_count = current_count + ? WHERE id = ?',
-            [move.currentCount, move.conflictRowId]
-          );
-          await conn.execute('DELETE FROM school_groups WHERE id = ?', [move.sourceRowId]);
-          groupsMerged++;
-        } else {
-          await conn.execute(
-            'UPDATE school_groups SET institution_school_id = ? WHERE id = ?',
-            [targetId, move.sourceRowId]
-          );
-          groupsMoved++;
-        }
-      }
-      moved.school_groups = groupsMoved + groupsMerged;
 
       const mgPlan = await planMergedGroupMoves(exec, sourceId, targetId);
       for (const row of mgPlan.primary) {
@@ -945,7 +928,7 @@ const merge = async (req, res, next) => {
         source_name: source.name,
         target_name: target.name,
         moved,
-        school_groups_merged: groupsMerged,
+        groups_merged: groupsMerged,
         merged_groups_dropped: mergedGroupsDropped,
       },
     });

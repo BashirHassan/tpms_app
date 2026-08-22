@@ -4,15 +4,16 @@
  * MedeePay Pattern: Direct SQL with institutionId from route params
  * Handles school groups and merged group management for student postings
  * 
- * IMPORTANT: Groups are derived from student_acceptances table (not a separate school_groups table).
- * A "group" is defined by the group_number column in student_acceptances for a given school + session.
+ * IMPORTANT: Groups are derived from the student_acceptances table — there is no
+ * separate table for them. A "group" is defined by the group_number column in
+ * student_acceptances for a given school + session.
  */
 
 const { z } = require('zod');
 const { query } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 
-// Validation schemas - simplified since school_groups CRUD is removed
+// Validation schemas - simplified since group CRUD against a dedicated table is removed
 const schemas = {
   assignStudent: z.object({
     body: z.object({
