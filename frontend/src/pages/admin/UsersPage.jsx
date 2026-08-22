@@ -499,7 +499,7 @@ function UsersPage() {
 
   // Toolbar with filters
   const tableToolbar = (
-    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
+    <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:gap-4">
       <Input
         placeholder="Search users..."
         value={search}
@@ -507,16 +507,16 @@ function UsersPage() {
           setSearch(e.target.value);
           setPagination((p) => ({ ...p, page: 1 })); // Reset to page 1 on search
         }}
-        className="w-full sm:w-64"
+        className="w-full md:w-64"
       />
-      <div className="grid grid-cols-2 gap-3 sm:flex sm:items-center sm:gap-4">
+      <div className="grid grid-cols-2 gap-3 md:flex md:items-center md:gap-4">
         <Select
           value={roleFilter}
           onChange={(e) => {
             setRoleFilter(e.target.value);
             setPagination((p) => ({ ...p, page: 1 }));
           }}
-          className="w-full sm:w-auto"
+          className="w-full md:w-auto"
         >
           <option value="">All Roles</option>
           {roleOptions.map((r) => (
@@ -529,7 +529,7 @@ function UsersPage() {
             setRankFilter(e.target.value);
             setPagination((p) => ({ ...p, page: 1 }));
           }}
-          className="w-full sm:w-auto"
+          className="w-full md:w-auto"
         >
           <option value="">All Ranks</option>
           {ranks.map((rank) => (
@@ -542,7 +542,7 @@ function UsersPage() {
             setStatusFilter(e.target.value);
             setPagination((p) => ({ ...p, page: 1 }));
           }}
-          className="w-full sm:w-auto"
+          className="w-full md:w-auto"
         >
           <option value="">All Status</option>
           <option value="active">Active</option>
@@ -559,10 +559,10 @@ function UsersPage() {
             setPagination((p) => ({ ...p, page: 1 }));
           }}
           title="Reset filters"
-          className="w-full sm:w-auto justify-center"
+          className="w-full md:w-auto justify-center"
         >
           <IconRefresh className="w-4 h-4" />
-          <span className="sm:hidden ml-2">Reset filters</span>
+          <span className="md:hidden ml-2">Reset filters</span>
         </Button>
       </div>
     </div>
