@@ -409,11 +409,13 @@ function AllowancesPage() {
       {
         accessor: 'file_number',
         header: 'File Number',
+        searchable: false,
         render: (value) => value || 'N/A',
       },
       {
         accessor: 'rank_code',
         header: 'Rank',
+        searchable: false,
         render: (value, row) => (
           <span title={row.rank_name || ''}>{value || 'N/A'}</span>
         ),
@@ -421,6 +423,7 @@ function AllowancesPage() {
       {
         accessor: 'faculty_code',
         header: 'Faculty',
+        searchable: false,
         render: (value, row) => (
           <span title={row.faculty_name || ''}>{value || 'N/A'}</span>
         ),
@@ -428,11 +431,13 @@ function AllowancesPage() {
       {
         accessor: 'visit_number',
         header: 'Visit',
+        searchable: false,
         render: (value) => <Badge variant="outline">{getOrdinal(value)} Visit</Badge>,
       },
       {
         accessor: 'total_postings',
         header: 'Total Postings',
+        searchable: false,
         render: (value, row) => (
           <div className="text-center">
             <span className="font-semibold">{value}</span>
@@ -448,30 +453,35 @@ function AllowancesPage() {
         accessor: 'local_running',
         header: 'Local Running',
         align: 'right',
+        searchable: false,
         render: (value) => formatCurrency(value),
       },
       {
         accessor: 'transport',
         header: 'Transport',
         align: 'right',
+        searchable: false,
         render: (value) => formatCurrency(value),
       },
       {
         accessor: 'dsa',
         header: 'DSA',
         align: 'right',
+        searchable: false,
         render: (value) => formatCurrency(value),
       },
       {
         accessor: 'dta',
         header: 'DTA',
         align: 'right',
+        searchable: false,
         render: (value) => formatCurrency(value),
       },
       {
         accessor: 'total',
         header: 'Total',
         align: 'right',
+        searchable: false,
         render: (value) => (
           <span className="font-bold text-primary-600">{formatCurrency(value)}</span>
         ),
@@ -507,6 +517,28 @@ function AllowancesPage() {
         return [];
     }
   };
+
+  // Max visits comes from the selected session's academic settings
+  const maxVisits = useMemo(() => {
+    const session = sessions.find((s) => s.id.toString() === selectedSession);
+    return parseInt(session?.max_supervision_visits) || 3;
+  }, [sessions, selectedSession]);
+
+  // Visit filter, shown in the table header for the Supervisor & Visit tab
+  const visitFilterToolbar = (
+    <Select
+      value={selectedVisit}
+      onChange={(e) => setSelectedVisit(e.target.value)}
+      className="w-auto"
+    >
+      <option value="">All Visits</option>
+      {Array.from({ length: maxVisits }, (_, i) => i + 1).map((visit) => (
+        <option key={visit} value={visit}>
+          {getOrdinal(visit)} Visit
+        </option>
+      ))}
+    </Select>
+  );
 
   return (
     <div className="space-y-3 sm:space-y-4">
@@ -664,50 +696,26 @@ function AllowancesPage() {
         </nav>
       </div>
 
-      {/* Visit Filter for Supervisor & Visit tab */}
-      {activeTab === 'by-supervisor-visit' && (
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4">
-              <label className="text-sm font-medium text-gray-700">Filter by Visit:</label>
-              <Select
-                value={selectedVisit}
-                onChange={(e) => setSelectedVisit(e.target.value)}
-                className="w-auto"
-              >
-                <option value="">All Visits</option>
-                <option value="1">1st Visit</option>
-                <option value="2">2nd Visit</option>
-                <option value="3">3rd Visit</option>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Data Table */}
-      <Card>
-        <CardContent className="p-0">
-          <DataTable
-            data={getCurrentData()}
-            columns={getCurrentColumns()}
-            loading={loading}
-            sortable
-            searchable={activeTab === 'by-supervisor'}
-            searchPlaceholder="Search supervisor name..."
-            exportable
-            exportFilename={`allowances-${activeTab}-${new Date().toISOString().split('T')[0]}`}
-            rowClassName={(row) => row._isTotalsRow ? 'bg-primary-50 border-t-2 border-primary-300' : ''}
-            emptyMessage={
-              activeTab === 'by-supervisor'
-                ? 'No supervisor allowances found for this session'
-                : activeTab === 'by-visit'
-                  ? 'No visit data found for this session'
-                  : 'No data found for this session'
-            }
-          />
-        </CardContent>
-      </Card>
+      <DataTable
+        data={getCurrentData()}
+        columns={getCurrentColumns()}
+        loading={loading}
+        sortable
+        searchable={activeTab === 'by-supervisor' || activeTab === 'by-supervisor-visit'}
+        searchPlaceholder="Search supervisor name..."
+        toolbar={activeTab === 'by-supervisor-visit' ? visitFilterToolbar : undefined}
+        exportable
+        exportFilename={`allowances-${activeTab}-${new Date().toISOString().split('T')[0]}`}
+        rowClassName={(row) => row._isTotalsRow ? 'bg-primary-50 border-t-2 border-primary-300' : ''}
+        emptyMessage={
+          activeTab === 'by-supervisor'
+            ? 'No supervisor allowances found for this session'
+            : activeTab === 'by-visit'
+              ? 'No visit data found for this session'
+              : 'No data found for this session'
+        }
+      />
     </div>
   );
 }
