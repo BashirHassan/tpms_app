@@ -226,6 +226,46 @@ describe('rank to distance pairing', () => {
 
     expect(spread).toBeLessThan(overall * 0.5);
   });
+
+  // Regression: cluster planning for route_based/lga_based used to pick a
+  // supervisor for each area by repeat-avoidance alone, with ties broken by
+  // array order. Since the biggest area (most schools) isn't necessarily the
+  // *farthest* one, the senior-first supervisor list would get seated into
+  // whichever area came up first in the seat queue - often the common, nearby
+  // one - leaving the single remote, high-value route for whoever was left,
+  // frequently the most junior supervisor. That inverted the intended pay
+  // ordering: juniors ended up earning more than seniors.
+  it('gives the farthest route to the most senior supervisor, not whoever is left over', () => {
+    const supervisors = makeSupervisors(3, {
+      remainingSlots: 3,
+      priorities: [1, 3, 5],
+    });
+
+    // One remote route with a single far school, one common route with three
+    // nearby schools - the common route has more slots but far less distance
+    const slots = [
+      { id: 'A-1-1', school_id: 1, school_name: 'Remote School', group_number: 1, visit_number: 1, route_id: 1, route_name: 'Route A', lga: 'LGA A', distance_km: 200 },
+      { id: 'B-1-1', school_id: 2, school_name: 'Near School 1', group_number: 1, visit_number: 1, route_id: 2, route_name: 'Route B', lga: 'LGA B', distance_km: 10 },
+      { id: 'B-2-1', school_id: 3, school_name: 'Near School 2', group_number: 1, visit_number: 1, route_id: 2, route_name: 'Route B', lga: 'LGA B', distance_km: 10 },
+      { id: 'B-3-1', school_id: 4, school_name: 'Near School 3', group_number: 1, visit_number: 1, route_id: 2, route_name: 'Route B', lga: 'LGA B', distance_km: 10 },
+    ];
+
+    const { assignments } = runAutoPostingAlgorithm(supervisors, slots, 1, 'route_based', true);
+
+    const distanceBySupervisor = new Map();
+    for (const a of assignments) {
+      distanceBySupervisor.set(
+        a.supervisor_id,
+        (distanceBySupervisor.get(a.supervisor_id) || 0) + (a.distance_km || 0)
+      );
+    }
+
+    const seniorDistance = distanceBySupervisor.get(supervisors[0].id) || 0; // priority 1
+    const juniorDistance = distanceBySupervisor.get(supervisors[2].id) || 0; // priority 5
+
+    expect(seniorDistance).toBeGreaterThan(juniorDistance);
+    expect(seniorDistance).toBeGreaterThanOrEqual(200);
+  });
 });
 
 // ============================================================================

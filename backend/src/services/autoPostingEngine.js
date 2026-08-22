@@ -231,9 +231,24 @@ function applyAssignment(entry, slot, cluster, direction = 1) {
  * already covered. A pairwise improvement pass over the plan finds the rotation
  * that a sequential pass cannot.
  *
+ * Once a supervisor is locked into a route/LGA for a visit, every slot in that
+ * area becomes theirs regardless of rank - the per-slot priority term in
+ * `marginalCost` never gets a say. Without a rank-aware term here, a cluster's
+ * distance (and so its pay) is handed out by whoever happens to have the fewest
+ * repeated schools, which has no relationship to seniority and can easily send
+ * the longest, best-paid route to the most junior supervisor left in the queue.
+ * Folding a rank <-> cluster-distance mismatch into the same cost keeps repeat
+ * avoidance dominant (it is still weighted far higher) while making sure ties -
+ * the common case, since most supervisors start a fresh area at zero repeats -
+ * are broken in favour of the intended pairing.
+ *
+ * @param {boolean} [options.priorityEnabled] - Pair higher ranks with longer routes
+ * @param {(supervisor: Object) => number} [options.rankBand] - Rank normalised to [0,1], 0 = most senior
  * @returns {Map} Map<`${supervisorId}-${visit}`, cluster>
  */
-function planClusters(supervisors, slots, postingType, schoolHistory) {
+function planClusters(supervisors, slots, postingType, schoolHistory, options = {}) {
+  const { priorityEnabled = false, rankBand = () => 0 } = options;
+
   const plan = new Map();
   if (postingType !== 'route_based' && postingType !== 'lga_based') return plan;
 
@@ -242,6 +257,7 @@ function planClusters(supervisors, slots, postingType, schoolHistory) {
   const covered = new Map(
     supervisors.map((s) => [s.id, new Set(schoolHistory.get(s.id) || [])])
   );
+  const supervisorById = new Map(supervisors.map((s) => [s.id, s]));
 
   const visits = [...new Set(slots.map((s) => s.visit_number))].sort((a, b) => a - b);
 
@@ -249,14 +265,15 @@ function planClusters(supervisors, slots, postingType, schoolHistory) {
     const visitSlots = slots.filter((s) => s.visit_number === visit);
     if (visitSlots.length === 0) continue;
 
-    // cluster -> { slots, schools }
+    // cluster -> { slots, schools, distance }
     const clusters = new Map();
     for (const slot of visitSlots) {
       const key = clusterKeyFor(slot, postingType);
-      if (!clusters.has(key)) clusters.set(key, { key, slots: 0, schools: new Set() });
+      if (!clusters.has(key)) clusters.set(key, { key, slots: 0, schools: new Set(), distance: 0 });
       const cluster = clusters.get(key);
       cluster.slots++;
       cluster.schools.add(slot.school_id);
+      cluster.distance += slot.distance_km || 0;
     }
 
     // How many supervisors each area needs, largest area first
@@ -280,6 +297,27 @@ function planClusters(supervisors, slots, postingType, schoolHistory) {
       return cost;
     };
 
+    // How far this cluster's total distance sits from "what this rank should be
+    // doing" - the busiest (longest) cluster in the visit wants the most senior
+    // rank band (0), the lightest wants the least senior (1)
+    const clusterDemandNormaliser = priorityEnabled
+      ? makeNormaliser([...clusters.values()].map((c) => c.distance))
+      : () => 0;
+
+    const priorityCost = (supervisorId, cluster) => {
+      if (!priorityEnabled) return 0;
+      const supervisor = supervisorById.get(supervisorId);
+      if (!supervisor) return 0;
+      const demand = 1 - clusterDemandNormaliser(cluster.distance);
+      return Math.abs(rankBand(supervisor) - demand);
+    };
+
+    // Repeat avoidance stays dominant (same ratio as the main cost function) -
+    // this only decides the common case where repeat cost ties
+    const combinedCost = (supervisorId, cluster) =>
+      DEFAULT_WEIGHTS.repeat * repeatCost(supervisorId, cluster) +
+      DEFAULT_WEIGHTS.priority * priorityCost(supervisorId, cluster);
+
     // Stage 1 - greedy seat filling
     const unassigned = supervisors.map((s) => s.id);
     const seated = []; // [{ supervisorId, cluster }]
@@ -289,7 +327,7 @@ function planClusters(supervisors, slots, postingType, schoolHistory) {
       let bestIndex = 0;
       let bestCost = Infinity;
       for (let i = 0; i < unassigned.length; i++) {
-        const cost = repeatCost(unassigned[i], cluster);
+        const cost = combinedCost(unassigned[i], cluster);
         if (cost < bestCost) {
           bestCost = cost;
           bestIndex = i;
@@ -308,8 +346,8 @@ function planClusters(supervisors, slots, postingType, schoolHistory) {
           const b = seated[j];
           if (a.cluster === b.cluster) continue;
 
-          const before = repeatCost(a.supervisorId, a.cluster) + repeatCost(b.supervisorId, b.cluster);
-          const after = repeatCost(a.supervisorId, b.cluster) + repeatCost(b.supervisorId, a.cluster);
+          const before = combinedCost(a.supervisorId, a.cluster) + combinedCost(b.supervisorId, b.cluster);
+          const after = combinedCost(a.supervisorId, b.cluster) + combinedCost(b.supervisorId, a.cluster);
 
           if (after < before) {
             const carried = a.cluster;
@@ -527,7 +565,9 @@ function runAutoPostingAlgorithm(
   // averaging out to the mean across the pool.
   const travelTarget = maxTravel * 2;
 
-  const clusterPlan = planClusters(supervisors, eligibleSlots, postingType, schoolHistory);
+  const clusterPlan = planClusters(supervisors, eligibleSlots, postingType, schoolHistory, {
+    priorityEnabled, rankBand,
+  });
   const sortedSlots = sortSlots(eligibleSlots, postingType, priorityEnabled);
 
   /**
@@ -1120,4 +1160,5 @@ module.exports = {
   clusterKeyFor,
   standardDeviation,
   correlation,
+  planClusters,
 };
