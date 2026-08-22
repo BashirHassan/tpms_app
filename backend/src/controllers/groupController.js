@@ -4,7 +4,7 @@
  * MedeePay Pattern: Direct SQL with institutionId from route params
  * Handles school groups and merged group management for student postings
  * 
- * IMPORTANT: Groups are derived from the student_acceptances table — there is no
+ * IMPORTANT: Groups are derived from the student_acceptances table - there is no
  * separate table for them. A "group" is defined by the group_number column in
  * student_acceptances for a given school + session.
  */

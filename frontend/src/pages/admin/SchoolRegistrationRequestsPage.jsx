@@ -76,12 +76,12 @@ export default function SchoolRegistrationRequestsPage() {
   const [showApproveConfirm, setShowApproveConfirm] = useState(false);
   const [approvingRequest, setApprovingRequest] = useState(null);
 
-  // Synchronous in-flight guards — block re-entrant submits from a burst of
+  // Synchronous in-flight guards - block re-entrant submits from a burst of
   // clicks before React commits the `processing`/disabled state to the DOM.
   const approveInFlightRef = useRef(false);
   const rejectInFlightRef = useRef(false);
 
-  // Master school search (informational — check registry before approving)
+  // Master school search (informational - check registry before approving)
   const [masterSearchTerm, setMasterSearchTerm] = useState('');
   const [masterSearchResults, setMasterSearchResults] = useState([]);
   const [loadingMasterSearch, setLoadingMasterSearch] = useState(false);
@@ -155,7 +155,7 @@ export default function SchoolRegistrationRequestsPage() {
           total: response.data.pagination?.total,
         };
       },
-      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+      { onError: () => toast.error('Could not load all pages - exported the current page instead') }
     ),
     [filters, toast]
   );
@@ -181,7 +181,7 @@ export default function SchoolRegistrationRequestsPage() {
     try {
       setProcessing(true);
       await schoolRegistrationRequestsApi.approve(approvingRequest.id);
-      toast.success('Request approved — school added to the central registry');
+      toast.success('Request approved - school added to the central registry');
       loadRequests();
       loadStatistics();
       setShowDetailModal(false);
@@ -480,7 +480,7 @@ export default function SchoolRegistrationRequestsPage() {
       >
         {selectedRequest && (
           <div className="space-y-4 text-sm">
-            {/* Master Registry Check — inline at top for quick duplicate validation */}
+            {/* Master Registry Check - inline at top for quick duplicate validation */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <div className="flex items-center gap-2 mb-2">
                 <IconSearch className="w-4 h-4 text-blue-600" />

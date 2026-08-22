@@ -253,7 +253,7 @@ function StudentLayout() {
         </div>
       </aside>
 
-      {/* Main content area — offset by sidebar on desktop */}
+      {/* Main content area - offset by sidebar on desktop */}
       <div className="lg:pl-64">
         {/* App bar */}
         <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-4 bg-white border-b lg:px-8">

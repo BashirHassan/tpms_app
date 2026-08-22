@@ -200,7 +200,7 @@ function GlobalUsersPage() {
         const data = response.data.data || {};
         return { rows: data.users || [], total: data.pagination?.total };
       },
-      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+      { onError: () => toast.error('Could not load all pages - exported the current page instead') }
     ),
     [search, role, institutionId, toast]
   );
@@ -463,7 +463,7 @@ function GlobalUsersPage() {
             <IconExternalLink className="w-3 h-3 ml-1" />
           </Button>
         ) : (
-          <span className="text-gray-400 text-sm">—</span>
+          <span className="text-gray-400 text-sm">-</span>
         )
       ),
     },
@@ -481,7 +481,7 @@ function GlobalUsersPage() {
       header: 'Last Login',
       render: (value) => (
         <span className="text-sm text-gray-500">
-          {value ? formatDate(value, 'MMM d, yyyy HH:mm') : '—'}
+          {value ? formatDate(value, 'MMM d, yyyy HH:mm') : '-'}
         </span>
       ),
       exportFormatter: (value) => value ? formatDate(value, 'MMM d, yyyy HH:mm') : '-',

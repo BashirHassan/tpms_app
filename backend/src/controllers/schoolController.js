@@ -17,7 +17,7 @@ const { NotFoundError, ValidationError, ConflictError } = require('../utils/erro
 const { normalizeLocationValue, normalizeOptionalLocationValue } = require('../utils/locationNormalizer');
 
 // Tables carrying a plain institution_school_id FK with no unique constraint on
-// that column — safe to repoint with a single bulk UPDATE during a merge.
+// that column - safe to repoint with a single bulk UPDATE during a merge.
 const MERGE_PLAIN_TABLES = [
   { table: 'student_acceptances', column: 'institution_school_id' },
   { table: 'supervisor_postings', column: 'institution_school_id' },
@@ -60,12 +60,12 @@ const resolveMergePair = async (institutionId, sourceId, targetId) => {
  * Groups don't live in a table of their own (see groupController.js): a "group" is
  * just the (institution_school_id, session_id, group_number) tuple on
  * student_acceptances. Since student_acceptances is already bulk-repointed by
- * MERGE_PLAIN_TABLES above, every group moves for free — the only thing worth
+ * MERGE_PLAIN_TABLES above, every group moves for free - the only thing worth
  * reporting is how many source groups land on a same-numbered target group in the
  * same session and end up combined.
- * `exec` is an (sql, params) => rows function — works with both the plain
+ * `exec` is an (sql, params) => rows function - works with both the plain
  * `query` helper (preview, outside a transaction) and a conn.execute adapter
- * (actual merge, inside a transaction — must be called before the bulk repoint).
+ * (actual merge, inside a transaction - must be called before the bulk repoint).
  */
 const countGroupOverlap = async (exec, sourceId, targetId) => {
   const [{ total: totalGroups }] = await exec(
@@ -795,7 +795,7 @@ const remove = async (req, res, next) => {
 };
 
 /**
- * Preview the effect of merging a source school into a target school —
+ * Preview the effect of merging a source school into a target school -
  * counts of historical records (across every session) that would move,
  * plus how many groups/merged_groups rows would collide and combine
  * instead of moving cleanly.
@@ -866,7 +866,7 @@ const merge = async (req, res, next) => {
 
     const { source, target } = await resolveMergePair(instId, sourceId, targetId);
 
-    // Must run before the student_acceptances repoint below — once source's rows
+    // Must run before the student_acceptances repoint below - once source's rows
     // point at targetId, this overlap query can no longer tell them apart.
     const { conflicts: groupsMerged } = await countGroupOverlap(query, sourceId, targetId);
 

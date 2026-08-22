@@ -715,7 +715,7 @@ function PostingsPage() {
         isOpen={!!sessionClearSummary}
         onClose={() => setSessionClearSummary(null)}
         title="Clear Session Postings"
-        message={`Session ${sessionClearSummary?.session_name || ''} — choose how these postings should be removed.`}
+        message={`Session ${sessionClearSummary?.session_name || ''} - choose how these postings should be removed.`}
         confirmText={clearMode === 'hard' ? 'Delete Permanently' : 'Cancel Postings'}
         cancelText="Cancel"
         variant="danger"
@@ -753,7 +753,7 @@ function PostingsPage() {
             />
             <div className="flex-1 min-w-0">
               <div className="font-medium text-gray-900">
-                Soft delete — cancel {sessionClearSummary?.soft_deletable ?? 0} posting(s)
+                Soft delete - cancel {sessionClearSummary?.soft_deletable ?? 0} posting(s)
               </div>
               <div className="text-sm text-gray-500 mt-0.5">
                 Marks the postings as cancelled. The records are kept and this is reversible.
@@ -778,14 +778,14 @@ function PostingsPage() {
             />
             <div className="flex-1 min-w-0">
               <div className="font-medium text-gray-900">
-                Hard delete — permanently remove {sessionClearSummary?.hard_deletable ?? 0} posting(s)
+                Hard delete - permanently remove {sessionClearSummary?.hard_deletable ?? 0} posting(s)
               </div>
               <div className="text-sm text-gray-500 mt-0.5">
                 Deletes the records outright, along with their location-verification logs.
               </div>
               {clearMode === 'hard' && (
                 <div className="text-sm font-medium text-red-600 mt-1">
-                  This cannot be undone — there is no rollback.
+                  This cannot be undone - there is no rollback.
                 </div>
               )}
             </div>

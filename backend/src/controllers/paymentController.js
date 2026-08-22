@@ -895,7 +895,7 @@ const handleWebhook = async (req, res, next) => {
 
     // 🔒 MULTI-TENANCY: the webhook URL carries no institution context, so resolve the
     // owning institution from the (still-untrusted) reference. The signature is then
-    // verified below with THAT institution's secret — an attacker cannot forge it.
+    // verified below with THAT institution's secret - an attacker cannot forge it.
     const [owner] = await query(
       `SELECT institution_id FROM student_payments WHERE reference = ? OR paystack_reference = ?
        UNION
@@ -905,14 +905,14 @@ const handleWebhook = async (req, res, next) => {
     );
 
     if (!owner) {
-      // Unknown reference — acknowledge so Paystack stops retrying, but take no action.
+      // Unknown reference - acknowledge so Paystack stops retrying, but take no action.
       console.warn('[WEBHOOK] Received event for unknown payment reference');
       return res.status(200).json({ success: true });
     }
 
     const institutionId = owner.institution_id;
 
-    // Load that institution's Paystack secret (decrypted). No global fallback —
+    // Load that institution's Paystack secret (decrypted). No global fallback -
     // a system-wide key must never be used to verify a tenant's webhook.
     const Institution = require('../models/Institution');
     const institution = await Institution.findById(parseInt(institutionId), true);
@@ -920,7 +920,7 @@ const handleWebhook = async (req, res, next) => {
 
     if (!paystackSecretKey) {
       console.error('[WEBHOOK] Paystack not configured for the owning institution');
-      // Transient from Paystack's perspective — allow retry after configuration is fixed.
+      // Transient from Paystack's perspective - allow retry after configuration is fixed.
       return res.status(500).json({ success: false, message: 'Paystack not configured' });
     }
 
@@ -997,7 +997,7 @@ const handleWebhook = async (req, res, next) => {
           [data.reference, data.reference, parseInt(institutionId)]
         );
       } else {
-        // No student_payments record yet — check pending_transactions (missed-callback recovery)
+        // No student_payments record yet - check pending_transactions (missed-callback recovery)
         const [pendingTx] = await query(
           `SELECT * FROM pending_transactions
            WHERE (reference = ? OR paystack_reference = ?) AND institution_id = ? AND status = 'pending'`,
@@ -1044,7 +1044,7 @@ const handleWebhook = async (req, res, next) => {
 
     res.status(200).json({ success: true });
   } catch (error) {
-    // Transient/unexpected failure — return 5xx so Paystack retries delivery.
+    // Transient/unexpected failure - return 5xx so Paystack retries delivery.
     console.error('[WEBHOOK] Processing error:', error.message);
     res.status(500).json({ success: false });
   }

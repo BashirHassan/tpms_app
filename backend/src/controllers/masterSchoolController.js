@@ -559,7 +559,7 @@ const merge = async (req, res, next) => {
           );
 
           if (targetLinks.length === 0) {
-            // No conflict — just repoint this institution's link to the target
+            // No conflict - just repoint this institution's link to the target
             await conn.execute(
               'UPDATE institution_schools SET master_school_id = ? WHERE id = ?',
               [target_id, sourceLink.id]

@@ -146,7 +146,7 @@ function AppRoutes() {
 
   // Institution subdomain shows main app
   // Suspense boundaries are inside each layout (AdminLayout, StudentLayout, PublicLayout)
-  // so sidebar/navbar persist during page transitions — true SPA feel
+  // so sidebar/navbar persist during page transitions - true SPA feel
   return (
     <>
     {/* <RouteProgressBar /> */}

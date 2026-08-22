@@ -6,7 +6,7 @@
  *   ENCRYPTION_KEY_LEGACY = OLD key (so existing data can still be decrypted)
  *
  * For every encrypted value it decrypts (dual-key resolves old or new) and
- * re-encrypts under the new primary key. Idempotent — running it again decrypts
+ * re-encrypts under the new primary key. Idempotent - running it again decrypts
  * the now-new value and re-encrypts it to new again.
  *
  * After it completes successfully and you have verified the app, REMOVE
@@ -46,7 +46,7 @@ async function reencryptStudentPins() {
     const plain = enc.decryptStudentPin(row.pin_encrypted);
     if (plain === null) {
       skipped += 1;
-      console.warn(`  [students] id=${row.id} could not be decrypted — skipped`);
+      console.warn(`  [students] id=${row.id} could not be decrypted - skipped`);
       continue;
     }
     await query('UPDATE students SET pin_encrypted = ? WHERE id = ?', [
@@ -70,7 +70,7 @@ async function reencryptInstitutionField(column) {
       plain = enc.decrypt(row.val);
     } catch (error) {
       skipped += 1;
-      console.warn(`  [institutions.${column}] id=${row.id} could not be decrypted — skipped`);
+      console.warn(`  [institutions.${column}] id=${row.id} could not be decrypted - skipped`);
       continue;
     }
     await query(`UPDATE institutions SET \`${column}\` = ? WHERE id = ?`, [enc.encrypt(plain), row.id]);
@@ -93,7 +93,7 @@ async function reencryptSsoSecrets() {
         plain = enc.decrypt(stored);
       } catch (error) {
         skipped += 1;
-        console.warn(`  [sso_partners] id=${row.id} could not be decrypted — skipped`);
+        console.warn(`  [sso_partners] id=${row.id} could not be decrypted - skipped`);
         continue;
       }
     } else {

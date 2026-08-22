@@ -24,7 +24,7 @@
 
 ---
 
-## Phase 1 — Foundation & Core Architecture
+## Phase 1 - Foundation & Core Architecture
 
 > **Goal:** Establish DigitalTP backbone, governance, and multi-tenancy isolation
 
@@ -103,7 +103,7 @@
 
 ---
 
-## Phase 2 — Academic & Human Data Core
+## Phase 2 - Academic & Human Data Core
 
 > **Goal:** Build immutable academic and human resource primitives
 
@@ -164,7 +164,7 @@
 
 ---
 
-## Phase 3 — Schools, Routes & Sessions Engine
+## Phase 3 - Schools, Routes & Sessions Engine
 
 > **Goal:** Define teaching practice environment & constraints
 
@@ -224,7 +224,7 @@
 
 ---
 
-## Phase 4 — Student Portal & Acceptance Workflow
+## Phase 4 - Student Portal & Acceptance Workflow
 
 > **Goal:** Secure student self-service with strict gatekeeping
 
@@ -286,7 +286,7 @@
 
 ---
 
-## Phase 5 — Posting, Allowances & Documents
+## Phase 5 - Posting, Allowances & Documents
 
 > **Goal:** Automate posting and official documentation
 
@@ -342,7 +342,7 @@
 
 ---
 
-## Phase 6 — Monitoring, Scoring & Reporting
+## Phase 6 - Monitoring, Scoring & Reporting
 
 > **Goal:** Oversight, accountability, and performance insight
 
@@ -382,7 +382,7 @@
 
 ---
 
-## Phase 7 — System Hardening & SaaS Readiness
+## Phase 7 - System Hardening & SaaS Readiness
 
 > **Goal:** Production-grade DigitalTP
 
@@ -422,4 +422,4 @@
 | Sequential Execution | Phases must be executed sequentially |
 | No Hardcoding | Posting & grouping engines must not be hardcoded |
 | Non-Negotiable | Posting Letter Engine is a core requirement |
-| Extend, Don't Hack | Avoid one-off logic — extend core engines only |
+| Extend, Don't Hack | Avoid one-off logic - extend core engines only |

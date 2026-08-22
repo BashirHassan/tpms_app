@@ -81,14 +81,14 @@ function clearPublicIdCache(publicId = null) {
 }
 
 /**
- * Express router.param() handler — resolves public_id in :institutionId to an
+ * Express router.param() handler - resolves public_id in :institutionId to an
  * integer string so all downstream parseInt() calls work unchanged.
  *
  * Usage in a route file:
  *   router.param('institutionId', resolveInstitutionIdParam);
  */
 async function resolveInstitutionIdParam(req, res, next, value) {
-  // Plain integer string — pass through unchanged (backward compat / admin tools)
+  // Plain integer string - pass through unchanged (backward compat / admin tools)
   if (/^\d+$/.test(value)) return next();
 
   // Must be a 32-char hex public_id

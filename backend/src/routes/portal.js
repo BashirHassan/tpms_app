@@ -56,7 +56,7 @@ router.get('/portal/payments/pending', authenticate, studentOnly, paymentControl
 router.post('/portal/payments/initialize', authenticate, studentOnly, paymentController.initializeStudentPayment);
 router.post('/portal/payments/verify', authenticate, studentOnly, paymentController.verifyStudentPayment);
 
-// School update portal routes — student auth; institution comes from JWT
+// School update portal routes - student auth; institution comes from JWT
 // Thin adapters: inject institutionId from student JWT into req.params then forward to publicController
 function withStudentInstitution(fn) {
   return (req, res, next) => {

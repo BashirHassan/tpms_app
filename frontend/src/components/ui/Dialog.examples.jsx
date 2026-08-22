@@ -4,7 +4,7 @@
  * This file demonstrates various ways to use the reusable Dialog component
  * in the DigitalTP system.
  *
- * Reference only — nothing here is rendered, so the illustrative console
+ * Reference only - nothing here is rendered, so the illustrative console
  * output stands in for real handlers.
  */
 /* eslint-disable no-console */

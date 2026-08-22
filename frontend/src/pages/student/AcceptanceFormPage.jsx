@@ -770,7 +770,7 @@ function SchoolRegistrationBanner({ registrationRequest, onOpenRequestModal }) {
       <div className="flex items-start gap-2 sm:gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
         <IconCheck className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
         <p className="text-xs sm:text-sm text-green-800">
-          Your request for <strong>{registrationRequest.name}</strong> was approved — search for it above to select it.
+          Your request for <strong>{registrationRequest.name}</strong> was approved - search for it above to select it.
         </p>
       </div>
     );

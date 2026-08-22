@@ -195,7 +195,7 @@ const create = async (req, res, next) => {
     const normalizedRegNumber = registration_number.toUpperCase().trim();
     const normalizedFullName = full_name.toUpperCase().trim();
 
-    // Require an active session — no session means we cannot enroll students
+    // Require an active session - no session means we cannot enroll students
     const sessionRows = await query(
       'SELECT id FROM academic_sessions WHERE institution_id = ? AND is_current = 1',
       [parseInt(institutionId)]
@@ -246,7 +246,7 @@ const create = async (req, res, next) => {
     const pinHash = await hashPassword(pin);
     const pinEncrypted = encryptStudentPin(pin);
 
-    // INSERT IGNORE — silently skips if (institution_id, registration_number, session_id) already exists
+    // INSERT IGNORE - silently skips if (institution_id, registration_number, session_id) already exists
     const result = await query(
       `INSERT IGNORE INTO students (institution_id, program_id, session_id, registration_number,
                                     full_name, pin_hash, pin_encrypted, status, payment_status)
@@ -258,7 +258,7 @@ const create = async (req, res, next) => {
     if (result.affectedRows === 0) {
       return res.status(200).json({
         success: true,
-        message: 'Student already enrolled in the current session — no changes made.',
+        message: 'Student already enrolled in the current session - no changes made.',
         data: null,
       });
     }
@@ -599,7 +599,7 @@ const uploadFromExcel = async (req, res, next) => {
       }
     }
 
-    // Check for duplicates within file — O(n) with a Set instead of O(n²) indexOf
+    // Check for duplicates within file - O(n) with a Set instead of O(n²) indexOf
     const seenInFile = new Set();
     const duplicatesInFileSet = new Set();
     for (const rn of validStudents.map(s => s.registration_number)) {
@@ -618,7 +618,7 @@ const uploadFromExcel = async (req, res, next) => {
       }
     }
 
-    // Check for duplicates in the current session only — students from other sessions can re-enrol
+    // Check for duplicates in the current session only - students from other sessions can re-enrol
     const existingStudents = await query(
       'SELECT registration_number FROM students WHERE institution_id = ? AND session_id = ?',
       [parseInt(institutionId), currentSessionId]
@@ -723,7 +723,7 @@ const uploadFromExcel = async (req, res, next) => {
         pinEncrypted: null,
       }));
 
-      // Step 2: Hash PINs in parallel — bcrypt runs in libuv worker threads so
+      // Step 2: Hash PINs in parallel - bcrypt runs in libuv worker threads so
       // concurrent hashing is genuinely faster than sequential.
       // Chunks of 10 keep the worker-thread queue from growing unbounded.
       const HASH_CONCURRENCY = 10;
@@ -736,7 +736,7 @@ const uploadFromExcel = async (req, res, next) => {
         );
       }
 
-      // Step 3: Single bulk INSERT — one round trip instead of N
+      // Step 3: Single bulk INSERT - one round trip instead of N
       const valuePlaceholders = batch.map(() => "(?, ?, ?, ?, ?, ?, ?, 'active', 'pending')").join(', ');
       const flatValues = batch.flatMap(({ student, program, pinHash, pinEncrypted }) => [
         parseInt(institutionId),

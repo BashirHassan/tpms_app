@@ -211,7 +211,7 @@ function EvaluationFormPage() {
 
   return (
     <div className="space-y-3 sm:space-y-4 px-1">
-      {/* Action Buttons — hidden on print */}
+      {/* Action Buttons - hidden on print */}
       <div className="flex items-center justify-between gap-2 max-w-[210mm] mx-auto print:hidden">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Evaluation Form</h1>
@@ -265,7 +265,7 @@ function EvaluationFormPage() {
                 STUDENT-TEACHER EVALUATION FORM
               </h2>
               <p className="text-center text-xs text-gray-500 mb-4">
-                Teaching Practice — {session?.name || new Date().getFullYear()}
+                Teaching Practice - {session?.name || new Date().getFullYear()}
               </p>
 
               {/* Student details */}

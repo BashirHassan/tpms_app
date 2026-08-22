@@ -137,7 +137,7 @@ function StudentsPage() {
           total: response.data.pagination?.total,
         };
       },
-      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+      { onError: () => toast.error('Could not load all pages - exported the current page instead') }
     ),
     [filterParams, toast]
   );
@@ -1001,7 +1001,7 @@ function StudentsPage() {
                               {row.program ? (
                                 <Badge variant="success" size="sm">{row.program.name || row.program.code}</Badge>
                               ) : row.status === 'valid' ? (
-                                <span className="text-gray-400 text-xs">—</span>
+                                <span className="text-gray-400 text-xs">-</span>
                               ) : null}
                             </td>
                             <td className="px-3 py-1.5">

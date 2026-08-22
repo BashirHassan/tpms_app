@@ -271,7 +271,7 @@ function generateOfficialCode(name) {
     const location = words.slice(locationStart).join(' ');
     code = `${prefix} ${location}`;
   } else if (words.length <= 3) {
-    // No descriptor words found — it's a named institution (e.g. "BAPTIST ACADEMY GOMBE")
+    // No descriptor words found - it's a named institution (e.g. "BAPTIST ACADEMY GOMBE")
     // Use first letter of each word + last word
     code = words.map(w => w[0]).join('') + (words.length > 1 ? ' ' + words.slice(-1)[0] : '');
   } else {
@@ -604,7 +604,7 @@ INSERT INTO master_schools (
     if (links.length === 0) continue;
     const instName = institutionNames[instId];
     linkSql += `-- ═══════════════════════════════════════════════════════════════════════
--- ${instName} (institution_id = ${instId}) — ${links.length} schools
+-- ${instName} (institution_id = ${instId}) - ${links.length} schools
 -- ═══════════════════════════════════════════════════════════════════════
 
 INSERT INTO institution_schools (

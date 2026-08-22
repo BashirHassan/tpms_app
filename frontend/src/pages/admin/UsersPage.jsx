@@ -152,7 +152,7 @@ function UsersPage() {
           total: response.data?.pagination?.total,
         };
       },
-      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+      { onError: () => toast.error('Could not load all pages - exported the current page instead') }
     ),
     [filterParams, toast]
   );
@@ -433,7 +433,7 @@ function UsersPage() {
       header: 'File No.',
       render: (value, row) => row ? (
         <span className="text-gray-600 text-sm font-mono">
-          {row.file_number || <span className="text-gray-400 italic">—</span>}
+          {row.file_number || <span className="text-gray-400 italic">-</span>}
         </span>
       ) : null
     },

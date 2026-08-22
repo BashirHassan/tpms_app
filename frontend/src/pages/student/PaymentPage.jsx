@@ -188,7 +188,7 @@ function PaymentPage() {
           });
         }
 
-        // Load unverified payment attempts (silent — supplementary)
+        // Load unverified payment attempts (silent - supplementary)
         try {
           const pendingRes = await paymentsApi.getPendingTransactions(portal.session.id);
           setPendingTransactions(pendingRes.data.data || []);
@@ -483,7 +483,7 @@ function PaymentPage() {
         {/* Left Column - Payment Status & Actions */}
         <div className="lg:col-span-2 space-y-4">
 
-          {/* Unverified Payments Card — hidden once a successful transaction exists */}
+          {/* Unverified Payments Card - hidden once a successful transaction exists */}
           {pendingTransactions.length > 0 && !hasSuccessfulPayment && (
             <div className="rounded-2xl border border-amber-100 bg-amber-50/50 p-5 shadow-sm">
               <div className="flex items-center gap-3 mb-3">

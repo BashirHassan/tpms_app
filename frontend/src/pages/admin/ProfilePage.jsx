@@ -103,7 +103,7 @@ function ProfilePage() {
 
     const payload = buildProfilePayload();
 
-    // Email is changing — open password confirmation dialog
+    // Email is changing - open password confirmation dialog
     if (payload.email && payload.email !== user?.email) {
       confirmWithAction(
         {

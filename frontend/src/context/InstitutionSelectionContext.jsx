@@ -190,7 +190,7 @@ export function InstitutionSelectionProvider({ children, user }) {
     }
   }, [user?.id, userInstitution, setInstitutionFromData, clearInstitution]);
 
-  // Memoized so consumers can safely list these in hook dependency arrays —
+  // Memoized so consumers can safely list these in hook dependency arrays -
   // an object literal here would be a new reference on every provider render.
   const value = useMemo(
     () => ({

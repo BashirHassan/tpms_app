@@ -19479,7 +19479,7 @@
        * Walks text/comment/CDATA/processing-instruction nodes and mutates `.data`
        * in place rather than round-tripping through innerHTML. This preserves
        * descendant node references (important for IN_PLACE callers), avoids a
-       * serialize/reparse cycle, and reads literal character data — which means
+       * serialize/reparse cycle, and reads literal character data - which means
        * `<%...%>` in text content matches the ERB regex against its real bytes
        * instead of the HTML-entity-escaped form innerHTML would produce.
        *
@@ -19749,7 +19749,7 @@
             // Prefix the value and later re-create the attribute with the sanitized value
             value = SANITIZE_NAMED_PROPS_PREFIX + value;
           }
-          // Else: already prefixed, leave the attribute alone — the prefix is
+          // Else: already prefixed, leave the attribute alone - the prefix is
           // itself the clobbering protection, and re-applying it is incorrect.
           /* Work around a security issue with comments inside attributes */
           if (SAFE_FOR_XML && regExpTest(/((--!?|])>)|<\/(style|script|title|xmp|textarea|noscript|iframe|noembed|noframes)/i, value)) {
@@ -19866,7 +19866,7 @@
        *
        * This pass runs once, up front, so the main iteration loop (and the
        * existing _sanitizeShadowDOM template-content recursion) stay
-       * untouched — string-input paths are not affected.
+       * untouched - string-input paths are not affected.
        *
        * @param root the subtree root to walk for attached shadow roots
        */

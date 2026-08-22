@@ -162,7 +162,7 @@ export function InstitutionProvider({ children }) {
     localStorage.removeItem('institution');
   }, []);
 
-  // Memoized so consumers can safely list these in hook dependency arrays —
+  // Memoized so consumers can safely list these in hook dependency arrays -
   // an object literal here would be a new reference on every provider render.
   const value = useMemo(
     () => ({

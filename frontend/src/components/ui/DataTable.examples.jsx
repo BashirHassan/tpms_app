@@ -4,7 +4,7 @@
  * This file demonstrates how to use the DataTable component
  * across different scenarios in the application.
  *
- * Reference only — nothing here is rendered, so the example components and
+ * Reference only - nothing here is rendered, so the example components and
  * their illustrative setters are intentionally never called.
  */
 /* eslint-disable no-unused-vars, no-console */

@@ -1,5 +1,5 @@
 /**
- * Student Portal — Location Update Page
+ * Student Portal - Location Update Page
  * Authenticated students can suggest school GPS coordinate updates.
  * Institution is derived from the student's JWT (no public subdomain logic needed).
  */
@@ -469,10 +469,10 @@ export default function StudentLocationUpdatePage() {
                       return (
                         <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm ${cls}`}>
                           <span className="font-medium">GPS accuracy: ±{locationAccuracy} m</span>
-                          <span className="font-semibold">— {label}</span>
+                          <span className="font-semibold">- {label}</span>
                           {!withinLimit && (
                             <span className="text-xs ml-1">
-                              (max allowed: ±{maxAllowed} m — move outdoors and try again)
+                              (max allowed: ±{maxAllowed} m - move outdoors and try again)
                             </span>
                           )}
                         </div>

@@ -25,7 +25,7 @@ import {
   IconRefresh,
 } from '@tabler/icons-react';
 
-// Tab singular name mapping — module scope so it keeps a stable identity
+// Tab singular name mapping - module scope so it keeps a stable identity
 // across renders and can be listed in hook dependency arrays
 const singularTab = { faculties: 'faculty', departments: 'department', programs: 'program' };
 

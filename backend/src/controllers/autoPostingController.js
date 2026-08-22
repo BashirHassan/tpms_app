@@ -125,7 +125,7 @@ async function getEligibleSupervisors(institutionId, sessionId, priorityEnabled,
  * Get available school slots for auto-posting
  * Returns all school + group + visit combinations that are not yet assigned
  * 
- * IMPORTANT: Groups are derived from the student_acceptances table — there is no
+ * IMPORTANT: Groups are derived from the student_acceptances table - there is no
  * separate table for them. Groups are determined by counting approved student
  * acceptances per school per group_number.
  * Secondary/merged groups are excluded as they get dependent postings automatically.

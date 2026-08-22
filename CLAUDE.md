@@ -36,9 +36,9 @@ Access the frontend at `http://{slug}.localhost:5173` (e.g., `http://demo.localh
 
 ## Architecture
 
-### Multi-Tenancy — Core Rule
+### Multi-Tenancy - Core Rule
 
-Shared-schema model: all tenants share the same MySQL database. Every tenant-scoped table has an `institution_id` column. **Every query must include `WHERE institution_id = ?`** — omitting it is a data leak.
+Shared-schema model: all tenants share the same MySQL database. Every tenant-scoped table has an `institution_id` column. **Every query must include `WHERE institution_id = ?`** - omitting it is a data leak.
 
 ```javascript
 // ✅ Correct
@@ -48,7 +48,7 @@ const students = await query(
   [parseInt(institutionId)]
 );
 
-// ❌ Wrong — no institution_id filter
+// ❌ Wrong - no institution_id filter
 await query('SELECT * FROM students WHERE status = ?', ['active']);
 ```
 
@@ -137,13 +137,13 @@ const create = async (req, res, next) => {
 
 Direct SQL via [backend/src/db/database.js](backend/src/db/database.js):
 
-- `query(sql, params)` — execute and return all rows
-- `queryOne(sql, params)` — return first row or null
-- `transaction(async (conn) => { ... })` — auto commit/rollback
-- `findById(table, id, institutionId)` — institution-scoped lookup
+- `query(sql, params)` - execute and return all rows
+- `queryOne(sql, params)` - return first row or null
+- `transaction(async (conn) => { ... })` - auto commit/rollback
+- `findById(table, id, institutionId)` - institution-scoped lookup
 - `insert(table, data)`, `updateById(table, id, institutionId, data)`, `deleteById(table, id, institutionId)`
 
-All queries use `?` placeholders — never string interpolation.
+All queries use `?` placeholders - never string interpolation.
 
 Migrations live in `backend/database/migrations/` numbered sequentially (e.g., `035_feature_name.sql`). Run with `npm run migrate` from `/backend`.
 
@@ -155,14 +155,14 @@ Provider hierarchy (outermost → innermost):
 AuthProvider → InstitutionSelectionProvider → InstitutionProvider → ToastProvider → Routes
 ```
 
-- `AuthContext` — JWT/user management, tab-scoped via `sessionStorage` (`tabStorage` utils), enabling multi-account per-browser
-- `InstitutionSelectionContext` — active institution resolved from subdomain (separate from auth)
-- `InstitutionContext` — institution branding, config, feature flags
-- `ToastContext` — global notification toasts
+- `AuthContext` - JWT/user management, tab-scoped via `sessionStorage` (`tabStorage` utils), enabling multi-account per-browser
+- `InstitutionSelectionContext` - active institution resolved from subdomain (separate from auth)
+- `InstitutionContext` - institution branding, config, feature flags
+- `ToastContext` - global notification toasts
 
 ### Frontend API Calls
 
-Prefer the `useInstitutionApi` hook inside components — it auto-prefixes with `/:institutionId`:
+Prefer the `useInstitutionApi` hook inside components - it auto-prefixes with `/:institutionId`:
 
 ```jsx
 import { useInstitutionApi } from '../hooks/useInstitutionApi';
@@ -185,7 +185,7 @@ const api = createStudentsApi(institutionId);
 const students = await api.getAll();
 ```
 
-The raw Axios client at `frontend/src/api/client.js` auto-attaches `Authorization`, `X-Subdomain`, and `X-Tab-Id` headers. API response shape: `response.data.data` for the payload, `response.data.pagination` for pagination — the interceptor does **not** unwrap `data.data`.
+The raw Axios client at `frontend/src/api/client.js` auto-attaches `Authorization`, `X-Subdomain`, and `X-Tab-Id` headers. API response shape: `response.data.data` for the payload, `response.data.pagination` for pagination - the interceptor does **not** unwrap `data.data`.
 
 ### Frontend Routing
 
@@ -209,9 +209,9 @@ See `frontend/ICON_GUIDELINES.md` for the full icon reference.
 
 | Service | Purpose |
 | --- | --- |
-| `emailService` | Direct send — for critical emails (password reset, time-sensitive) |
-| `emailQueueService` | Async with retry — for bulk/non-urgent emails |
-| `encryptionService` | AES-256-GCM — student PINs and sensitive API keys |
+| `emailService` | Direct send - for critical emails (password reset, time-sensitive) |
+| `emailQueueService` | Async with retry - for bulk/non-urgent emails |
+| `encryptionService` | AES-256-GCM - student PINs and sensitive API keys |
 | `cloudinaryService` | Image/document uploads for acceptances and results |
 | `paystackService` | Payment gateway integration |
 | `documentService` | PDF generation (PDFKit + QR codes) |
@@ -256,17 +256,17 @@ const result = await cloudinaryService.uploadImage(req.file, {
 
 ## Common Gotchas
 
-1. **`super_admin` has no institution** — must select one via the institution switcher or use `/api/global/*` routes
-2. **Students authenticate differently** — registration number + PIN, not email + password
-3. **Institution context ≠ authentication** — a user can be authenticated but have no institution selected
-4. **Feature toggles are per-institution** — check with `isFeatureEnabled('feature_key')` before using
-5. **Legacy Repository pattern is gone** — use direct SQL with `database.js` helpers
+1. **`super_admin` has no institution** - must select one via the institution switcher or use `/api/global/*` routes
+2. **Students authenticate differently** - registration number + PIN, not email + password
+3. **Institution context ≠ authentication** - a user can be authenticated but have no institution selected
+4. **Feature toggles are per-institution** - check with `isFeatureEnabled('feature_key')` before using
+5. **Legacy Repository pattern is gone** - use direct SQL with `database.js` helpers
 
 ## Key Architecture Docs
 
-- `docs/MEDEEPAY_PATTERN_MIGRATION.md` — URL-path tenancy pattern details
-- `docs/PRD.md` — Feature requirements by phase
-- `docs/DOCUMENT_TEMPLATE_SYSTEM.md` — Template placeholder reference
+- `docs/MEDEEPAY_PATTERN_MIGRATION.md` - URL-path tenancy pattern details
+- `docs/PRD.md` - Feature requirements by phase
+- `docs/DOCUMENT_TEMPLATE_SYSTEM.md` - Template placeholder reference
 
 ## Environment
 

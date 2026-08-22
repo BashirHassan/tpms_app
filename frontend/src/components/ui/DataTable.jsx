@@ -156,7 +156,7 @@ const ExportModal = ({
     setSelectedColumns([]);
   };
 
-  // Stay open until the export finishes so the progress below is visible —
+  // Stay open until the export finishes so the progress below is visible -
   // a large export is many sequential requests and needs to look like work.
   const handleExport = async () => {
     const columnsToExport = exportableColumns.filter((col) =>
@@ -237,7 +237,7 @@ const ExportModal = ({
 
           <p className="mt-2 text-xs text-gray-400">
             {percent == null
-              ? 'Large exports are fetched in batches — this can take a moment.'
+              ? 'Large exports are fetched in batches - this can take a moment.'
               : `${percent}% complete`}
           </p>
         </div>
@@ -485,7 +485,7 @@ const DataTable = forwardRef(function DataTable(
     headerActionsLeft,
     headerActionsRight,
 
-    // Virtual scrolling — enable for tables with 500+ rows
+    // Virtual scrolling - enable for tables with 500+ rows
     virtualScrolling = false,
     virtualRowHeight = 48,
   },

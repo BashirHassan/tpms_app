@@ -59,7 +59,7 @@ const getAPIKeys = async (req, res, next) => {
     }
 
     // Get partner credentials (there should be at most one per institution)
-    // NOTE: the secret key is never returned here — only the hint. The full key
+    // NOTE: the secret key is never returned here - only the hint. The full key
     // is shown exactly once, at create/regenerate time.
     const [partner] = await query(
       `SELECT id, partner_id, secret_key_hint, name, allowed_origins, is_enabled, created_at, updated_at

@@ -203,7 +203,7 @@ function AdminResultsPage() {
       }));
 
       // Update session info with max visits. Uses the functional form so this
-      // doesn't close over sessionInfo — depending on a value it also replaces
+      // doesn't close over sessionInfo - depending on a value it also replaces
       // would retrigger the effect that calls it, forever.
       setSessionInfo(prev => (prev ? { ...prev, max_supervision_visits: data.maxVisits } : prev));
 
@@ -251,7 +251,7 @@ function AdminResultsPage() {
         const data = response.data.data || response.data || {};
         return { rows: data.data || [], total: data.pagination?.total };
       },
-      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+      { onError: () => toast.error('Could not load all pages - exported the current page instead') }
     ),
     [resultFilterParams, toast]
   );

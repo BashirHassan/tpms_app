@@ -57,7 +57,7 @@ export function ToastProvider({ children }) {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
   }, []);
 
-  // Memoized so consumers can safely list `toast` in hook dependency arrays —
+  // Memoized so consumers can safely list `toast` in hook dependency arrays -
   // an object literal here would be a new reference on every provider render
   // (i.e. every time a toast is shown or dismissed) and would retrigger effects.
   const toast = useMemo(

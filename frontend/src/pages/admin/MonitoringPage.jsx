@@ -81,7 +81,7 @@ function MonitoringPage() {
     loading: false,
   });
 
-  // Effects live below the callbacks they depend on — a dep array is evaluated
+  // Effects live below the callbacks they depend on - a dep array is evaluated
   // during render, so referencing a `const` declared later would throw.
 
 
@@ -106,7 +106,7 @@ function MonitoringPage() {
 
   // Open the assign dialog with a clean form. The Assign button lives in the page
   // header so it can be pressed from any tab, but fetchData only loads monitors and
-  // unassigned schools on the assignments tab — load them here so the dialog is never
+  // unassigned schools on the assignments tab - load them here so the dialog is never
   // empty.
   const openAssignModal = useCallback(async () => {
     const monitoringType = 'supervision_evaluation';
@@ -1191,7 +1191,7 @@ function MonitoringPage() {
                 </div>
                 {filteredSchools.length > visibleSchools.length && (
                   <p className="text-xs text-gray-500 mt-1">
-                    Showing {visibleSchools.length} of {filteredSchools.length} matches — refine your search to narrow the list.
+                    Showing {visibleSchools.length} of {filteredSchools.length} matches - refine your search to narrow the list.
                   </p>
                 )}
                 {assignForm.school_ids.length > 0 && (

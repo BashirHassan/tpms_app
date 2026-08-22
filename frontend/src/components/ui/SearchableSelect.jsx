@@ -182,7 +182,7 @@ const SearchableSelect = React.forwardRef(
       onClose?.();
     }, [onClose]);
 
-    // Handle click outside to close — declared after handleClose so the dep
+    // Handle click outside to close - declared after handleClose so the dep
     // array isn't evaluated before the callback exists
     useEffect(() => {
       const handleClickOutside = (event) => {

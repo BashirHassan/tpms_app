@@ -126,7 +126,7 @@ function AdminLocationLogsPage() {
           total: response.data.pagination?.total,
         };
       },
-      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+      { onError: () => toast.error('Could not load all pages - exported the current page instead') }
     ),
     [filterParams, toast]
   );

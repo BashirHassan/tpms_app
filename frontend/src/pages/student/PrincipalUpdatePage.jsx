@@ -1,5 +1,5 @@
 /**
- * Student Portal — Principal Update Page
+ * Student Portal - Principal Update Page
  * Authenticated students can suggest school principal detail updates.
  * Institution is derived from the student's JWT (no public subdomain logic needed).
  */

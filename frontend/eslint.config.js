@@ -53,7 +53,7 @@ export default [
       ],
       // Disallow native alert, confirm, and prompt
       'no-alert': 'error',
-      // Additional helpful rules — debug is allowed for intentional low-noise
+      // Additional helpful rules - debug is allowed for intentional low-noise
       // diagnostics (hidden by default in browser consoles)
       'no-console': ['warn', { allow: ['warn', 'error', 'debug'] }],
       'react/prop-types': 'off',

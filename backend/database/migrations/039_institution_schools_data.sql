@@ -11,7 +11,7 @@
 --   FUK (Federal University Kashere) = 3
 
 -- ═══════════════════════════════════════════════════════════════════════
--- FCETG (institution_id = 1) — 416 schools
+-- FCETG (institution_id = 1) - 416 schools
 -- ═══════════════════════════════════════════════════════════════════════
 
 INSERT INTO institution_schools (
@@ -436,7 +436,7 @@ INSERT INTO institution_schools (
 (1, (SELECT id FROM master_schools WHERE official_code = 'GSTC DEBA'), 'outside', 35, 30, 'active', 'Legacy ID: 307', NOW(), NOW());
 
 -- ═══════════════════════════════════════════════════════════════════════
--- GSU (institution_id = 2) — 530 schools
+-- GSU (institution_id = 2) - 530 schools
 -- ═══════════════════════════════════════════════════════════════════════
 
 INSERT INTO institution_schools (
@@ -975,7 +975,7 @@ INSERT INTO institution_schools (
 (2, (SELECT id FROM master_schools WHERE official_code = 'JI COMMUNITY SCIENCE SECONDARY SCHOOL, DEBA'), 'outside', 35, 30, 'active', 'Legacy ID: 528', NOW(), NOW());
 
 -- ═══════════════════════════════════════════════════════════════════════
--- FUK (institution_id = 3) — 436 schools
+-- FUK (institution_id = 3) - 436 schools
 -- ═══════════════════════════════════════════════════════════════════════
 
 INSERT INTO institution_schools (

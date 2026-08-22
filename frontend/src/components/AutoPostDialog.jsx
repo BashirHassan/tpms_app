@@ -39,7 +39,7 @@ const POSTING_TYPES = [
   {
     value: 'random',
     label: 'Any Location',
-    description: 'Schools are assigned wherever they fall — no geographic grouping',
+    description: 'Schools are assigned wherever they fall - no geographic grouping',
     icon: IconUsers,
   },
   {
@@ -169,7 +169,7 @@ function AutoPostDialog({
         <ul className="text-sm text-amber-700 list-disc list-inside max-h-32 overflow-y-auto">
           {(statistics.repeat_school_details || []).map((r) => (
             <li key={`${r.supervisor_id}-${r.school_id}`}>
-              {r.supervisor_name} — {r.school_name}
+              {r.supervisor_name} - {r.school_name}
               {r.visit_numbers?.length > 0 && ` (Visit ${r.visit_numbers.join(', ')})`}
             </li>
           ))}
@@ -194,7 +194,7 @@ function AutoPostDialog({
         {noRank > 0 && (
           <div className="mb-2">
             <p className="text-sm text-amber-700">
-              <span className="font-medium">{noRank} supervisor(s) have no rank</span> — their
+              <span className="font-medium">{noRank} supervisor(s) have no rank</span> - their
               postings will calculate every allowance as zero.
             </p>
             <p className="text-xs text-amber-600 mt-0.5">
@@ -207,7 +207,7 @@ function AutoPostDialog({
         {noDistance > 0 && (
           <div>
             <p className="text-sm text-amber-700">
-              <span className="font-medium">{noDistance} school(s) have no distance set</span> —
+              <span className="font-medium">{noDistance} school(s) have no distance set</span> -
               they are treated as inside the threshold and pay local running only.
             </p>
             <p className="text-xs text-amber-600 mt-0.5">
@@ -277,7 +277,7 @@ function AutoPostDialog({
               <p className="text-xs text-gray-500 mt-2">
                 Priority accuracy: {Math.round((statistics.priority_correlation ?? 0) * 100)}%
                 {statistics.priority_tuning.attempts > 0 && (
-                  <> — strengthened over {statistics.priority_tuning.attempts} attempt(s) to improve the fit.</>
+                  <> - strengthened over {statistics.priority_tuning.attempts} attempt(s) to improve the fit.</>
                 )}
               </p>
             )}

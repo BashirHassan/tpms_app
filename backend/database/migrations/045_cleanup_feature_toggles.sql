@@ -32,7 +32,7 @@ DELETE FROM feature_toggles WHERE feature_key IN (
 -- ============================================================
 -- Step 2: Add missing letter_management
 -- letters.js calls requireFeature('letter_management') but this
--- key was never inserted — silent 403 on all letter routes.
+-- key was never inserted - silent 403 on all letter routes.
 -- ============================================================
 
 INSERT IGNORE INTO feature_toggles

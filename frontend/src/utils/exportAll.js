@@ -71,7 +71,7 @@ export async function fetchAllPages(fetchPage, options = {}) {
  */
 export function createExportAllHandler(fetchPage, options = {}) {
   // `onProgress` is supplied by DataTable at call time so it can drive its
-  // own progress UI — pages don't need to wire anything up for it.
+  // own progress UI - pages don't need to wire anything up for it.
   return async ({ rows, onProgress } = {}) => {
     try {
       return await fetchAllPages(fetchPage, { ...options, onProgress });

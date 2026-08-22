@@ -386,7 +386,7 @@ const approve = async (req, res, next) => {
         institutionSchoolId = linkResult.insertId;
       }
 
-      // Guard repeated in case the row lock semantics ever change — keeps
+      // Guard repeated in case the row lock semantics ever change - keeps
       // this update from silently re-approving.
       const [updateResult] = await conn.execute(
         `UPDATE school_registration_requests

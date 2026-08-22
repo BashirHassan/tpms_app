@@ -60,7 +60,7 @@ const TemplateEditor = ({
     if (onInsertPlaceholder) {
       // Expose as a callable function (insert) with a getContent method alongside it.
       // The parent calls ref.current(text) to insert, and ref.current.getContent() to
-      // read the editor's actual HTML at save time — bypassing React state which can
+      // read the editor's actual HTML at save time - bypassing React state which can
       // be stale if onEditorChange fired with normalised/degraded content during init.
       const fn = (text) => editorRef.current?.insertContent(text);
       fn.getContent = () => editorRef.current?.getContent() ?? '';

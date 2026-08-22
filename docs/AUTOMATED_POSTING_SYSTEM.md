@@ -32,9 +32,9 @@ This document outlines the implementation of an **automated posting system** tha
 
 ### The Allocation Engine
 
-The allocation strategy lives in `backend/src/services/autoPostingEngine.js` as pure functions — no database access — so it can be reasoned about and unit tested in isolation. The controller only fetches data, applies the dean allocation, and persists the result.
+The allocation strategy lives in `backend/src/services/autoPostingEngine.js` as pure functions - no database access - so it can be reasoned about and unit tested in isolation. The controller only fetches data, applies the dean allocation, and persists the result.
 
-**Constraint hierarchy.** Capacity, slot uniqueness and the dean ceiling are *hard* — never violated. Everything else is a weighted penalty, so the engine always returns the best achievable answer rather than refusing to fill a slot:
+**Constraint hierarchy.** Capacity, slot uniqueness and the dean ceiling are *hard* - never violated. Everything else is a weighted penalty, so the engine always returns the best achievable answer rather than refusing to fill a slot:
 
 | Weight | Constraint | Meaning |
 | --- | --- | --- |
@@ -44,13 +44,13 @@ The allocation strategy lives in `backend/src/services/autoPostingEngine.js` as 
 | 30 | `priority` | Distance accumulated away from the target for that rank |
 | 1 | `travel` | Distance ahead of the lightest peer (disabled when priority is on) |
 
-**Cluster planning.** For `route_based` / `lga_based`, the engine first decides which area each supervisor works on each visit. Areas get seats in proportion to their size, supervisors are seated to minimise the school repeats it would force, and then a pairwise pass swaps areas between supervisors while the total falls — which finds the rotation a sequential pass cannot (e.g. three supervisors cycling A→B→C between visits so none revisits a school).
+**Cluster planning.** For `route_based` / `lga_based`, the engine first decides which area each supervisor works on each visit. Areas get seats in proportion to their size, supervisors are seated to minimise the school repeats it would force, and then a pairwise pass swaps areas between supervisors while the total falls - which finds the rotation a sequential pass cannot (e.g. three supervisors cycling A→B→C between visits so none revisits a school).
 
 Without this stage the greedy always finds an idle supervisor cheapest, because their load term is zero, and the areas scatter. That is precisely how the earlier round-robin implementation behaved despite this document promising otherwise.
 
 **Load is measured within the planned area.** The plan settles balance *between* areas; charging a supervisor for getting ahead of someone working a different area would push them out of their own, leaking a route's last few schools.
 
-**Priority is a distance-share target, not per-slot matching.** Matching each slot to a rank cannot survive count balancing — once everyone must end up with a similar number of postings, each takes a slot from every distance band and the pairing washes out. Instead each rank targets a share of total distance (top rank aims for roughly twice the mean, the lowest for zero), and the cost is how far an assignment moves them from it. Senior staff accumulate the long journeys **without** taking more postings than anyone else.
+**Priority is a distance-share target, not per-slot matching.** Matching each slot to a rank cannot survive count balancing - once everyone must end up with a similar number of postings, each takes a slot from every distance band and the pairing washes out. Instead each rank targets a share of total distance (top rank aims for roughly twice the mean, the lowest for zero), and the cost is how far an assignment moves them from it. Senior staff accumulate the long journeys **without** taking more postings than anyone else.
 
 **Local search.** A bounded pass then swaps the supervisors of two assignments whenever the total cost strictly falls. Because a swap only exchanges who goes where, posting counts and capacity are untouched by construction, so the hard constraints survive optimisation automatically. Only penalised assignments are considered as swap candidates, and each swap is evaluated with an exact local delta rather than a global rebuild.
 
@@ -64,24 +64,24 @@ Without this stage the greedy always finds an idle supervisor cheapest, because 
 | Out-of-area trips (route_based) | 600 | **0** |
 | Posting count spread | 0 | 0–2 |
 | Travel spread (route_based) | 690 km | **345 km** |
-| Mean journey, most senior rank | — | 75.3 km |
-| Mean journey, most junior rank | — | 42.4 km |
+| Mean journey, most senior rank | - | 75.3 km |
+| Mean journey, most junior rank | - | 42.4 km |
 | Runtime | ~20 ms | ~275 ms |
 
-Posting counts stay level across rank bands (174 vs 168) while mean journey length falls monotonically with seniority — fair workload, distance allocated by rank.
+Posting counts stay level across rank bands (174 vs 168) while mean journey length falls monotonically with seniority - fair workload, distance allocated by rank.
 
 ### Reported Statistics
 
 Both preview and execute return, alongside the counts:
 
-- `affinity_breaks` — trips outside the supervisor's area for that visit
+- `affinity_breaks` - trips outside the supervisor's area for that visit
 - `repeat_school_assignments` / `repeat_school_details`
-- `load` — `{ min, max, stddev }` postings per supervisor
-- `travel_km` — `{ min, max, mean }` per supervisor
-- `distance_by_rank` — mean journey per rank band, the readable proof seniority is honoured
-- `local_search` — `{ swaps_applied, passes, cost_before, cost_after }`
-- `quota_skipped` — slots dropped because a dean's allocation did not cover them
-- `data_quality` — supervisors with no rank, schools with no distance
+- `load` - `{ min, max, stddev }` postings per supervisor
+- `travel_km` - `{ min, max, mean }` per supervisor
+- `distance_by_rank` - mean journey per rank band, the readable proof seniority is honoured
+- `local_search` - `{ swaps_applied, passes, cost_before, cost_after }`
+- `quota_skipped` - slots dropped because a dean's allocation did not cover them
+- `data_quality` - supervisors with no rank, schools with no distance
 
 ### Dean Posting Allocation
 
@@ -89,14 +89,14 @@ Auto-posting is bound by the same quota as manual multiposting. When the acting 
 
 ### School Variety Constraint
 
-A supervisor is posted to a given school **at most once per session** — across all visits *and* all groups. Sending the same person back to the same school for Visit 1, 2 and 3 defeats the purpose of multiple supervision visits.
+A supervisor is posted to a given school **at most once per session** - across all visits *and* all groups. Sending the same person back to the same school for Visit 1, 2 and 3 defeats the purpose of multiple supervision visits.
 
 How it is enforced in `runAutoPostingAlgorithm`:
 
-1. **History is seeded from the database.** `getSupervisorSchoolHistory()` builds `Map<supervisor_id, Set<institution_school_id>>` from every non-cancelled posting in the session — manual postings, earlier auto-posting batches, and merged/dependent postings all count.
+1. **History is seeded from the database.** `getSupervisorSchoolHistory()` builds `Map<supervisor_id, Set<institution_school_id>>` from every non-cancelled posting in the session - manual postings, earlier auto-posting batches, and merged/dependent postings all count.
 2. **Pass 1 (preferred).** For each slot, the round-robin scan skips any supervisor who already covers that school and takes the next one who has capacity and does not.
 3. **Pass 2 (last resort).** If *no* supervisor is free of that school, the slot goes to the least loaded supervisor with capacity, so unavoidable repeats are spread out rather than piled on one person. The assignment is flagged `repeat_school: true`.
-4. **Repair pass.** Greedy first-fit can create a repeat that a straight swap would remove. Two assignments exchange *only* their supervisor (each slot keeps its own school/group/visit, so posting counts and capacity are untouched) whenever each supervisor is entirely free of the other's school — which guarantees the total repeat count strictly decreases.
+4. **Repair pass.** Greedy first-fit can create a repeat that a straight swap would remove. Two assignments exchange *only* their supervisor (each slot keeps its own school/group/visit, so posting counts and capacity are untouched) whenever each supervisor is entirely free of the other's school - which guarantees the total repeat count strictly decreases.
 5. **Reporting.** `statistics.repeat_school_assignments` and `statistics.repeat_school_details` are returned by both preview and execute, and surfaced in the Auto-Post dialog alongside a warning.
 
 The round-robin pointer advances past the supervisor that was **chosen**, not on every failed attempt, so supervisors skipped by the school filter keep their place in the queue and distribution stays balanced.

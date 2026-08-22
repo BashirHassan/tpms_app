@@ -957,7 +957,7 @@ Duplicated relationships
 
 Tables created for abandoned features
 
-⚠️ Do not assume usefulness—prove usage in code.
+⚠️ Do not assume usefulness-prove usage in code.
 
 B. Tenant & Institution–Related Cleanup (High Priority)
 
@@ -1073,7 +1073,7 @@ Before finalizing:
 
 🧠 Database Design Principle (Non-Negotiable)
 
-If a table or column does not enforce a business rule, enable a feature, or improve performance—it should not exist.
+If a table or column does not enforce a business rule, enable a feature, or improve performance-it should not exist.
 
 ---
 

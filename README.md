@@ -1,6 +1,6 @@
-# DigitalTP — Teaching Practice Management System
+# DigitalTP - Teaching Practice Management System
 
-A multi-tenant SaaS platform that digitalises the full teaching practice lifecycle for colleges of education and universities. DigitalTP handles everything from student enrollment and school placements to supervisor postings, allowance calculations, payment processing, and official letter generation — all from a single, institution-branded web application.
+A multi-tenant SaaS platform that digitalises the full teaching practice lifecycle for colleges of education and universities. DigitalTP handles everything from student enrollment and school placements to supervisor postings, allowance calculations, payment processing, and official letter generation - all from a single, institution-branded web application.
 
 ---
 
@@ -37,31 +37,31 @@ DigitalTP replaces manual, paper-based teaching practice workflows with an integ
 
 | User | Role |
 |------|------|
-| Platform operators | Super admin — manage all institutions and global settings |
-| TP coordinators | Head of Teaching Practice — oversee postings, students, and staff |
-| Academic staff | Supervisors — receive postings, score students, log visits |
-| Field officers | Field/Lead Monitors — conduct on-site assessments |
-| Students | Self-service portal — pay fees, submit acceptance forms, download posting letters |
+| Platform operators | Super admin - manage all institutions and global settings |
+| TP coordinators | Head of Teaching Practice - oversee postings, students, and staff |
+| Academic staff | Supervisors - receive postings, score students, log visits |
+| Field officers | Field/Lead Monitors - conduct on-site assessments |
+| Students | Self-service portal - pay fees, submit acceptance forms, download posting letters |
 
 ---
 
 ## Key Features
 
-- **Multi-tenant architecture** — each institution gets an isolated workspace on its own subdomain with custom branding
-- **Student management** — bulk import via Excel with automatic program detection from registration numbers
-- **Posting engine** — automated and manual assignment of students to supervisors and practice schools
-- **Allowance calculation** — dynamic computation based on supervisor rank, distance, and visit count
-- **Payment processing** — Paystack integration for per-student fee collection with receipt generation
-- **Student portal** — PIN-based login for students to pay fees, submit acceptance forms, and download posting letters
-- **Acceptance forms** — digital student-school acceptance with photo/document upload to cloud storage
-- **PDF posting letters** — institution-branded letters with embedded QR codes for verification
-- **Supervisor location tracking** — geofencing-based check-in for on-site school visits
-- **Monitoring & assessment** — structured evaluations by field monitors
-- **Results & scoring** — performance scores recorded by supervisors per student
-- **Document templates** — customisable letter and document templates per institution
-- **Single Sign-On (SSO)** — seamless cross-subdomain navigation without re-authentication
-- **Feature toggles** — per-institution feature flags for phased rollouts
-- **Email notifications** — tenant-aware email dispatch with per-institution SMTP configuration
+- **Multi-tenant architecture** - each institution gets an isolated workspace on its own subdomain with custom branding
+- **Student management** - bulk import via Excel with automatic program detection from registration numbers
+- **Posting engine** - automated and manual assignment of students to supervisors and practice schools
+- **Allowance calculation** - dynamic computation based on supervisor rank, distance, and visit count
+- **Payment processing** - Paystack integration for per-student fee collection with receipt generation
+- **Student portal** - PIN-based login for students to pay fees, submit acceptance forms, and download posting letters
+- **Acceptance forms** - digital student-school acceptance with photo/document upload to cloud storage
+- **PDF posting letters** - institution-branded letters with embedded QR codes for verification
+- **Supervisor location tracking** - geofencing-based check-in for on-site school visits
+- **Monitoring & assessment** - structured evaluations by field monitors
+- **Results & scoring** - performance scores recorded by supervisors per student
+- **Document templates** - customisable letter and document templates per institution
+- **Single Sign-On (SSO)** - seamless cross-subdomain navigation without re-authentication
+- **Feature toggles** - per-institution feature flags for phased rollouts
+- **Email notifications** - tenant-aware email dispatch with per-institution SMTP configuration
 
 ---
 
@@ -338,15 +338,15 @@ DigitalTP uses a **shared-schema, subdomain-per-tenant** model:
 - Enables seamless cross-subdomain navigation without re-login
 
 **RBAC** is enforced by middleware on every route:
-- `authenticate` — verifies JWT
-- `requireInstitutionAccess()` — checks the user belongs to the institution in the URL
-- `authorize(...roles)` — checks the user's role against an allowlist
-- `staffOnly()` / `studentOnly()` — role category guards
-- `requireFeature(name)` — enforces per-institution feature flag
+- `authenticate` - verifies JWT
+- `requireInstitutionAccess()` - checks the user belongs to the institution in the URL
+- `authorize(...roles)` - checks the user's role against an allowlist
+- `staffOnly()` / `studentOnly()` - role category guards
+- `requireFeature(name)` - enforces per-institution feature flag
 
 ### API Design
 
-The API follows the **MedeePay Pattern** — institution ID is an explicit URL segment rather than derived from the token alone:
+The API follows the **MedeePay Pattern** - institution ID is an explicit URL segment rather than derived from the token alone:
 
 ```
 GET  /api/:institutionId/students
@@ -356,7 +356,7 @@ POST /api/:institutionId/postings
 ...
 ```
 
-This makes authorization decisions visible, auditable, and easy to test. All parameterised queries use `?` placeholders — no string interpolation.
+This makes authorization decisions visible, auditable, and easy to test. All parameterised queries use `?` placeholders - no string interpolation.
 
 **Route namespaces:**
 
@@ -379,7 +379,7 @@ This makes authorization decisions visible, auditable, and easy to test. All par
 | `supervisor` | View own postings; score students; log visits and location check-ins |
 | `field_monitor` | Submit monitoring assessments for assigned schools |
 | `lead_monitor` | Oversee field monitor assignments and monitoring reports |
-| `student` | Student portal only — payments, acceptance forms, posting letters |
+| `student` | Student portal only - payments, acceptance forms, posting letters |
 
 ---
 
@@ -536,7 +536,7 @@ npm run seed:students
 | Sensitive data encryption | AES-256-GCM (PINs, API keys) |
 | SQL injection | Parameterised queries throughout (no string interpolation) |
 | XSS | DOMPurify sanitisation on both client and server |
-| CSRF | Stateless JWT — no cookie-based sessions |
+| CSRF | Stateless JWT - no cookie-based sessions |
 | CORS | Configured allowed origins per environment |
 | Security headers | CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy |
 | Rate limiting | Per-IP request throttling on all API routes |

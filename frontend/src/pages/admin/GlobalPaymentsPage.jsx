@@ -166,12 +166,12 @@ function GlobalPaymentsPage() {
         const data = response.data.data || {};
         return { rows: data.payments || [], total: data.pagination?.total };
       },
-      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+      { onError: () => toast.error('Could not load all pages - exported the current page instead') }
     ),
     [search, selectedStatus, selectedInstitution, startDate, endDate, toast]
   );
 
-  // Covers the initial load and every filter change — fetchPayments' identity
+  // Covers the initial load and every filter change - fetchPayments' identity
   // already tracks the filters, so a separate mount effect would double-fetch.
   useEffect(() => {
     const timer = setTimeout(() => {

@@ -243,7 +243,7 @@ sudo systemctl reload nginx
 
 ## 6. SSL Configuration (Cloudflare Origin Certificate)
 
-SSL mode is **Full (strict)** — Cloudflare encrypts end-to-end and validates the origin certificate.
+SSL mode is **Full (strict)** - Cloudflare encrypts end-to-end and validates the origin certificate.
 
 ### Generate Origin Certificate in Cloudflare
 1. Go to SSL/TLS → Origin Server → Create Certificate

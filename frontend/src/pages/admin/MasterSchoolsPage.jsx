@@ -57,7 +57,7 @@ function MasterSchoolsPage() {
   const { toast } = useToast();
 
   // Only super_admin may use this page. The guard is rendered near the bottom of
-  // this component, after every hook has run — returning early from here would
+  // this component, after every hook has run - returning early from here would
   // make all the hooks below conditional and crash with "rendered fewer hooks
   // than expected" the moment the role changes (e.g. on logout).
   const isSuperAdmin = hasRole(['super_admin']);
@@ -175,7 +175,7 @@ function MasterSchoolsPage() {
           total: response.data.meta?.total ?? response.data.pagination?.total,
         };
       },
-      { onError: () => toast.error('Could not load all pages — exported the current page instead') }
+      { onError: () => toast.error('Could not load all pages - exported the current page instead') }
     ),
     [filterParams, toast]
   );
@@ -1017,7 +1017,7 @@ function MasterSchoolsPage() {
     },
   ], [handleViewSchool, openEditModal, openRowMergeDialog, handleVerify, handleDelete, handleForceDelete]);
 
-  // Access guard — placed after every hook so hook order stays stable across renders
+  // Access guard - placed after every hook so hook order stays stable across renders
   if (!isSuperAdmin) {
     return (
       <div className="flex items-center justify-center h-64">
