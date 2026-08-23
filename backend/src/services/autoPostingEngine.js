@@ -1,77 +1,46 @@
 /**
  * Auto-Posting Engine
  *
- * Assigns supervisors to school/group/visit slots by minimising an explicit cost
- * function, then improving the result with a bounded local search.
+ * Assigns supervisors to school/group/visit slots via a staged allocation pipeline:
+ *
+ *   Priority tiers -> LGA/route allocation -> supervisor allocation within LGA/route
+ *   -> slot allocation within supervisor -> constrained local improvement
  *
  * Pure functions - no database access - so the whole allocation strategy is
  * unit-testable and the controller is left with data fetching only.
  *
- * CONSTRAINT HIERARCHY
- *   HARD  capacity          a supervisor at remaining_slots is never considered
+ * CONSTRAINT HIERARCHY (enforced in this order, never traded against each other)
  *   HARD  slot uniqueness   each slot is assigned at most once
+ *   HARD  supervisor capacity a supervisor never exceeds remaining_slots
  *   HARD  dean ceiling      total assignments capped when a dean allocation applies
- *   HARD  priority tier     when priority is on, a slot's distance bucket restricts
- *                           who can even be a candidate for it (see PRIORITY TIERS)
- *   soft  school variety    don't send a supervisor back to a school they cover
- *   soft  cluster affinity  keep a supervisor inside one route/LGA per visit
- *   soft  load balance      even posting counts
- *   soft  travel balance    even total kilometres
+ *   HARD  eligible inputs   only supplied supervisors/slots are ever used
+ *   HARD  valid visits      only slot.visit_number <= numberOfPostings is eligible
+ *   STRONG priority         when enabled, senior tiers systematically receive the
+ *                           harder/farther geographical work; inversions minimized
+ *   STRONG LGA/route cohesion a supervisor's slots for one visit stay in one area
+ *                           unless a hard constraint makes that impossible
+ *   SOFT  repeat avoidance  prefer a school the supervisor has not already covered
+ *   SOFT  workload balance  even total posting counts (including existing load)
+ *   SOFT  travel balance    even total kilometres, only within an equivalent
+ *                           priority/area group
  *
- * Soft constraints are weighted penalties rather than hard blocks, so the engine
- * always produces the best achievable answer instead of refusing to fill a slot.
- * Priority is deliberately NOT one of them: an earlier design paired rank with
- * distance via a weighted cost term, tuned against several other soft costs, and
- * it kept losing close comparisons in ways that were hard to fully bound - see
- * PRIORITY TIERS below for why this is now a hard, deterministic partition
- * instead.
- *
- * AFFINITY OBJECTIVE
- * For each (supervisor, visit) the engine tracks how many assignments fall in each
- * cluster and charges `count - largestClusterCount` - i.e. the number of trips
- * outside that supervisor's dominant area for that visit. This is order
- * independent (unlike "the first slot fixes the cluster"), which makes the local
- * search's swap deltas exact and cheap to compute.
+ * This is a lexicographic objective, not a weighted sum (see scoreCandidate /
+ * compareObjectives): a tiny travel improvement can never buy back a broken
+ * priority or LGA-cohesion rule. Multiple deterministic candidate solutions are
+ * generated (generateInitialSolutions) and compared; the winner is then refined
+ * by a small set of named, hierarchy-validated local moves (improveSolution).
  *
  * @see docs/AUTOMATED_POSTING_SYSTEM.md
+ * @see docs/AUTO_POSTING_REWRITE_PROMT.MD
  */
-
-/**
- * Default cost weights, ordered so the hierarchy above is explicit.
- * Exported so they can be tuned in one place, and overridden per call in tests.
- *
- * There is deliberately no `priority` weight here - pairing rank with distance is
- * a hard, deterministic bucket assignment (see PRIORITY TIERS), not one more
- * soft cost to balance against `load`/`affinity`/`repeat`. `load` is charged per
- * whole posting a supervisor is ahead of the least loaded peer *within their
- * priority tier* (or within their planned cluster, when one exists) - a discrete
- * jump, not a gradient - so a supervisor level with their tier-mates pays nothing
- * and the softer terms decide.
- */
-const DEFAULT_WEIGHTS = {
-  repeat: 2000,   // supervisor already covers this school
-  affinity: 300,  // trip outside the supervisor's area for that visit
-  load: 200,      // per posting ahead of the least loaded supervisor
-  travel: 1,      // per unit of normalised distance ahead of the lightest travel
-};
 
 // Bounds so a very large batch cannot degenerate into a long search
 const LOCAL_SEARCH_MAX_PASSES = 4;
 const LOCAL_SEARCH_MAX_COMPARISONS = 300000;
 
 // ============================================================================
-// SMALL HELPERS
+// SMALL MATH HELPERS
 // ============================================================================
-
-/**
- * The clustering key for a slot under the given posting type.
- * 'random' has no clustering, so this returns null and the term vanishes.
- */
-function clusterKeyFor(slot, postingType) {
-  if (postingType === 'route_based') return `route:${slot.route_id ?? 'unassigned'}`;
-  if (postingType === 'lga_based') return `lga:${slot.lga ?? 'unknown'}`;
-  return null;
-}
 
 function standardDeviation(values) {
   if (values.length === 0) return 0;
@@ -79,13 +48,36 @@ function standardDeviation(values) {
   return Math.sqrt(values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / values.length);
 }
 
-/** Pearson correlation, used to report how well rank tracks distance. */
+function average(values) {
+  if (values.length === 0) return 0;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function median(values) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+/** Linear-interpolation percentile on an already-sorted ascending array. */
+function percentile(sortedValues, p) {
+  if (sortedValues.length === 0) return 0;
+  if (sortedValues.length === 1) return sortedValues[0];
+  const idx = p * (sortedValues.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sortedValues[lo];
+  return sortedValues[lo] + (sortedValues[hi] - sortedValues[lo]) * (idx - lo);
+}
+
+/** Pearson correlation, kept as a diagnostic only - never the optimization criterion. */
 function correlation(xs, ys) {
   const n = xs.length;
   if (n < 2) return 0;
 
-  const meanX = xs.reduce((a, b) => a + b, 0) / n;
-  const meanY = ys.reduce((a, b) => a + b, 0) / n;
+  const meanX = average(xs);
+  const meanY = average(ys);
 
   let num = 0;
   let denX = 0;
@@ -103,1022 +95,1336 @@ function correlation(xs, ys) {
 }
 
 /**
- * Sort slots: visit number first (all Visit 1s before Visit 2s), then cluster so
- * same-area work stays adjacent, then longest distance first when priority is on,
- * then school/group for a stable order.
+ * Robust geographical difficulty for a set of distances (one LGA, one route).
+ * Deliberately NOT a function of how many schools/slots there are - that is
+ * `demand`, tracked completely separately - so a large LGA with uniformly close
+ * schools does not automatically outrank a small LGA with genuinely distant ones.
  */
-function sortSlots(slots, postingType, priorityEnabled) {
-  return [...slots].sort((a, b) => {
-    const visitCompare = a.visit_number - b.visit_number;
-    if (visitCompare !== 0) return visitCompare;
+function calculateGeographyDifficulty(distanceValues) {
+  if (!distanceValues || distanceValues.length === 0) {
+    return { max: 0, p75: 0, mean: 0, totalDistance: 0, difficulty: 0 };
+  }
+  const sorted = [...distanceValues].sort((a, b) => a - b);
+  const max = sorted[sorted.length - 1];
+  const mean = average(sorted);
+  const p75 = percentile(sorted, 0.75);
+  const totalDistance = sorted.reduce((a, b) => a + b, 0);
+  const difficulty = 0.6 * max + 0.25 * p75 + 0.15 * mean;
+  return { max, p75, mean, totalDistance, difficulty };
+}
 
-    const clusterA = clusterKeyFor(a, postingType);
-    if (clusterA !== null) {
-      const clusterCompare = clusterA.localeCompare(clusterKeyFor(b, postingType));
-      if (clusterCompare !== 0) return clusterCompare;
-    }
-
-    if (priorityEnabled) {
-      const distCompare = (b.distance_km || 0) - (a.distance_km || 0);
-      if (distCompare !== 0) return distCompare;
-    }
-
-    const schoolCompare = a.school_id - b.school_id;
-    if (schoolCompare !== 0) return schoolCompare;
-    return a.group_number - b.group_number;
-  });
+/** The clustering key for a slot under the given posting type. 'random' has none. */
+function clusterKeyFor(slot, postingType) {
+  if (postingType === 'route_based') return `route:${slot.route_id ?? 'unassigned'}`;
+  if (postingType === 'lga_based') return `lga:${slot.lga ?? 'unknown'}`;
+  return null;
 }
 
 // ============================================================================
-// PRIORITY TIERS
-//
-// Priority used to be one more weighted term in the shared cost function,
-// self-tuned against a reported correlation statistic. Across several rounds of
-// fixes it kept losing close comparisons to `load`/`repeat`/`affinity` in ways
-// that were hard to fully bound, and real production runs still came out with a
-// junior rank averaging *more* distance than the most senior one.
-//
-// Priority is now a hard, deterministic partition computed up front: rank the
-// distinct ranks present, rank the distance (by whole route/LGA for clustered
-// posting types, by individual slot for random), and divide the distance ranking
-// into bands sized by each rank's share of total supervisor capacity - not an
-// equal split, since tiers are rarely evenly sized. The most senior band owns the
-// longest distances by construction; there is nothing left to tune. Everything
-// else (repeat avoidance, cluster cohesion, load balance) still applies, but only
-// decides who *within* a tier's band gets which specific slot.
+// PHASE 1 - NORMALIZE
 // ============================================================================
 
 /**
- * Group eligible supervisors by distinct `priority_number`, ascending (1 = most
- * senior first). Each tier's `capacity` is the summed `remaining_slots` of its
- * members - the basis for proportional (not equal-N) bucket sizing.
+ * Validate and normalize raw inputs. Never mutates the caller's arrays/objects.
+ * Unknown geography/priority is defaulted but explicitly flagged so it never
+ * silently masquerades as "genuinely nearby" or "genuinely senior".
  */
-function computePriorityTiers(supervisors) {
-  const byRank = new Map();
+function normalizeInput(supervisors, slots, numberOfPostings, options) {
+  const warnings = [];
 
-  for (const supervisor of supervisors) {
-    const rank = Number(supervisor.priority_number) || 99;
+  const normSupervisors = supervisors.map((s) => ({
+    id: s.id,
+    name: s.name,
+    rank_code: s.rank_code ?? null,
+    rank_name: s.rank_name ?? null,
+    priority_number: Number.isFinite(Number(s.priority_number)) ? Number(s.priority_number) : 99,
+    priorityKnown: s.priority_number != null && Number.isFinite(Number(s.priority_number)),
+    current_postings: Math.max(0, Number(s.current_postings) || 0),
+    remaining_slots: Math.max(0, Number(s.remaining_slots) || 0),
+    _raw: s,
+  }));
+
+  // Defensive de-duplication: same (school, group, visit) supplied twice
+  const seen = new Map();
+  let duplicateInputSlots = 0;
+  const dedupedSlots = [];
+  for (const s of slots) {
+    const key = `${s.school_id}-${s.group_number}-${s.visit_number}`;
+    if (seen.has(key)) {
+      duplicateInputSlots++;
+      continue;
+    }
+    seen.set(key, true);
+    dedupedSlots.push(s);
+  }
+
+  let unknownDistanceCount = 0;
+  const normSlots = dedupedSlots
+    .filter((s) => s.visit_number <= numberOfPostings)
+    .map((s) => {
+      const distanceKnown = s.distance_km != null && Number.isFinite(Number(s.distance_km));
+      if (!distanceKnown) unknownDistanceCount++;
+      return {
+        id: s.id ?? `${s.school_id}-${s.group_number}-${s.visit_number}`,
+        school_id: s.school_id,
+        school_name: s.school_name,
+        group_number: s.group_number,
+        visit_number: s.visit_number,
+        route_id: s.route_id ?? null,
+        route_name: s.route_name ?? 'unassigned',
+        lga: s.lga ?? 'unknown',
+        distance_km: distanceKnown ? Number(s.distance_km) : 0,
+        distanceKnown,
+        location_category: s.location_category ?? null,
+      };
+    });
+
+  if (duplicateInputSlots > 0) {
+    warnings.push(`${duplicateInputSlots} duplicate input slot(s) were ignored.`);
+  }
+  if (unknownDistanceCount > 0) {
+    warnings.push(
+      `${unknownDistanceCount} slot(s) have unknown distance and were treated as 0 km - verify school distance data.`
+    );
+  }
+
+  const unknownPriorityCount = normSupervisors.filter((s) => !s.priorityKnown).length;
+
+  return {
+    supervisors: normSupervisors,
+    slots: normSlots,
+    warnings,
+    dataQuality: {
+      duplicate_input_slots: duplicateInputSlots,
+      supervisors_with_unknown_priority: unknownPriorityCount,
+      slots_with_unknown_distance: unknownDistanceCount,
+    },
+  };
+}
+
+// ============================================================================
+// PHASE 2 - DEMAND / GEOGRAPHY MODEL
+// ============================================================================
+
+/**
+ * Build one demand unit per (visit, clustering key). For 'random' postings each
+ * slot is its own singleton unit (demand=1), which lets priority-aware random
+ * posting reuse the exact same tier-allocation core as lga_based/route_based.
+ */
+function buildDemandModel(slots, postingType) {
+  const byVisit = new Map();
+  const byUnitKey = new Map();
+  let totalDemand = 0;
+
+  const visits = [...new Set(slots.map((s) => s.visit_number))].sort((a, b) => a - b);
+
+  for (const visit of visits) {
+    const visitSlots = slots.filter((s) => s.visit_number === visit);
+    const units = new Map();
+
+    for (const slot of visitSlots) {
+      const key = postingType === 'random' ? `slot:${slot.id}` : clusterKeyFor(slot, postingType);
+      if (!units.has(key)) {
+        units.set(key, {
+          key,
+          visit_number: visit,
+          lga: postingType === 'lga_based' ? slot.lga : undefined,
+          route_id: postingType === 'route_based' ? slot.route_id : undefined,
+          route_name: postingType === 'route_based' ? slot.route_name : undefined,
+          slots: [],
+          schools: new Set(),
+          groups: new Set(),
+          distanceValues: [],
+        });
+      }
+      const unit = units.get(key);
+      unit.slots.push(slot);
+      unit.schools.add(slot.school_id);
+      unit.groups.add(`${slot.school_id}-${slot.group_number}`);
+      unit.distanceValues.push(slot.distance_km || 0);
+    }
+
+    const visitUnits = [];
+    for (const unit of units.values()) {
+      const geo = calculateGeographyDifficulty(unit.distanceValues);
+      const finalUnit = {
+        ...unit,
+        demand: unit.slots.length,
+        maxDistance: geo.max,
+        averageDistance: geo.mean,
+        p75Distance: geo.p75,
+        totalDistance: geo.totalDistance,
+        difficulty: geo.difficulty,
+      };
+      visitUnits.push(finalUnit);
+      byUnitKey.set(`${unit.key}-${visit}`, finalUnit);
+      totalDemand += finalUnit.demand;
+    }
+
+    // Deterministic order within a visit: hardest first, then key for stability
+    visitUnits.sort((a, b) => b.difficulty - a.difficulty || a.key.localeCompare(b.key));
+    byVisit.set(visit, visitUnits);
+  }
+
+  return { byVisit, byUnitKey, totalDemand, visits };
+}
+
+// ============================================================================
+// PHASE 3 - SUPERVISOR CAPACITY MODEL
+// ============================================================================
+
+/**
+ * @param {Array} supervisors normalized supervisors
+ * @param {Map}   schoolHistory Map<supervisor_id, Set<school_id>> from existing postings
+ */
+function buildSupervisorModel(supervisors, schoolHistory) {
+  const byId = new Map();
+
+  for (const s of supervisors) {
+    byId.set(s.id, {
+      supervisor: s,
+      priorityNumber: s.priority_number,
+      totalCapacity: s.remaining_slots,
+      currentPostings: s.current_postings,
+      usedInRun: 0, // GLOBAL ledger, shared across every visit
+      schoolHistory: new Set(schoolHistory.get(s.id) || []),
+      visitUnit: new Map(), // visit_number -> unit key this supervisor is committed to
+    });
+  }
+
+  const order = [...byId.keys()].sort((a, b) => {
+    const ea = byId.get(a);
+    const eb = byId.get(b);
+    return (
+      ea.priorityNumber - eb.priorityNumber ||
+      ea.currentPostings - eb.currentPostings ||
+      a - b
+    );
+  });
+
+  return { byId, order };
+}
+
+function cloneSupervisorModel(model) {
+  const byId = new Map();
+  for (const [id, entry] of model.byId) {
+    byId.set(id, {
+      ...entry,
+      usedInRun: 0,
+      schoolHistory: new Set(entry.schoolHistory),
+      visitUnit: new Map(),
+    });
+  }
+  return { byId, order: [...model.order] };
+}
+
+function remainingCapacity(entry) {
+  return Math.max(0, entry.totalCapacity - entry.usedInRun);
+}
+
+function repeatCost(entry, unit) {
+  let cost = 0;
+  for (const schoolId of unit.schools) {
+    if (entry.schoolHistory.has(schoolId)) cost++;
+  }
+  return cost;
+}
+
+// ============================================================================
+// PHASE 4 - PRIORITY TIERS
+// ============================================================================
+
+/**
+ * Group supervisors by distinct priority_number, ascending (1 = most senior).
+ * When priority is disabled, callers use a single synthetic tier so the
+ * downstream allocation core never needs an `if (priorityEnabled)` branch.
+ */
+function buildPriorityTiers(supervisorModel, priorityEnabled) {
+  if (!priorityEnabled) {
+    const supervisorIds = [...supervisorModel.byId.keys()].sort((a, b) => a - b);
+    const totalCapacity = supervisorIds.reduce(
+      (sum, id) => sum + supervisorModel.byId.get(id).totalCapacity,
+      0
+    );
+    const currentLoad = supervisorIds.reduce(
+      (sum, id) => sum + supervisorModel.byId.get(id).currentPostings,
+      0
+    );
+    return [
+      {
+        priority_number: null,
+        supervisorIds,
+        supervisorCount: supervisorIds.length,
+        totalCapacity,
+        currentLoad,
+        remainingCapacity: totalCapacity,
+      },
+    ];
+  }
+
+  const byRank = new Map();
+  for (const id of supervisorModel.order) {
+    const entry = supervisorModel.byId.get(id);
+    const rank = entry.priorityNumber;
     if (!byRank.has(rank)) {
-      byRank.set(rank, { priority_number: rank, supervisors: [], capacity: 0 });
+      byRank.set(rank, {
+        priority_number: rank,
+        supervisorIds: [],
+        supervisorCount: 0,
+        totalCapacity: 0,
+        currentLoad: 0,
+        remainingCapacity: 0,
+      });
     }
     const tier = byRank.get(rank);
-    tier.supervisors.push(supervisor);
-    tier.capacity += Math.max(0, Number(supervisor.remaining_slots) || 0);
+    tier.supervisorIds.push(id);
+    tier.supervisorCount++;
+    tier.totalCapacity += entry.totalCapacity;
+    tier.currentLoad += entry.currentPostings;
+    tier.remainingCapacity += entry.totalCapacity;
   }
 
   return [...byRank.values()].sort((a, b) => a.priority_number - b.priority_number);
 }
 
-/**
- * Cumulative cutoffs (in units of `totalUnits`) for each tier's proportional
- * share of capacity. Cumulative rather than tier-local, so a unit that overshoots
- * one tier's share automatically eats into the next tier's remaining room instead
- * of being double-counted. The last tier absorbs whatever rounding remains.
- */
-function computeTierThresholds(tiers, totalUnits) {
-  const totalCapacity = tiers.reduce((sum, tier) => sum + tier.capacity, 0);
-  if (totalCapacity <= 0 || tiers.length === 0) return tiers.map(() => totalUnits);
+function cloneTiers(tiers) {
+  return tiers.map((t) => ({ ...t, supervisorIds: [...t.supervisorIds] }));
+}
 
-  let cumulative = 0;
-  const thresholds = tiers.map((tier) => {
-    cumulative += (tier.capacity / totalCapacity) * totalUnits;
-    return cumulative;
-  });
-  thresholds[thresholds.length - 1] = totalUnits;
-  return thresholds;
+// ============================================================================
+// PHASE 5 - GEOGRAPHICAL ALLOCATION CORE (units -> tiers -> supervisors)
+// ============================================================================
+
+/**
+ * How many supervisor seats a unit's demand genuinely requires, based on the
+ * real distribution of supervisor capacity - not a population-wide average that
+ * conflates total demand with total supervisor count.
+ */
+function medianSupervisorCapacity(supervisorModel) {
+  const capacities = [...supervisorModel.byId.values()].map((e) => e.totalCapacity).filter((c) => c > 0);
+  return Math.max(1, median(capacities));
 }
 
 /**
- * Assign each unit (a whole route/LGA, or an individual slot for random posting)
- * to the tier whose proportional distance band it falls in.
+ * Assign whole demand units to priority tiers and then to individual supervisors
+ * within each tier, honouring capacity as a single global ledger across every
+ * visit. Returns unit ownership plus any units that fit nowhere at all.
  *
- * `units` MUST already be sorted descending by distance. Walks the sorted list
- * against the cumulative thresholds, advancing the tier pointer as the running
- * weight total crosses each cutoff - advancing at most one tier per unit, so a
- * single oversized atomic unit (a huge LGA) can't skip an entire small tier's
- * window and leave it owning nothing. This doesn't fully eliminate the
- * possibility of an empty tier (one unit could still exceed an entire tier's
- * share), but real route/LGA sizes are rarely that disproportionate to tier
- * capacities - treat a genuinely empty tier as an edge case to monitor, not
- * something to solve further here.
- *
- * @param {Array<{key: string|number, weight: number, distance: number}>} units
- * @param {Array} tiers - from computePriorityTiers
- * @returns {Map} unit.key -> tier.priority_number
+ * `orderedUnits` must already reflect the chosen strategy's primary ordering;
+ * this function stabilizes it further with a hard-to-fit-first secondary sort.
  */
-function assignUnitsToTiers(units, tiers) {
-  const ownerOf = new Map();
-  if (tiers.length === 0) return ownerOf;
+function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, options = {}) {
+  const { priorityEnabled = false } = options;
+  const medianCap = medianSupervisorCapacity(supervisorModel);
 
-  const totalUnits = units.reduce((sum, unit) => sum + unit.weight, 0);
-  const thresholds = computeTierThresholds(tiers, totalUnits);
-
-  let tierIndex = 0;
-  let running = 0;
-  for (const unit of units) {
-    if (tierIndex < tiers.length - 1 && running >= thresholds[tierIndex]) tierIndex++;
-    ownerOf.set(unit.key, tiers[tierIndex].priority_number);
-    running += unit.weight;
+  // Step 1: how many DISTINCT supervisors this unit's demand genuinely needs,
+  // from the real capacity distribution - a headcount estimate used only for
+  // hard-to-fit ranking and multi-supervisor cohesion decisions. Capacity
+  // itself is always tracked in actual slot/posting units (unit.demand), never
+  // in this headcount, to avoid conflating "how many people" with "how much
+  // capacity".
+  for (const unit of orderedUnits) {
+    unit.seatsNeeded = Math.max(1, Math.ceil(unit.demand / medianCap));
   }
 
-  return ownerOf;
+  // Step 2: hard-to-fit-first stabilization - does this tier have enough raw
+  // capacity (in postings) to even conceivably absorb this unit's demand.
+  for (const unit of orderedUnits) {
+    unit.constrainedness = tiers.filter((t) => t.totalCapacity >= unit.demand).length || 1;
+  }
+  const stableUnits = [...orderedUnits].sort((a, b) => {
+    if (a.constrainedness !== b.constrainedness) return a.constrainedness - b.constrainedness;
+    return 0; // preserve the strategy's own relative order otherwise (stable sort)
+  });
+
+  // Step 3: tier assignment - most senior tier with room, by natural
+  // difficulty-descending order (already the incoming sort for most strategies;
+  // for stability we re-sort by difficulty within equal constrainedness groups)
+  const byDifficultyDesc = [...stableUnits].sort(
+    (a, b) => b.difficulty - a.difficulty || a.key.localeCompare(b.key)
+  );
+
+  // Step 3: tier assignment. A unit can be SPLIT across tiers when its demand
+  // exceeds what its natural (proportional-share) tier has room for - the
+  // natural tier takes as much as it can first, and only the genuine leftover
+  // spills to a neighbouring tier (more-senior tiers tried before junior
+  // ones, via spilloverSearchOrder), so a small senior tier never loses an
+  // entire hard unit to a junior tier just because the unit didn't fit whole
+  // (spec §9 Case 3: the senior tier should be saturated with what it CAN
+  // take, not skipped).
+  const unitOwners = new Map(); // `${key}-${visit}` -> [{tierIndex, amount}]
+  const unitByKey = new Map(byDifficultyDesc.map((u) => [`${u.key}-${u.visit_number}`, u]));
+  const unplacedUnits = [];
+
+  // Proportional-share threshold walk: each tier is offered a share of the
+  // difficulty-sorted unit list proportional to its share of total capacity,
+  // measured in real demand units (not raw unit count or distance-weight) -
+  // this is what stops a senior tier with technically-spare capacity from
+  // absorbing a second/third unit purely because it still has room, at the
+  // expense of junior tiers getting nothing (spec §8's explicit example).
+  const totalCapacityAll = tiers.reduce((sum, t) => sum + t.totalCapacity, 0);
+  const totalDemandAll = byDifficultyDesc.reduce((sum, u) => sum + u.demand, 0);
+  let cumulative = 0;
+  const thresholds = tiers.map((t) => {
+    cumulative += totalCapacityAll > 0 ? (t.totalCapacity / totalCapacityAll) * totalDemandAll : 0;
+    return cumulative;
+  });
+  if (thresholds.length > 0) thresholds[thresholds.length - 1] = totalDemandAll;
+
+  let tierPointer = 0;
+  let running = 0;
+  for (const unit of byDifficultyDesc) {
+    // Advance at most one tier per unit, so a single oversized unit can't skip
+    // an entire tier's window.
+    if (tierPointer < tiers.length - 1 && running >= thresholds[tierPointer]) tierPointer++;
+    running += unit.demand;
+
+    const key = `${unit.key}-${unit.visit_number}`;
+    let remaining = unit.demand;
+    const owners = [];
+    const tryOrder = [tierPointer, ...spilloverSearchOrder(tierPointer, tiers.length)];
+    for (const idx of tryOrder) {
+      if (remaining <= 0) break;
+      const cap = tiers[idx].remainingCapacity;
+      if (cap <= 0) continue;
+      const grant = Math.min(remaining, cap);
+      owners.push({ tierIndex: idx, amount: grant });
+      tiers[idx].remainingCapacity -= grant;
+      remaining -= grant;
+    }
+
+    if (owners.length > 0) unitOwners.set(key, owners);
+    if (remaining > 0) unplacedUnits.push({ ...unit, remainingDemand: remaining, _partial: owners.length > 0 });
+  }
+
+  // Step 4: supervisor seating - for each unit, each tier that owns a portion
+  // of it fills that portion from that tier's own supervisors only.
+  const seatPlan = new Map(); // `${key}-${visit}` -> [{supervisorId, seats}]
+  const partiallySeated = [];
+
+  for (let tierIndex = 0; tierIndex < tiers.length; tierIndex++) {
+    const tier = tiers[tierIndex];
+    const pool = tier.supervisorIds.filter((id) => remainingCapacity(supervisorModel.byId.get(id)) > 0);
+
+    const ownedHere = [];
+    for (const [key, owners] of unitOwners) {
+      const match = owners.find((o) => o.tierIndex === tierIndex);
+      if (match) ownedHere.push({ key, unit: unitByKey.get(key), amount: match.amount });
+    }
+    ownedHere.sort((a, b) => b.unit.difficulty - a.unit.difficulty || a.key.localeCompare(b.key));
+
+    for (const { key, unit, amount } of ownedHere) {
+      const seats = seatPlan.get(key) || [];
+      let seatsToFill = amount;
+
+      while (seatsToFill > 0 && pool.length > 0) {
+        let bestIdx = -1;
+        let bestKey = null;
+        for (let i = 0; i < pool.length; i++) {
+          const entry = supervisorModel.byId.get(pool[i]);
+          if (remainingCapacity(entry) <= 0) continue;
+          const cmpKey = [repeatCost(entry, unit), entry.usedInRun, pool[i]];
+          if (bestKey === null || compareArrays(cmpKey, bestKey) < 0) {
+            bestKey = cmpKey;
+            bestIdx = i;
+          }
+        }
+        if (bestIdx === -1) break; // pool exhausted
+
+        const supervisorId = pool[bestIdx];
+        const entry = supervisorModel.byId.get(supervisorId);
+        const grant = Math.min(seatsToFill, remainingCapacity(entry));
+        entry.usedInRun += grant;
+        entry.visitUnit.set(unit.visit_number, unit.key);
+        seats.push({ supervisorId, seats: grant });
+        seatsToFill -= grant;
+
+        if (remainingCapacity(entry) <= 0) pool.splice(bestIdx, 1);
+      }
+
+      seatPlan.set(key, seats);
+      if (seatsToFill > 0) partiallySeated.push({ unit, key, shortfall: seatsToFill, tierIndex });
+    }
+  }
+
+  // Step 3b/4b: units unplaced entirely, or partially seated because their own
+  // tier ran out mid-way, borrow from the next most-senior tier with room
+  // before ever falling to a junior tier (never the reverse).
+  for (const { unit, shortfall, tierIndex } of partiallySeated) {
+    let need = shortfall;
+    const searchOrder = spilloverSearchOrder(tierIndex, tiers.length);
+    for (const idx of searchOrder) {
+      if (need <= 0) break;
+      const donorPool = tiers[idx].supervisorIds.filter(
+        (id) => remainingCapacity(supervisorModel.byId.get(id)) > 0
+      );
+      for (const supervisorId of donorPool) {
+        if (need <= 0) break;
+        const entry = supervisorModel.byId.get(supervisorId);
+        const grant = Math.min(need, remainingCapacity(entry));
+        if (grant <= 0) continue;
+        entry.usedInRun += grant;
+        entry.visitUnit.set(unit.visit_number, unit.key);
+        const key = `${unit.key}-${unit.visit_number}`;
+        seatPlan.get(key).push({ supervisorId, seats: grant });
+        need -= grant;
+      }
+    }
+    if (need > 0) {
+      unplacedUnits.push({ ...unit, remainingDemand: need, _partial: true });
+    }
+  }
+
+  for (const unit of unplacedUnits) {
+    let need = unit.remainingDemand ?? unit.demand;
+    for (const entry of supervisorModel.byId.values()) {
+      if (need <= 0) break;
+      const cap = remainingCapacity(entry);
+      if (cap <= 0) continue;
+      const grant = Math.min(need, cap);
+      entry.usedInRun += grant;
+      entry.visitUnit.set(unit.visit_number, unit.key);
+      const key = `${unit.key}-${unit.visit_number}`;
+      if (!seatPlan.has(key)) seatPlan.set(key, []);
+      seatPlan.get(key).push({ supervisorId: entry.supervisor.id, seats: grant, fallback: true });
+      need -= grant;
+    }
+    unit._finalUnfilled = need;
+  }
+
+  return { seatPlan, unplacedUnits: unplacedUnits.filter((u) => (u._finalUnfilled ?? u.remainingDemand ?? u.demand) > 0) };
 }
 
-/**
- * Deterministic overflow search order for a tier that can't cover its own
- * bucketed demand: more-senior tiers first (closest first), then less-senior
- * tiers (nearest first), only as a last resort.
- *
- * Spilling toward a more-senior tier first can never invert the rank ordering -
- * a senior tier's own bucket is, by construction, already supposed to hold
- * distances at least as large, so absorbing overflow there is safe. Spilling
- * downward to a junior tier is exactly the failure mode this design fixes, so
- * it's used only when no more-senior tier has any room at all.
- *
- * @returns {number[]} tier indices in search order
- */
-function spilloverOrder(homeTierIndex, tiers) {
+function compareArrays(a, b) {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return 0;
+}
+
+/** Most-senior-with-room first, then next-senior, ..., only touching junior tiers last. */
+function spilloverSearchOrder(homeTierIndex, tierCount) {
   const order = [];
   for (let i = homeTierIndex - 1; i >= 0; i--) order.push(i);
-  for (let i = homeTierIndex + 1; i < tiers.length; i++) order.push(i);
+  for (let i = homeTierIndex + 1; i < tierCount; i++) order.push(i);
   return order;
 }
 
+// solveLgaAllocation / solveRouteAllocation / solveRandomAllocation are the same
+// core parameterized only by which model built the units - kept as distinct
+// exported names because the spec calls for named per-posting-type entry points,
+// and it documents at the call site which posting type is active.
+function solveLgaAllocation(orderedUnits, tiers, supervisorModel, options) {
+  return solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, options);
+}
+function solveRouteAllocation(orderedUnits, tiers, supervisorModel, options) {
+  return solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, options);
+}
+function solveRandomAllocation(orderedUnits, tiers, supervisorModel, options) {
+  return solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, options);
+}
+
 // ============================================================================
-// ALLOCATION STATE
-//
-// Everything the cost function reads, maintained incrementally so the local
-// search can evaluate a swap in constant time instead of rebuilding the world.
+// PHASE 6 - ASSIGN ACTUAL SLOTS WITHIN THE PLANNED STRUCTURE
 // ============================================================================
 
 /**
- * @param {Array} supervisors
- * @param {Map} schoolHistory - Map<supervisor_id, Set<school_id>> from existing postings
+ * Once unit ownership/seating is decided, hand out the real school/group/visit
+ * slots. Within a unit, supervisors with more seats get first pick of
+ * non-repeat schools; ties broken deterministically by school_id/group_number.
  */
-function createState(supervisors, schoolHistory) {
-  const state = new Map();
-
-  for (const supervisor of supervisors) {
-    state.set(supervisor.id, {
-      supervisor,
-      count: 0,
-      distance: 0,
-      // How many times this supervisor covers each school, seeded from history so
-      // an existing posting counts as the first visit
-      schoolCounts: new Map(
-        [...(schoolHistory.get(supervisor.id) || [])].map((schoolId) => [schoolId, 1])
-      ),
-      // visit_number -> Map(cluster -> count)
-      clusterCounts: new Map(),
-      // visit_number -> total assignments for that visit
-      visitCounts: new Map(),
-    });
-  }
-
-  return state;
-}
-
-function schoolCountOf(entry, schoolId) {
-  return entry.schoolCounts.get(schoolId) || 0;
-}
-
-/** Trips outside the dominant cluster for one (supervisor, visit). */
-function affinityCostFor(entry, visitNumber) {
-  const clusters = entry.clusterCounts.get(visitNumber);
-  if (!clusters || clusters.size === 0) return 0;
-
-  const total = entry.visitCounts.get(visitNumber) || 0;
-  const largest = Math.max(...clusters.values());
-  return total - largest;
-}
-
-function applyAssignment(entry, slot, cluster, direction = 1) {
-  entry.count += direction;
-  entry.distance += direction * (slot.distance_km || 0);
-
-  const schoolNext = schoolCountOf(entry, slot.school_id) + direction;
-  if (schoolNext <= 0) entry.schoolCounts.delete(slot.school_id);
-  else entry.schoolCounts.set(slot.school_id, schoolNext);
-
-  if (cluster === null) return;
-
-  const visitTotal = (entry.visitCounts.get(slot.visit_number) || 0) + direction;
-  if (visitTotal <= 0) entry.visitCounts.delete(slot.visit_number);
-  else entry.visitCounts.set(slot.visit_number, visitTotal);
-
-  if (!entry.clusterCounts.has(slot.visit_number)) {
-    entry.clusterCounts.set(slot.visit_number, new Map());
-  }
-  const clusters = entry.clusterCounts.get(slot.visit_number);
-  const clusterNext = (clusters.get(cluster) || 0) + direction;
-  if (clusterNext <= 0) clusters.delete(cluster);
-  else clusters.set(cluster, clusterNext);
-
-  if (clusters.size === 0) entry.clusterCounts.delete(slot.visit_number);
-}
-
-// ============================================================================
-// PRIORITY ALLOCATION PLANNING
-//
-// For route_based / lga_based, decide up front which area each supervisor will
-// work on each visit - and, when priority is on, which priority tier each area
-// belongs to. Without an upfront plan the greedy pass always finds an idle
-// supervisor cheapest (their load term is zero) and the areas scatter.
-// ============================================================================
-
-/**
- * Plan supervisor -> area for every visit, and area -> owning priority tier.
- *
- * `tiers` is always at least one tier - callers pass a single synthetic tier
- * holding every supervisor when priority is disabled, so the clustering/seating
- * logic below is identical either way; only the *number* of tiers changes
- * whether areas get partitioned by distance at all.
- *
- * Per visit:
- *   1. Bucket slots into clusters (route or LGA) with slot/school/distance tallies.
- *   2. Bucket clusters to tiers by aggregate distance, proportional to each
- *      tier's capacity share (`assignUnitsToTiers`).
- *   3. Within each tier, seat that tier's own supervisors to that tier's own
- *      clusters in two phases:
- *        Phase A - every owned cluster gets one seat, farthest first (a tier's
- *          single member must not be handed a nearer-but-bigger owned cluster
- *          over a farther-but-smaller one - that would defeat the bucket).
- *        Phase B - clusters still under their capacity-driven `needed` seat
- *          count get extra seats, largest-need first (a genuine packing
- *          requirement, not a preference).
- *      Both phases pick the tier's lowest-repeat-cost remaining member.
- *   4. Pairwise swap-improvement within the tier's own seated set.
- *   5. Any of a tier's owned clusters that couldn't get even one seat (the tier
- *      ran out of members) spill to neighbouring tiers via `spilloverOrder`,
- *      drawing only from each spillover tier's own *leftover* pool (members not
- *      already seated to their own tier's clusters) - so nobody is ever seated
- *      twice. A cluster that still can't be seated anywhere is left unplanned
- *      and falls through to the generic per-slot fallback in `marginalCost`.
- *
- * @param {boolean} [options.priorityEnabled]
- * @param {Array} [options.tiers] - from computePriorityTiers, or a single
- *   synthetic tier when priority is disabled
- * @returns {{
- *   clusterPlan: Map<string, string>,        // '${supervisorId}-${visit}' -> clusterKey
- *   clusterOwnerTier: Map<string, number>,    // '${clusterKey}-${visit}' -> priority_number
- *   slotOwnerTier: Map<string, number>,       // slot.id -> priority_number (random only)
- * }}
- */
-function planPriorityAllocation(supervisors, slots, postingType, schoolHistory, options = {}) {
-  const { priorityEnabled = false, tiers = [] } = options;
-
-  const effectiveTiers = tiers.length > 0
-    ? tiers
-    : [{ priority_number: null, supervisors, capacity: Infinity }];
-
-  const clusterPlan = new Map();
-  const clusterOwnerTier = new Map();
-  const slotOwnerTier = new Map();
-
-  const visits = [...new Set(slots.map((s) => s.visit_number))].sort((a, b) => a - b);
-
-  if (postingType !== 'route_based' && postingType !== 'lga_based') {
-    // random: no clustering, just bucket individual slots to a tier directly
-    if (priorityEnabled) {
-      for (const visit of visits) {
-        const visitSlots = slots.filter((s) => s.visit_number === visit);
-        const units = visitSlots
-          .map((s) => ({ key: s.id, weight: 1, distance: s.distance_km || 0 }))
-          .sort((a, b) => b.distance - a.distance);
-        const ownerOf = assignUnitsToTiers(units, effectiveTiers);
-        for (const slot of visitSlots) slotOwnerTier.set(slot.id, ownerOf.get(slot.id));
-      }
-    }
-    return { clusterPlan, clusterOwnerTier, slotOwnerTier };
-  }
-
-  // Schools each supervisor already covers, grown as the plan is built visit by
-  // visit so later visits know what earlier ones committed to
-  const covered = new Map(
-    supervisors.map((s) => [s.id, new Set(schoolHistory.get(s.id) || [])])
-  );
-
-  for (const visit of visits) {
-    const visitSlots = slots.filter((s) => s.visit_number === visit);
-    if (visitSlots.length === 0) continue;
-
-    // cluster -> { slots, schools, distance, needed, ownerTier }
-    const clusters = new Map();
-    for (const slot of visitSlots) {
-      const key = clusterKeyFor(slot, postingType);
-      if (!clusters.has(key)) clusters.set(key, { key, slots: 0, schools: new Set(), distance: 0 });
-      const cluster = clusters.get(key);
-      cluster.slots++;
-      cluster.schools.add(slot.school_id);
-      cluster.distance += slot.distance_km || 0;
-    }
-
-    // How many supervisors each area genuinely needs (a capacity requirement)
-    const targetPerSupervisor = Math.max(1, Math.ceil(visitSlots.length / supervisors.length));
-    for (const cluster of clusters.values()) {
-      cluster.needed = Math.max(1, Math.ceil(cluster.slots / targetPerSupervisor));
-    }
-
-    // Bucket whole clusters (not individual schools) to tiers, farthest first
-    const units = [...clusters.values()]
-      .map((c) => ({ key: c.key, weight: c.slots, distance: c.distance }))
-      .sort((a, b) => b.distance - a.distance);
-    const ownerOf = assignUnitsToTiers(units, effectiveTiers);
-    for (const cluster of clusters.values()) {
-      cluster.ownerTier = ownerOf.get(cluster.key);
-      clusterOwnerTier.set(`${cluster.key}-${visit}`, cluster.ownerTier);
-    }
-
-    // Cost of putting this supervisor in this area: how many of its schools they
-    // already cover, i.e. how many repeats it would force
-    const repeatCost = (supervisorId, cluster) => {
-      const schools = covered.get(supervisorId) || new Set();
-      let cost = 0;
-      for (const schoolId of cluster.schools) if (schools.has(schoolId)) cost++;
-      return cost;
-    };
-
-    const pickCheapest = (pool, cluster) => {
-      let bestIndex = 0;
-      let bestCost = Infinity;
-      for (let i = 0; i < pool.length; i++) {
-        const cost = repeatCost(pool[i], cluster);
-        if (cost < bestCost) {
-          bestCost = cost;
-          bestIndex = i;
-        }
-      }
-      return pool.splice(bestIndex, 1)[0];
-    };
-
-    const allSeated = [];
-    const tierPools = [];
-    const unseededByTier = [];
-
-    for (let tierIndex = 0; tierIndex < effectiveTiers.length; tierIndex++) {
-      const tier = effectiveTiers[tierIndex];
-      const ownClusters = [...clusters.values()].filter((c) => c.ownerTier === tier.priority_number);
-      const pool = tier.supervisors.map((s) => s.id);
-      const seated = [];
-
-      if (ownClusters.length > 0) {
-        // Phase A - every owned cluster gets one seat, farthest first
-        const byDistanceDesc = [...ownClusters].sort((a, b) => b.distance - a.distance);
-        for (const cluster of byDistanceDesc) {
-          if (pool.length === 0) break;
-          seated.push({ supervisorId: pickCheapest(pool, cluster), cluster });
-        }
-
-        // Phase B - extra seats for clusters still under `needed`, largest-need first
-        const byNeededDesc = [...ownClusters].sort((a, b) => b.needed - a.needed);
-        for (const cluster of byNeededDesc) {
-          while (
-            pool.length > 0 &&
-            seated.filter((s) => s.cluster === cluster).length < cluster.needed
-          ) {
-            seated.push({ supervisorId: pickCheapest(pool, cluster), cluster });
-          }
-        }
-
-        // Stage 2 - swap areas between two supervisors while the total falls,
-        // same tier only (nothing to swap across tiers now)
-        let improved = true;
-        while (improved) {
-          improved = false;
-          for (let i = 0; i < seated.length; i++) {
-            for (let j = i + 1; j < seated.length; j++) {
-              const a = seated[i];
-              const b = seated[j];
-              if (a.cluster === b.cluster) continue;
-
-              const before = repeatCost(a.supervisorId, a.cluster) + repeatCost(b.supervisorId, b.cluster);
-              const after = repeatCost(a.supervisorId, b.cluster) + repeatCost(b.supervisorId, a.cluster);
-
-              if (after < before) {
-                const carried = a.cluster;
-                a.cluster = b.cluster;
-                b.cluster = carried;
-                improved = true;
-              }
-            }
-          }
-        }
-      }
-
-      allSeated.push(...seated);
-      tierPools.push(pool); // leftover members, available for spillover donation
-
-      const unseeded = ownClusters.filter((c) => !seated.some((s) => s.cluster === c));
-      if (unseeded.length > 0) unseededByTier.push({ tierIndex, unseeded });
-    }
-
-    // Spillover - a tier that couldn't seat one of its own clusters (it has
-    // fewer members than clusters it owns) borrows from a neighbouring tier's
-    // leftover pool, more-senior first
-    for (const { tierIndex, unseeded } of unseededByTier) {
-      for (const cluster of unseeded) {
-        for (const spillIndex of spilloverOrder(tierIndex, effectiveTiers)) {
-          const spillPool = tierPools[spillIndex];
-          if (spillPool.length === 0) continue;
-          allSeated.push({ supervisorId: pickCheapest(spillPool, cluster), cluster });
-          clusterOwnerTier.set(`${cluster.key}-${visit}`, effectiveTiers[spillIndex].priority_number);
-          break;
-        }
-        // If no tier anywhere has room, the cluster is left unplanned - it falls
-        // through to the generic per-slot fallback in marginalCost, unchanged.
-      }
-    }
-
-    for (const { supervisorId, cluster } of allSeated) {
-      clusterPlan.set(`${supervisorId}-${visit}`, cluster.key);
-      // Assume the plan is honoured, so the next visit avoids these schools
-      const schools = covered.get(supervisorId);
-      if (schools) for (const schoolId of cluster.schools) schools.add(schoolId);
-    }
-  }
-
-  return { clusterPlan, clusterOwnerTier, slotOwnerTier };
-}
-
-// ============================================================================
-// COST
-// ============================================================================
-
-/**
- * Marginal cost of giving this slot to this supervisor. Lower is better.
- * Every term is the *increase* the assignment would cause, so the greedy pass and
- * the local search optimise the same objective.
- */
-function marginalCost(entry, slot, cluster, context) {
-  const { weights, maxTravel } = context;
-
-  // School variety - only the extra visits to a covered school are charged
-  const repeat = schoolCountOf(entry, slot.school_id) > 0 ? 1 : 0;
-
-  // Affinity, measured against the area this supervisor was planned into for this
-  // visit. Falls back to their actual dominant area when there is no plan (which
-  // happens once the plan is exhausted, e.g. more capacity than the area holds).
-  // Cross-tier poaching is no longer possible - `eligibleCandidates` already
-  // restricts the candidate pool to the slot's owning priority tier before this
-  // is ever called - so an out-of-area candidate only ever pays the ordinary,
-  // flat overflow cost.
-  let affinity = 0;
-  if (cluster !== null && weights.affinity > 0) {
-    const planned = context.clusterPlan.get(`${entry.supervisor.id}-${slot.visit_number}`);
-
-    if (planned !== undefined) {
-      affinity = planned === cluster ? 0 : 1;
-    } else {
-      const clusters = entry.clusterCounts.get(slot.visit_number);
-      if (!clusters || clusters.size === 0) {
-        affinity = 0.5; // committing an unplanned supervisor to a new area
-      } else {
-        const before = affinityCostFor(entry, slot.visit_number);
-        applyAssignment(entry, slot, cluster, 1);
-        affinity = affinityCostFor(entry, slot.visit_number) - before;
-        applyAssignment(entry, slot, cluster, -1);
-      }
-    }
-  }
-
-  // Load and travel are measured *relative to the lightest peer*, so a supervisor
-  // level with everyone else pays nothing and the softer terms decide. Using
-  // absolute counts would make the whole pool more expensive as the run fills.
-  const load = Math.max(0, entry.count - context.minCount);
-
-  // Getting everyone their first posting is treated as close to inviolable - the
-  // same tier as avoiding a repeat school - so nobody in a baseline is skipped
-  // for a second posting while a peer still has zero.
-  const leavesSomeoneEmpty = context.minCount === 0 && load > 0;
-
-  // Travel balance is only meaningful when ranks are NOT being paired to
-  // distance - with priority on, an uneven travel spread (within a tier's own
-  // band) is the intended outcome
-  const travel = context.priorityEnabled || maxTravel <= 0
-    ? 0
-    : Math.max(0, entry.distance - context.minDistance) / maxTravel;
-
-  const total =
-    weights.repeat * repeat +
-    weights.affinity * affinity +
-    weights.load * load +
-    weights.travel * travel +
-    (leavesSomeoneEmpty ? weights.repeat : 0);
-
-  return { total, repeat, affinity };
-}
-
-/**
- * Total cost of the whole solution. Used for reporting and as the local search's
- * objective; O(supervisors + assignments).
- */
-function solutionCost(state, context) {
-  const { weights } = context;
-  let total = 0;
-
-  const counts = [];
-  const distances = [];
-
-  for (const entry of state.values()) {
-    counts.push(entry.count);
-    distances.push(entry.distance);
-
-    for (const occurrences of entry.schoolCounts.values()) {
-      if (occurrences > 1) total += weights.repeat * (occurrences - 1);
-    }
-
-    for (const visitNumber of entry.clusterCounts.keys()) {
-      total += weights.affinity * affinityCostFor(entry, visitNumber);
-    }
-  }
-
-  total += weights.load * standardDeviation(counts);
-  total += weights.travel * (standardDeviation(distances) / Math.max(context.maxTravel, 1));
-
-  return total;
-}
-
-// ============================================================================
-// MAIN ALGORITHM
-// ============================================================================
-
-/**
- * Assign supervisors to slots.
- *
- * @param {Array} supervisors - Eligible supervisors with remaining_slots and priority_number
- * @param {Array} slots - Available slots (school+group+visit combinations)
- * @param {number} numberOfPostings - Highest visit number to include (1 = Visit 1 only)
- * @param {string} postingType - 'random' | 'route_based' | 'lga_based'
- * @param {boolean} priorityEnabled - Pair higher ranks with longer distances
- * @param {Object} [options]
- * @param {boolean} [options.avoidRepeatSchools=true] - Penalise repeating a school
- * @param {Map}     [options.schoolHistory] - Map<supervisor_id, Set<school_id>> already covered
- * @param {number}  [options.maxAssignments] - Hard ceiling (dean allocation)
- * @param {Object}  [options.weights] - Override DEFAULT_WEIGHTS
- * @returns {{assignments: Array, warnings: Array, statistics: Object}}
- */
-function runAutoPostingAlgorithm(
-  supervisors,
-  slots,
-  numberOfPostings,
-  postingType,
-  priorityEnabled,
-  options = {}
-) {
-  const {
-    avoidRepeatSchools = true,
-    schoolHistory = new Map(),
-    maxAssignments = Infinity,
-    weights: weightOverrides = {},
-  } = options;
-
-  const weights = {
-    ...DEFAULT_WEIGHTS,
-    ...weightOverrides,
-    repeat: avoidRepeatSchools ? (weightOverrides.repeat ?? DEFAULT_WEIGHTS.repeat) : 0,
-  };
-
-  if (supervisors.length === 0) {
-    return finish([], ['No eligible supervisors available'], supervisors, numberOfPostings, [], {});
-  }
-
-  if (slots.length === 0) {
-    return finish([], ['No available slots to assign'], supervisors, numberOfPostings, [], {});
-  }
-
-  const eligibleSlots = slots.filter((slot) => slot.visit_number <= numberOfPostings);
-
-  if (eligibleSlots.length === 0) {
-    return finish([], [
-      `No available slots for Visit 1${numberOfPostings > 1 ? ` through ${numberOfPostings}` : ''}`,
-    ], supervisors, numberOfPostings, [], {});
-  }
-
-  if (maxAssignments <= 0) {
-    return finish([], [
-      'No postings could be created - the posting allocation for this session is exhausted',
-    ], supervisors, numberOfPostings, [], {});
-  }
-
-  const totalDistance = eligibleSlots.reduce((sum, s) => sum + (s.distance_km || 0), 0);
-  const maxTravel = Math.max(totalDistance / supervisors.length, 1);
-
-  const sortedSlots = sortSlots(eligibleSlots, postingType, priorityEnabled);
-
-  // Priority tiers and the up-front area/tier plan are computed once - there is
-  // nothing weight-dependent left to retry with, unlike the old self-tuning loop.
-  const tiers = priorityEnabled ? computePriorityTiers(supervisors) : [];
-  const { clusterPlan, clusterOwnerTier, slotOwnerTier } = planPriorityAllocation(
-    supervisors, eligibleSlots, postingType, schoolHistory, { priorityEnabled, tiers }
-  );
-  const effectiveTiers = tiers.length > 0 ? tiers : [{ priority_number: null, supervisors, capacity: Infinity }];
-
-  const context = {
-    weights, postingType, maxTravel, avoidRepeatSchools, priorityEnabled,
-    clusterPlan, clusterOwnerTier, slotOwnerTier, tiers: effectiveTiers,
-  };
-  const state = createState(supervisors, schoolHistory);
+function assignSlotsWithinClusters(demandModel, seatPlan, supervisorModel, postingType, avoidRepeatSchools) {
   const assignments = [];
-  const warnings = [];
+  let unassignedCount = 0;
 
-  let unassignedSlots = 0;
-  let quotaSkipped = 0;
+  for (const visit of demandModel.visits) {
+    const units = demandModel.byVisit.get(visit) || [];
+    for (const unit of units) {
+      const key = `${unit.key}-${visit}`;
+      const seats = seatPlan.get(key) || [];
 
-  /**
-   * The candidate pool for one slot: hard-restricted to the priority tier that
-   * owns this slot's distance bucket (cluster, for route/lga_based; the slot
-   * itself, for random). `allowSpillover` gates whether `spilloverOrder`'s
-   * neighbouring tiers are considered when the home tier has no capacity left -
-   * see the two-pass loop below for why this must be a separate, later pass
-   * rather than falling back immediately. When priority is disabled there is
-   * only one (synthetic) tier, so this is simply everyone.
-   */
-  function eligibleCandidates(slot, cluster, allowSpillover) {
-    if (!priorityEnabled) return [...state.values()];
+      // Expand seats into a flat, deterministic supervisor queue (more seats = appears more)
+      const queue = [];
+      for (const seat of seats) {
+        for (let i = 0; i < seat.seats; i++) queue.push(seat.supervisorId);
+      }
 
-    const homeTierNum = cluster !== null
-      ? clusterOwnerTier.get(`${cluster}-${slot.visit_number}`)
-      : slotOwnerTier.get(slot.id);
+      // Order this unit's slots: non-repeat-for-someone-in-queue first is handled
+      // per-slot below; slots themselves ordered by school/group for determinism.
+      const orderedSlots = [...unit.slots].sort(
+        (a, b) => a.school_id - b.school_id || a.group_number - b.group_number
+      );
 
-    if (homeTierNum == null) return [...state.values()];
+      if (queue.length === 0) {
+        unassignedCount += orderedSlots.length;
+        continue;
+      }
 
-    const homeIndex = effectiveTiers.findIndex((t) => t.priority_number === homeTierNum);
-    const withCapacity = (tierNum) => [...state.values()].filter((e) =>
-      (Number(e.supervisor.priority_number) || 99) === tierNum &&
-      e.count < Number(e.supervisor.remaining_slots)
-    );
+      // Round-robin the queue across the unit's slots, but at each step prefer
+      // whichever queued supervisor has the lowest repeat cost for that specific
+      // slot's school - deterministic, and keeps repeat avoidance working even
+      // when a unit has more than one seated supervisor.
+      const counts = new Map();
+      for (const id of queue) counts.set(id, (counts.get(id) || 0) + 1);
+      const remainingBySupervisor = new Map(counts);
 
-    let pool = withCapacity(homeTierNum);
-    if (pool.length > 0 || !allowSpillover) return pool;
+      for (const slot of orderedSlots) {
+        let bestId = null;
+        let bestKeyArr = null;
+        for (const [supervisorId, remaining] of remainingBySupervisor) {
+          if (remaining <= 0) continue;
+          const entry = supervisorModel.byId.get(supervisorId);
+          const isRepeat = avoidRepeatSchools && entry.schoolHistory.has(slot.school_id) ? 1 : 0;
+          const keyArr = [isRepeat, -remaining, supervisorId];
+          if (bestKeyArr === null || compareArrays(keyArr, bestKeyArr) < 0) {
+            bestKeyArr = keyArr;
+            bestId = supervisorId;
+          }
+        }
 
-    for (const idx of spilloverOrder(homeIndex, effectiveTiers)) {
-      pool = withCapacity(effectiveTiers[idx].priority_number);
-      if (pool.length > 0) return pool;
-    }
-    return [];
-  }
+        if (bestId === null) {
+          unassignedCount++;
+          continue;
+        }
 
-  /**
-   * Assign one slot to its lowest-cost eligible candidate. Returns false without
-   * mutating anything if there is no eligible candidate (capacity exhausted for
-   * every tier this slot is allowed to draw from under the current pass).
-   */
-  function assignSlot(slot, cluster, allowSpillover) {
-    const candidates = eligibleCandidates(slot, cluster, allowSpillover).filter(
-      (entry) => entry.count < Number(entry.supervisor.remaining_slots)
-    );
-    if (candidates.length === 0) return false;
+        const entry = supervisorModel.byId.get(bestId);
+        const wasRepeat = avoidRepeatSchools && entry.schoolHistory.has(slot.school_id);
 
-    // Baseline for the relative load/travel terms. When this slot's cluster has
-    // its own planned team within the candidate pool, the baseline is taken from
-    // *them* only - the plan already shares supervisors between areas in
-    // proportion to their size, so balance across areas is settled; charging a
-    // supervisor for getting ahead of someone working a different area would
-    // just push them out of their own, which is how a route leaks its schools
-    // to an idle outsider.
-    const plannedHere = cluster !== null
-      ? candidates.filter(
-          (entry) => clusterPlan.get(`${entry.supervisor.id}-${slot.visit_number}`) === cluster
-        )
-      : [];
-    const baseline = plannedHere.length > 0 ? plannedHere : candidates;
+        assignments.push({
+          supervisor_id: entry.supervisor.id,
+          supervisor_name: entry.supervisor.name,
+          rank_code: entry.supervisor.rank_code,
+          priority_number: entry.supervisor.priority_number,
+          school_id: slot.school_id,
+          school_name: slot.school_name,
+          group_number: slot.group_number,
+          visit_number: slot.visit_number,
+          distance_km: slot.distance_km,
+          route_id: slot.route_id,
+          route_name: slot.route_name,
+          lga: slot.lga,
+          repeat_school: !!wasRepeat,
+          cluster_break: false, // finalized by reflagAssignments
+          _unitKey: unit.key,
+        });
 
-    context.minCount = Infinity;
-    context.minDistance = Infinity;
-    for (const entry of baseline) {
-      if (entry.count < context.minCount) context.minCount = entry.count;
-      if (entry.distance < context.minDistance) context.minDistance = entry.distance;
-    }
-    if (context.minCount === Infinity) context.minCount = 0;
-    if (context.minDistance === Infinity) context.minDistance = 0;
-
-    let best = null;
-    let bestScore = null;
-    for (const entry of candidates) {
-      const score = marginalCost(entry, slot, cluster, context);
-      if (bestScore === null || score.total < bestScore.total) {
-        best = entry;
-        bestScore = score;
+        entry.schoolHistory.add(slot.school_id);
+        remainingBySupervisor.set(bestId, remainingBySupervisor.get(bestId) - 1);
       }
     }
-
-    if (!best) return false;
-
-    assignments.push({
-      supervisor_id: best.supervisor.id,
-      supervisor_name: best.supervisor.name,
-      rank_code: best.supervisor.rank_code,
-      priority_number: best.supervisor.priority_number,
-      school_id: slot.school_id,
-      school_name: slot.school_name,
-      group_number: slot.group_number,
-      visit_number: slot.visit_number,
-      distance_km: slot.distance_km,
-      route_id: slot.route_id,
-      route_name: slot.route_name,
-      lga: slot.lga,
-      repeat_school: bestScore.repeat === 1,
-      cluster_break: bestScore.affinity > 0,
-      _cluster: cluster,
-    });
-
-    applyAssignment(best, slot, cluster, 1);
-    return true;
   }
 
-  // ---- Greedy pass, two rounds ----
-  //
-  // Priority-restricted candidate pools are computed per slot, and slots are
-  // processed grouped by cluster (see sortSlots), not by which tier "gets there
-  // first". Left as one pass, an early-processed cluster's overflow could spill
-  // into a still-untouched tier and consume capacity that tier's *own* cluster
-  // needs later in the same run - most visible across combined multi-visit runs,
-  // where a supervisor's total capacity is shared across every visit's own
-  // cluster. Round 1 gives every cluster first claim on its own tier's capacity,
-  // in full, before anyone is allowed to draw on a neighbouring tier at all.
-  // Round 2 then handles only what's left, with spillover allowed - by which
-  // point every tier's genuine leftover capacity (not just a per-slot snapshot)
-  // is known.
-  const deferredSlots = [];
-  for (const slot of sortedSlots) {
-    if (assignments.length >= maxAssignments) {
-      quotaSkipped++;
-      continue;
+  return { assignments, unassignedCount };
+}
+
+/** Authoritative cluster_break: true when an assignment falls outside a
+ *  supervisor's dominant unit for that visit. */
+function reflagClusterBreaks(assignments, postingType) {
+  if (postingType === 'random') {
+    for (const a of assignments) a.cluster_break = false;
+    return;
+  }
+
+  const histogram = new Map(); // `${supervisorId}-${visit}` -> Map(unitKey -> count)
+  for (const a of assignments) {
+    const cluster = clusterKeyFor(a, postingType);
+    const key = `${a.supervisor_id}-${a.visit_number}`;
+    if (!histogram.has(key)) histogram.set(key, new Map());
+    const m = histogram.get(key);
+    m.set(cluster, (m.get(cluster) || 0) + 1);
+  }
+
+  const dominant = new Map();
+  for (const [key, m] of histogram) {
+    let best = null;
+    let bestCount = -1;
+    for (const [cluster, count] of m) {
+      if (count > bestCount) {
+        best = cluster;
+        bestCount = count;
+      }
     }
-    const cluster = clusterKeyFor(slot, postingType);
-    if (!assignSlot(slot, cluster, false)) deferredSlots.push(slot);
+    dominant.set(key, best);
   }
 
-  for (const slot of deferredSlots) {
-    if (assignments.length >= maxAssignments) {
-      quotaSkipped++;
-      continue;
-    }
-    const cluster = clusterKeyFor(slot, postingType);
-    if (!assignSlot(slot, cluster, true)) unassignedSlots++;
+  for (const a of assignments) {
+    const cluster = clusterKeyFor(a, postingType);
+    const key = `${a.supervisor_id}-${a.visit_number}`;
+    a.cluster_break = dominant.get(key) !== cluster;
   }
-
-  // ---- Local search: swap supervisors while the total cost strictly falls ----
-  const costBefore = solutionCost(state, context);
-  const searchResult = localSearch(assignments, state, context);
-  const costAfter = solutionCost(state, context);
-
-  reflagAssignments(assignments, schoolHistory, postingType, avoidRepeatSchools);
-  for (const a of assignments) delete a._cluster;
-
-  if (quotaSkipped > 0) {
-    warnings.push(
-      `${quotaSkipped} slot(s) skipped - the posting allocation for this session is exhausted`
-    );
-  }
-
-  if (unassignedSlots > 0) {
-    warnings.push(
-      `${unassignedSlots} slot(s) could not be assigned (more slots than total supervisor capacity)`
-    );
-  }
-
-  return finish(assignments, warnings, supervisors, numberOfPostings, eligibleSlots, {
-    context,
-    costBefore,
-    costAfter,
-    searchResult,
-    quotaSkipped,
-  });
 }
 
 // ============================================================================
-// LOCAL SEARCH
+// PHASE 7 - LEXICOGRAPHIC OBJECTIVE
 // ============================================================================
 
-/**
- * Swap the supervisors of two assignments whenever that strictly lowers the cost.
- *
- * Each slot keeps its own school/group/visit, so a swap only exchanges who goes
- * where - posting counts and capacity are untouched by construction, which means
- * the hard constraints survive the search automatically. Swaps never cross a
- * priority tier boundary - that would undo the deterministic bucket assignment -
- * so `a`/`b` are skipped whenever their `priority_number` differs; within a tier
- * there is nothing left to swap over except repeat/affinity/travel.
- *
- * Only assignments that currently carry a penalty are used as swap candidates, and
- * each swap is evaluated with an exact local delta rather than a global rebuild,
- * keeping this O(penalised x assignments) with O(1) work per comparison.
- */
-function localSearch(assignments, state, context) {
-  if (assignments.length < 2) return { swaps_applied: 0, passes: 0 };
+const OBJECTIVE_FIELDS = [
+  'unassignedCount',
+  'hardViolationCount',
+  'priorityInversionCount',
+  'priorityInversionSeverity',
+  'crossLgaAssignmentCount',
+  'lgaFragmentation',
+  'repeatCount',
+  'workloadImbalance',
+  'travelImbalance',
+];
 
-  let swapsApplied = 0;
+/** Tier-pair priority-inversion detection, based on realized mean distance per tier. */
+function computePriorityInversions(assignments, tiers) {
+  const byTier = new Map();
+  for (const a of assignments) {
+    const key = a.priority_number;
+    if (!byTier.has(key)) byTier.set(key, []);
+    byTier.get(key).push(a.distance_km || 0);
+  }
+
+  const tierStats = tiers
+    .filter((t) => t.priority_number != null)
+    .map((t) => {
+      const distances = byTier.get(t.priority_number) || [];
+      return {
+        priority_number: t.priority_number,
+        postings: distances.length,
+        mean_km: distances.length ? average(distances) : 0,
+        min_km: distances.length ? Math.min(...distances) : 0,
+        max_km: distances.length ? Math.max(...distances) : 0,
+        p25_km: distances.length ? percentile([...distances].sort((a, b) => a - b), 0.25) : 0,
+        median_km: distances.length ? median(distances) : 0,
+        p75_km: distances.length ? percentile([...distances].sort((a, b) => a - b), 0.75) : 0,
+      };
+    })
+    .sort((a, b) => a.priority_number - b.priority_number);
+
+  let inversionCount = 0;
+  let inversionSeverity = 0;
+  const tierOverlap = [];
+
+  for (let i = 0; i < tierStats.length; i++) {
+    for (let j = i + 1; j < tierStats.length; j++) {
+      const senior = tierStats[i];
+      const junior = tierStats[j];
+      if (senior.postings === 0 || junior.postings === 0) continue;
+      if (senior.mean_km < junior.mean_km) {
+        inversionCount++;
+        inversionSeverity += Math.max(0, junior.mean_km - senior.mean_km);
+      }
+      const overlap = Math.max(0, Math.min(senior.max_km, junior.max_km) - Math.max(senior.min_km, junior.min_km));
+      tierOverlap.push({ tier_a: senior.priority_number, tier_b: junior.priority_number, overlap_km: Number(overlap.toFixed(1)) });
+    }
+  }
+
+  const totalPairs = (tierStats.length * (tierStats.length - 1)) / 2;
+  const monotonicityScore = totalPairs > 0 ? 1 - inversionCount / totalPairs : 1;
+
+  return { tierStats, inversionCount, inversionSeverity, tierOverlap, monotonicityScore, totalPairs };
+}
+
+function scoreCandidate(assignments, ctx) {
+  const { tiers, eligibleSlotCount, supervisors, maxDistanceNorm } = ctx;
+
+  const violations = validateSolution(
+    assignments,
+    supervisors,
+    ctx.slots,
+    ctx.numberOfPostings,
+    ctx.maxAssignments
+  ).violations;
+
+  const { inversionCount, inversionSeverity } = computePriorityInversions(assignments, tiers);
+
+  let crossLgaAssignmentCount = 0;
+  let lgaFragmentation = 0;
+  if (ctx.postingType !== 'random') {
+    const byPair = new Map();
+    for (const a of assignments) {
+      const key = `${a.supervisor_id}-${a.visit_number}`;
+      if (!byPair.has(key)) byPair.set(key, new Set());
+      byPair.get(key).add(clusterKeyFor(a, ctx.postingType));
+    }
+    for (const clusters of byPair.values()) {
+      if (clusters.size > 1) lgaFragmentation++;
+    }
+    crossLgaAssignmentCount = assignments.filter((a) => a.cluster_break).length;
+  }
+
+  const repeatCountVal = assignments.filter((a) => a.repeat_school).length;
+
+  const totalsBySupervisor = new Map();
+  const distanceBySupervisor = new Map();
+  for (const a of assignments) {
+    totalsBySupervisor.set(a.supervisor_id, (totalsBySupervisor.get(a.supervisor_id) || 0) + 1);
+    distanceBySupervisor.set(
+      a.supervisor_id,
+      (distanceBySupervisor.get(a.supervisor_id) || 0) + (a.distance_km || 0)
+    );
+  }
+  const finalTotals = [...supervisors.values()].map(
+    (s) => s.currentPostings + (totalsBySupervisor.get(s.supervisor.id) || 0)
+  );
+  const workloadImbalance = standardDeviation(finalTotals);
+  const travelValues = [...distanceBySupervisor.values()];
+  const travelImbalance = maxDistanceNorm > 0 ? standardDeviation(travelValues) / maxDistanceNorm : 0;
+
+  return {
+    unassignedCount: Math.max(0, eligibleSlotCount - assignments.length),
+    hardViolationCount: violations.length,
+    priorityInversionCount: inversionCount,
+    priorityInversionSeverity: Number(inversionSeverity.toFixed(2)),
+    crossLgaAssignmentCount,
+    lgaFragmentation,
+    repeatCount: repeatCountVal,
+    workloadImbalance: Number(workloadImbalance.toFixed(3)),
+    travelImbalance: Number(travelImbalance.toFixed(3)),
+  };
+}
+
+function compareObjectives(a, b) {
+  for (const field of OBJECTIVE_FIELDS) {
+    const diff = a[field] - b[field];
+    if (Math.abs(diff) > 1e-9) return diff;
+  }
+  return 0;
+}
+
+// ============================================================================
+// PHASE 8 - MULTIPLE DETERMINISTIC INITIAL SOLUTIONS
+// ============================================================================
+
+const STRATEGIES = [
+  'A-hardest-difficulty-first',
+  'B-largest-demand-first',
+  'C-hardest-to-fit-first',
+  'D-highest-priority-tier-first',
+  'E-visit-balanced',
+];
+
+function orderUnitsForStrategy(strategyName, demandModel, tiers, supervisorModel) {
+  const allUnits = [];
+  for (const visit of demandModel.visits) {
+    for (const unit of demandModel.byVisit.get(visit)) allUnits.push(unit);
+  }
+
+  const byKey = (a, b) => a.key.localeCompare(b.key) || a.visit_number - b.visit_number;
+
+  switch (strategyName) {
+    case 'A-hardest-difficulty-first':
+      return [...allUnits].sort((a, b) => b.difficulty - a.difficulty || byKey(a, b));
+
+    case 'B-largest-demand-first':
+      return [...allUnits].sort((a, b) => b.demand - a.demand || byKey(a, b));
+
+    case 'C-hardest-to-fit-first': {
+      return [...allUnits].sort((a, b) => {
+        const feasA = tiers.filter((t) => t.totalCapacity >= a.demand).length || 1;
+        const feasB = tiers.filter((t) => t.totalCapacity >= b.demand).length || 1;
+        return feasA - feasB || b.difficulty - a.difficulty || byKey(a, b);
+      });
+    }
+
+    case 'D-highest-priority-tier-first': {
+      // Process the whole difficulty-sorted list once - it already places the
+      // hardest work first, which is what a senior-tier-first pass wants to see
+      // first anyway (senior tiers are seeded from the hardest units).
+      return [...allUnits].sort((a, b) => b.difficulty - a.difficulty || byKey(a, b));
+    }
+
+    case 'E-visit-balanced': {
+      // Round-robin across visits so no single visit's demand can monopolize
+      // capacity purely because it was processed first.
+      const byVisit = new Map();
+      for (const unit of allUnits) {
+        if (!byVisit.has(unit.visit_number)) byVisit.set(unit.visit_number, []);
+        byVisit.get(unit.visit_number).push(unit);
+      }
+      for (const list of byVisit.values()) {
+        list.sort((a, b) => b.difficulty - a.difficulty || byKey(a, b));
+      }
+      const visitKeys = [...byVisit.keys()].sort((a, b) => a - b);
+      const result = [];
+      let more = true;
+      let idx = 0;
+      while (more) {
+        more = false;
+        for (const v of visitKeys) {
+          const list = byVisit.get(v);
+          if (idx < list.length) {
+            result.push(list[idx]);
+            more = true;
+          }
+        }
+        idx++;
+      }
+      return result;
+    }
+
+    default:
+      return [...allUnits].sort((a, b) => b.difficulty - a.difficulty || byKey(a, b));
+  }
+}
+
+function buildCandidate(strategyName, demandModel, baseSupervisorModel, baseTiers, postingType, priorityEnabled, avoidRepeatSchools, ctx) {
+  const supervisorModel = cloneSupervisorModel(baseSupervisorModel);
+  const tiers = cloneTiers(baseTiers);
+
+  const orderedUnits = orderUnitsForStrategy(strategyName, demandModel, tiers, supervisorModel);
+
+  const { seatPlan, unplacedUnits } = solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, {
+    priorityEnabled,
+  });
+
+  const { assignments, unassignedCount } = assignSlotsWithinClusters(
+    demandModel,
+    seatPlan,
+    supervisorModel,
+    postingType,
+    avoidRepeatSchools
+  );
+
+  reflagClusterBreaks(assignments, postingType);
+
+  const objective = scoreCandidate(assignments, { ...ctx, tiers });
+
+  return {
+    strategyName,
+    assignments,
+    supervisorModel,
+    tiers,
+    unplacedUnits,
+    unassignedFromAllocation: unassignedCount,
+    objective,
+  };
+}
+
+function generateInitialSolutions(demandModel, supervisorModel, tiers, postingType, priorityEnabled, avoidRepeatSchools, ctx) {
+  return STRATEGIES.map((name) =>
+    buildCandidate(name, demandModel, supervisorModel, tiers, postingType, priorityEnabled, avoidRepeatSchools, ctx)
+  );
+}
+
+function selectBestCandidate(candidates) {
+  let best = candidates[0];
+  for (let i = 1; i < candidates.length; i++) {
+    if (compareObjectives(candidates[i].objective, best.objective) < 0) {
+      best = candidates[i];
+    }
+  }
+  return best;
+}
+
+// ============================================================================
+// PHASE 9 - CONSTRAINED LOCAL IMPROVEMENT (Moves A-D)
+// ============================================================================
+
+function assignmentSlotKey(a) {
+  return `${a.school_id}-${a.group_number}-${a.visit_number}`;
+}
+
+function checkHardConstraints(assignments, supervisors, maxAssignments) {
+  const seen = new Set();
+  const perSupervisor = new Map();
+  for (const a of assignments) {
+    const key = assignmentSlotKey(a);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    perSupervisor.set(a.supervisor_id, (perSupervisor.get(a.supervisor_id) || 0) + 1);
+  }
+  for (const [id, count] of perSupervisor) {
+    const sup = supervisors.get(id);
+    if (!sup || count > sup.totalCapacity) return false;
+  }
+  if (assignments.length > maxAssignments) return false;
+  return true;
+}
+
+/**
+ * Try Moves A/B/C/D on the winning candidate. Every move is validated by
+ * re-scoring the FULL objective vector before/after and only applied when the
+ * result is not lexicographically worse (and, for A-C, never crosses a tier
+ * boundary; only D may do that, and only to shrink an existing inversion).
+ */
+function improveSolution(candidate, demandModel, supervisorModel, tiers, postingType, priorityEnabled, avoidRepeatSchools, ctx, limits = {}) {
+  const maxPasses = limits.maxPasses ?? LOCAL_SEARCH_MAX_PASSES;
+  const maxComparisons = limits.maxComparisons ?? LOCAL_SEARCH_MAX_COMPARISONS;
+  const maxMoveD = limits.maxMoveDCount ?? Math.max(3, tiers.length * 3);
+
+  let assignments = candidate.assignments.map((a) => ({ ...a }));
+  let objectiveBefore = scoreCandidate(assignments, { ...ctx, tiers });
+  let objective = objectiveBefore;
+
+  const moves = { A: 0, B: 0, C: 0, D: 0 };
   let comparisons = 0;
   let pass = 0;
+  let budgetExhausted = false;
 
-  for (; pass < LOCAL_SEARCH_MAX_PASSES; pass++) {
+  for (; pass < maxPasses; pass++) {
     let improvedThisPass = false;
 
-    // Only assignments that cost something are worth moving
-    const candidates = assignments.filter((a) => a.repeat_school || a.cluster_break);
-    if (candidates.length === 0) break;
+    // ---- Move A: reassign one slot within the same unit to a different
+    // already-seated supervisor, when it reduces repeat/workload/travel.
+    const unitOf = (a) => (postingType === 'random' ? null : clusterKeyFor(a, postingType));
+    const candidatesForA = assignments.filter((a) => a.repeat_school || a.cluster_break);
 
-    for (const a of candidates) {
-      for (const b of assignments) {
-        if (a === b || a.supervisor_id === b.supervisor_id) continue;
-        if (a.priority_number !== b.priority_number) continue;
-
-        if (++comparisons > LOCAL_SEARCH_MAX_COMPARISONS) {
-          return { swaps_applied: swapsApplied, passes: pass + 1, budget_exhausted: true };
-        }
-
-        const delta = swapDelta(a, b, state, context);
-        if (delta < -1e-9) {
-          performSwap(a, b, state);
-          swapsApplied++;
+    for (const a of candidatesForA) {
+      if (comparisons > maxComparisons) {
+        budgetExhausted = true;
+        break;
+      }
+      const sameUnitPeers = assignments.filter(
+        (b) =>
+          b !== a &&
+          b.visit_number === a.visit_number &&
+          unitOf(b) === unitOf(a) &&
+          b.supervisor_id !== a.supervisor_id
+      );
+      for (const peer of sameUnitPeers) {
+        comparisons++;
+        const trial = assignments.map((x) => (x === a ? { ...x, supervisor_id: peer.supervisor_id, supervisor_name: peer.supervisor_name, rank_code: peer.rank_code, priority_number: peer.priority_number } : x));
+        reflagRepeatFlag(trial, a, peer.supervisor_id, supervisorModel, avoidRepeatSchools);
+        if (!checkHardConstraints(trial, supervisorModel.byId, ctx.maxAssignments)) continue;
+        if (a.priority_number !== peer.priority_number) continue; // A never crosses tiers
+        reflagClusterBreaks(trial, postingType);
+        const trialObjective = scoreCandidate(trial, { ...ctx, tiers });
+        if (compareObjectives(trialObjective, objective) < 0) {
+          assignments = trial;
+          objective = trialObjective;
+          moves.A++;
           improvedThisPass = true;
-          break; // `a` has moved; stop pairing it
+          break;
+        }
+      }
+      if (budgetExhausted) break;
+    }
+    if (budgetExhausted) break;
+
+    // ---- Move B: swap two supervisors' full allocations within the same unit
+    const unitGroups = new Map();
+    for (const a of assignments) {
+      const uk = `${unitOf(a)}-${a.visit_number}`;
+      if (!unitGroups.has(uk)) unitGroups.set(uk, new Map());
+      const bySup = unitGroups.get(uk);
+      if (!bySup.has(a.supervisor_id)) bySup.set(a.supervisor_id, []);
+      bySup.get(a.supervisor_id).push(a);
+    }
+    for (const bySup of unitGroups.values()) {
+      const supIds = [...bySup.keys()];
+      if (supIds.length < 2) continue;
+      for (let i = 0; i < supIds.length && !budgetExhausted; i++) {
+        for (let j = i + 1; j < supIds.length; j++) {
+          if (comparisons > maxComparisons) {
+            budgetExhausted = true;
+            break;
+          }
+          comparisons++;
+          const x = supIds[i];
+          const y = supIds[j];
+          const px = assignments.find((a) => a.supervisor_id === x)?.priority_number;
+          const py = assignments.find((a) => a.supervisor_id === y)?.priority_number;
+          if (px !== py) continue; // B never crosses tiers
+
+          const trial = swapFullAllocations(assignments, x, y);
+          if (!checkHardConstraints(trial, supervisorModel.byId, ctx.maxAssignments)) continue;
+          reflagClusterBreaks(trial, postingType);
+          const trialObjective = scoreCandidate(trial, { ...ctx, tiers });
+          if (compareObjectives(trialObjective, objective) < 0) {
+            assignments = trial;
+            objective = trialObjective;
+            moves.B++;
+            improvedThisPass = true;
+          }
+        }
+      }
+    }
+    if (budgetExhausted) break;
+
+    // ---- Move C: exchange whole unit ownership between two same-tier
+    // supervisors when it improves without touching tier membership.
+    // (Implemented as: for each pair of units owned respectively by two
+    // different same-tier supervisors in the same visit, try swapping which
+    // supervisor is associated with which unit's assignments wholesale.)
+    const bySupervisorVisitUnit = new Map(); // supervisorId -> visit -> unitKey -> assignments[]
+    for (const a of assignments) {
+      const uk = unitOf(a);
+      if (!bySupervisorVisitUnit.has(a.supervisor_id)) bySupervisorVisitUnit.set(a.supervisor_id, new Map());
+      const byVisit = bySupervisorVisitUnit.get(a.supervisor_id);
+      if (!byVisit.has(a.visit_number)) byVisit.set(a.visit_number, new Map());
+      const byUnit = byVisit.get(a.visit_number);
+      if (!byUnit.has(uk)) byUnit.set(uk, []);
+      byUnit.get(uk).push(a);
+    }
+    const soleOwners = []; // {supervisorId, visit, unitKey, priority_number}
+    for (const [supervisorId, byVisit] of bySupervisorVisitUnit) {
+      for (const [visit, byUnit] of byVisit) {
+        if (byUnit.size === 1) {
+          const [unitKey] = byUnit.keys();
+          const prio = byUnit.get(unitKey)[0].priority_number;
+          soleOwners.push({ supervisorId, visit, unitKey, priority_number: prio });
+        }
+      }
+    }
+    for (let i = 0; i < soleOwners.length && !budgetExhausted; i++) {
+      for (let j = i + 1; j < soleOwners.length; j++) {
+        const x = soleOwners[i];
+        const y = soleOwners[j];
+        if (x.visit !== y.visit || x.priority_number !== y.priority_number) continue;
+        if (x.unitKey === y.unitKey) continue;
+        if (comparisons > maxComparisons) {
+          budgetExhausted = true;
+          break;
+        }
+        comparisons++;
+        const trial = swapFullAllocations(assignments, x.supervisorId, y.supervisorId);
+        if (!checkHardConstraints(trial, supervisorModel.byId, ctx.maxAssignments)) continue;
+        reflagClusterBreaks(trial, postingType);
+        const trialObjective = scoreCandidate(trial, { ...ctx, tiers });
+        if (compareObjectives(trialObjective, objective) < 0) {
+          assignments = trial;
+          objective = trialObjective;
+          moves.C++;
+          improvedThisPass = true;
+        }
+      }
+    }
+    if (budgetExhausted) break;
+
+    // ---- Move D: controlled cross-tier move, only to shrink an existing inversion
+    if (priorityEnabled && objective.priorityInversionCount > 0 && moves.D < maxMoveD) {
+      const { inversionCount: beforeCount, inversionSeverity: beforeSeverity } = computePriorityInversions(
+        assignments,
+        tiers
+      );
+      const seniorTiers = [...tiers].filter((t) => t.priority_number != null).sort((a, b) => a.priority_number - b.priority_number);
+
+      outer: for (let si = 0; si < seniorTiers.length; si++) {
+        for (let sj = si + 1; sj < seniorTiers.length; sj++) {
+          const senior = seniorTiers[si];
+          const junior = seniorTiers[sj];
+          const seniorAssignments = assignments.filter((a) => a.priority_number === senior.priority_number);
+          const juniorAssignments = assignments.filter((a) => a.priority_number === junior.priority_number);
+          if (seniorAssignments.length === 0 || juniorAssignments.length === 0) continue;
+
+          // Pick the senior's easiest assignment and the junior's hardest -
+          // a bounded single-slot exchange, not a full re-plan.
+          const seniorEasiest = [...seniorAssignments].sort((a, b) => a.distance_km - b.distance_km)[0];
+          const juniorHardest = [...juniorAssignments].sort((a, b) => b.distance_km - a.distance_km)[0];
+          if (!seniorEasiest || !juniorHardest) continue;
+          if (seniorEasiest.distance_km >= juniorHardest.distance_km) continue;
+
+          if (comparisons > maxComparisons) {
+            budgetExhausted = true;
+            break outer;
+          }
+          comparisons++;
+
+          const trial = assignments.map((a) => {
+            if (a === seniorEasiest) {
+              return { ...a, supervisor_id: juniorHardest.supervisor_id, supervisor_name: juniorHardest.supervisor_name, rank_code: juniorHardest.rank_code, priority_number: juniorHardest.priority_number };
+            }
+            if (a === juniorHardest) {
+              return { ...a, supervisor_id: seniorEasiest.supervisor_id, supervisor_name: seniorEasiest.supervisor_name, rank_code: seniorEasiest.rank_code, priority_number: seniorEasiest.priority_number };
+            }
+            return a;
+          });
+
+          if (!checkHardConstraints(trial, supervisorModel.byId, ctx.maxAssignments)) continue;
+          reflagClusterBreaks(trial, postingType);
+          const trialObjective = scoreCandidate(trial, { ...ctx, tiers });
+          const { inversionCount: afterCount, inversionSeverity: afterSeverity } = computePriorityInversions(
+            trial,
+            tiers
+          );
+
+          const strictlyBetterInversion =
+            afterCount < beforeCount || (afterCount === beforeCount && afterSeverity < beforeSeverity - 1e-9);
+          const noRegressionElsewhere =
+            trialObjective.unassignedCount === objective.unassignedCount &&
+            trialObjective.hardViolationCount === objective.hardViolationCount;
+
+          if (strictlyBetterInversion && noRegressionElsewhere) {
+            for (const a of trial) {
+              if (a.supervisor_id === seniorEasiest.supervisor_id || a.supervisor_id === juniorHardest.supervisor_id) {
+                a.priority_inversion_resolved = true;
+              }
+            }
+            assignments = trial;
+            objective = trialObjective;
+            moves.D++;
+            improvedThisPass = true;
+            break outer;
+          }
         }
       }
     }
 
     if (!improvedThisPass) break;
-
-    // Refresh flags so the next pass picks the right candidates
-    refreshFlags(assignments, state, context);
   }
 
-  return { swaps_applied: swapsApplied, passes: pass + 1 };
-}
-
-/**
- * Exact cost change from swapping the supervisors of assignments `a` and `b`.
- * Computed by removing both, re-adding them crossed over, and differencing the
- * affected supervisors' contributions.
- */
-function swapDelta(a, b, state, context) {
-  const entryA = state.get(a.supervisor_id);
-  const entryB = state.get(b.supervisor_id);
-  if (!entryA || !entryB) return 0;
-
-  const before = pairCost(a, b, state, context);
-  performSwap(a, b, state);
-  const after = pairCost(a, b, state, context);
-  performSwap(a, b, state); // revert
-
-  return after - before;
-}
-
-/**
- * Combined contribution of the two supervisors currently holding `a` and `b`:
- * repeats, affinity, and travel spread. Posting counts are unchanged by a swap,
- * so the load term is deliberately omitted.
- */
-function pairCost(a, b, state, context) {
-  const { weights } = context;
-  const entryA = state.get(a.supervisor_id);
-  const entryB = state.get(b.supervisor_id);
-
-  let total = 0;
-
-  for (const entry of new Set([entryA, entryB])) {
-    if (!entry) continue;
-
-    for (const occurrences of entry.schoolCounts.values()) {
-      if (occurrences > 1) total += weights.repeat * (occurrences - 1);
-    }
-
-    for (const visitNumber of entry.clusterCounts.keys()) {
-      total += weights.affinity * affinityCostFor(entry, visitNumber);
-    }
-
-    total += weights.travel * (entry.distance / Math.max(context.maxTravel, 1));
-  }
-
-  return total;
-}
-
-/** Move both assignments between supervisors and keep the state in step. */
-function performSwap(a, b, state) {
-  const entryA = state.get(a.supervisor_id);
-  const entryB = state.get(b.supervisor_id);
-
-  if (entryA) applyAssignment(entryA, a, a._cluster ?? null, -1);
-  if (entryB) applyAssignment(entryB, b, b._cluster ?? null, -1);
-
-  swapSupervisorFields(a, b);
-
-  const newEntryA = state.get(a.supervisor_id);
-  const newEntryB = state.get(b.supervisor_id);
-  if (newEntryA) applyAssignment(newEntryA, a, a._cluster ?? null, 1);
-  if (newEntryB) applyAssignment(newEntryB, b, b._cluster ?? null, 1);
-}
-
-function swapSupervisorFields(a, b) {
-  const carried = {
-    supervisor_id: a.supervisor_id,
-    supervisor_name: a.supervisor_name,
-    rank_code: a.rank_code,
-    priority_number: a.priority_number,
+  const objectiveAfter = objective;
+  return {
+    assignments,
+    movesApplied: moves,
+    passes: pass + 1,
+    objectiveBefore,
+    objectiveAfter,
+    budgetExhausted,
   };
-  a.supervisor_id = b.supervisor_id;
-  a.supervisor_name = b.supervisor_name;
-  a.rank_code = b.rank_code;
-  a.priority_number = b.priority_number;
-  Object.assign(b, carried);
 }
 
-/** Cheap in-search flag refresh so the next pass targets the right assignments. */
-function refreshFlags(assignments, state, context) {
-  for (const a of assignments) {
-    const entry = state.get(a.supervisor_id);
-    if (!entry) continue;
-
-    a.repeat_school = context.avoidRepeatSchools && schoolCountOf(entry, a.school_id) > 1;
-
-    if (a._cluster == null) {
-      a.cluster_break = false;
-      continue;
+function swapFullAllocations(assignments, supervisorIdX, supervisorIdY) {
+  return assignments.map((a) => {
+    if (a.supervisor_id === supervisorIdX) {
+      const template = assignments.find((b) => b.supervisor_id === supervisorIdY);
+      return { ...a, supervisor_id: supervisorIdY, supervisor_name: template.supervisor_name, rank_code: template.rank_code, priority_number: template.priority_number };
     }
-    const clusters = entry.clusterCounts.get(a.visit_number);
-    if (!clusters || clusters.size <= 1) {
-      a.cluster_break = false;
-    } else {
-      const largest = Math.max(...clusters.values());
-      a.cluster_break = (clusters.get(a._cluster) || 0) < largest;
+    if (a.supervisor_id === supervisorIdY) {
+      const template = assignments.find((b) => b.supervisor_id === supervisorIdX);
+      return { ...a, supervisor_id: supervisorIdX, supervisor_name: template.supervisor_name, rank_code: template.rank_code, priority_number: template.priority_number };
     }
-  }
+    return a;
+  });
 }
 
-/**
- * Final, authoritative flagging. Only the extra visits to an already-covered
- * school count as repeats, and only trips outside a supervisor's dominant cluster
- * for that visit count as affinity breaks.
- */
-function reflagAssignments(assignments, schoolHistory, postingType, avoidRepeatSchools = true) {
-  const covered = new Map();
-
-  for (const a of assignments) {
-    if (!avoidRepeatSchools) {
-      // The penalty is off, so a repeated school is not a problem to report
-      a.repeat_school = false;
-      continue;
+function reflagRepeatFlag(trial, originalAssignment, newSupervisorId, supervisorModel, avoidRepeatSchools) {
+  if (!avoidRepeatSchools) return;
+  const entry = supervisorModel.byId.get(newSupervisorId);
+  if (!entry) return;
+  for (const a of trial) {
+    if (a.school_id === originalAssignment.school_id && a.visit_number === originalAssignment.visit_number && a.supervisor_id === newSupervisorId) {
+      a.repeat_school = entry.schoolHistory.has(a.school_id);
     }
-
-    if (!covered.has(a.supervisor_id)) {
-      covered.set(a.supervisor_id, new Set(schoolHistory.get(a.supervisor_id) || []));
-    }
-    const schools = covered.get(a.supervisor_id);
-    a.repeat_school = schools.has(a.school_id);
-    schools.add(a.school_id);
-  }
-
-  // Dominant cluster per (supervisor, visit)
-  const histogram = new Map();
-  for (const a of assignments) {
-    const cluster = clusterKeyFor(a, postingType);
-    if (cluster === null) continue;
-
-    const key = `${a.supervisor_id}-${a.visit_number}`;
-    if (!histogram.has(key)) histogram.set(key, new Map());
-    const clusters = histogram.get(key);
-    clusters.set(cluster, (clusters.get(cluster) || 0) + 1);
-  }
-
-  const dominant = new Map();
-  for (const [key, clusters] of histogram) {
-    let bestCluster = null;
-    let bestCount = -1;
-    for (const [cluster, count] of clusters) {
-      if (count > bestCount) {
-        bestCluster = cluster;
-        bestCount = count;
-      }
-    }
-    dominant.set(key, bestCluster);
-  }
-
-  for (const a of assignments) {
-    const cluster = clusterKeyFor(a, postingType);
-    if (cluster === null) {
-      a.cluster_break = false;
-      continue;
-    }
-    a.cluster_break = dominant.get(`${a.supervisor_id}-${a.visit_number}`) !== cluster;
   }
 }
 
 // ============================================================================
-// STATISTICS
+// PHASE 10 - VALIDATION (authoritative, never trusts running ledgers)
 // ============================================================================
 
 /**
- * Build the result payload. Deliberately richer than a set of counts: the preview
- * needs to show how *good* the distribution is, not just how big it is.
+ * Recomputes correctness from `assignments` alone. Callers pass the ORIGINAL
+ * (normalized) supervisors/slots so this never trusts the optimizer's own
+ * bookkeeping - spec requirement: "do not trust the algorithm's own bookkeeping
+ * to prove correctness."
  */
-function finish(assignments, warnings, supervisors, visitsIncluded, eligibleSlots, extras) {
-  const { context, costBefore, costAfter, searchResult, quotaSkipped = 0 } = extras;
+function validateSolution(assignments, supervisors, slots, numberOfPostings, maxAssignments) {
+  const violations = [];
+
+  const slotIndex = new Set(slots.map((s) => `${s.school_id}-${s.group_number}-${s.visit_number}`));
+  const supervisorIds = new Set(supervisors instanceof Map ? [...supervisors.keys()] : supervisors.map((s) => s.id));
+  const capacityOf = (id) => {
+    if (supervisors instanceof Map) return supervisors.get(id)?.totalCapacity;
+    const sup = supervisors.find((s) => s.id === id);
+    return sup?.remaining_slots;
+  };
+
+  const seenSlots = new Set();
+  const perSupervisor = new Map();
+
+  for (const a of assignments) {
+    const slotKey = assignmentSlotKey(a);
+
+    if (!slotIndex.has(slotKey)) {
+      violations.push({ type: 'invalid_slot_reference', message: `Assignment references unsupplied slot ${slotKey}`, assignment: a });
+    }
+    if (seenSlots.has(slotKey)) {
+      violations.push({ type: 'duplicate_slot', message: `Slot ${slotKey} assigned more than once`, assignment: a });
+    }
+    seenSlots.add(slotKey);
+
+    if (!supervisorIds.has(a.supervisor_id)) {
+      violations.push({ type: 'invalid_supervisor_reference', message: `Assignment references unsupplied supervisor ${a.supervisor_id}`, assignment: a });
+    }
+
+    if (a.visit_number > numberOfPostings) {
+      violations.push({ type: 'visit_out_of_range', message: `visit_number ${a.visit_number} exceeds ${numberOfPostings}`, assignment: a });
+    }
+
+    perSupervisor.set(a.supervisor_id, (perSupervisor.get(a.supervisor_id) || 0) + 1);
+  }
+
+  for (const [id, count] of perSupervisor) {
+    const cap = capacityOf(id);
+    if (cap != null && count > cap) {
+      violations.push({ type: 'over_capacity', message: `Supervisor ${id} has ${count} assignments, capacity ${cap}` });
+    }
+  }
+
+  if (assignments.length > maxAssignments) {
+    violations.push({ type: 'over_dean_ceiling', message: `${assignments.length} assignments exceed ceiling ${maxAssignments}` });
+  }
+
+  return { valid: violations.length === 0, violations };
+}
+
+/**
+ * Deterministically drop the minimum set of offending assignments to restore
+ * feasibility, then re-validate once as a backstop.
+ */
+function repairSolution(assignments, supervisors, slots, numberOfPostings, maxAssignments) {
+  let working = [...assignments];
+
+  // Duplicates: keep the first occurrence, drop later ones
+  const seenSlots = new Set();
+  working = working.filter((a) => {
+    const key = assignmentSlotKey(a);
+    if (seenSlots.has(key)) return false;
+    seenSlots.add(key);
+    return true;
+  });
+
+  // Invalid slot/supervisor references
+  const slotIndex = new Set(slots.map((s) => `${s.school_id}-${s.group_number}-${s.visit_number}`));
+  const supervisorIds = new Set(supervisors instanceof Map ? [...supervisors.keys()] : supervisors.map((s) => s.id));
+  working = working.filter(
+    (a) => slotIndex.has(assignmentSlotKey(a)) && supervisorIds.has(a.supervisor_id) && a.visit_number <= numberOfPostings
+  );
+
+  // Over-capacity: drop the supervisor's most-recently-added assignments first
+  const capacityOf = (id) => {
+    if (supervisors instanceof Map) return supervisors.get(id)?.totalCapacity ?? Infinity;
+    const sup = supervisors.find((s) => s.id === id);
+    return sup?.remaining_slots ?? Infinity;
+  };
+  const perSupervisor = new Map();
+  const kept = [];
+  for (const a of working) {
+    const count = perSupervisor.get(a.supervisor_id) || 0;
+    if (count < capacityOf(a.supervisor_id)) {
+      kept.push(a);
+      perSupervisor.set(a.supervisor_id, count + 1);
+    }
+  }
+  working = kept;
+
+  // Dean ceiling: drop from the end deterministically
+  if (working.length > maxAssignments) {
+    working = working.slice(0, maxAssignments);
+  }
+
+  const revalidated = validateSolution(working, supervisors, slots, numberOfPostings, maxAssignments);
+  if (!revalidated.valid) {
+    throw new Error(
+      `autoPostingEngine: solution still invalid after repair - ${JSON.stringify(revalidated.violations.slice(0, 3))}`
+    );
+  }
+
+  return working;
+}
+
+// ============================================================================
+// PHASE 11 - STATISTICS + WARNINGS
+// ============================================================================
+
+function calculateStatistics(assignments, supervisorModel, slots, numberOfPostings, tiers, priorityEnabled, postingType, extras) {
+  const {
+    quotaSkipped = 0,
+    unplacedUnitsCount = 0,
+    optimizationMeta,
+  } = extras;
 
   const byVisit = {};
   const bySupervisor = {};
   const bySchool = {};
-  const repeats = new Map();
+  const repeatsMap = new Map();
 
   for (const a of assignments) {
     const visitKey = `visit_${a.visit_number}`;
@@ -1130,15 +1436,13 @@ function finish(assignments, warnings, supervisors, visitsIncluded, eligibleSlot
     bySupervisor[a.supervisor_id].count++;
     bySupervisor[a.supervisor_id].distance += a.distance_km || 0;
 
-    if (!bySchool[a.school_id]) {
-      bySchool[a.school_id] = { count: 0, name: a.school_name };
-    }
+    if (!bySchool[a.school_id]) bySchool[a.school_id] = { count: 0, name: a.school_name };
     bySchool[a.school_id].count++;
 
     if (a.repeat_school) {
       const key = `${a.supervisor_id}-${a.school_id}`;
-      if (!repeats.has(key)) {
-        repeats.set(key, {
+      if (!repeatsMap.has(key)) {
+        repeatsMap.set(key, {
           supervisor_id: a.supervisor_id,
           supervisor_name: a.supervisor_name,
           school_id: a.school_id,
@@ -1146,17 +1450,19 @@ function finish(assignments, warnings, supervisors, visitsIncluded, eligibleSlot
           visit_numbers: [],
         });
       }
-      repeats.get(key).visit_numbers.push(a.visit_number);
+      repeatsMap.get(key).visit_numbers.push(a.visit_number);
     }
   }
 
   const counts = Object.values(bySupervisor).map((s) => s.count);
   const travels = Object.values(bySupervisor).map((s) => s.distance);
   const supervisorsWithPostings = Object.keys(bySupervisor).length;
+  const totalSupervisors = supervisorModel.byId.size;
 
-  // Mean journey length per rank band - the readable, deterministic proof that
-  // seniority is honoured: since priority is now a hard bucket assignment, these
-  // figures should fall as priority_number rises, not just correlate loosely.
+  const finalTotals = [...supervisorModel.byId.values()].map(
+    (e) => e.currentPostings + (bySupervisor[e.supervisor.id]?.count || 0)
+  );
+
   const rankBuckets = new Map();
   for (const a of assignments) {
     const band = Number(a.priority_number) || 99;
@@ -1165,7 +1471,6 @@ function finish(assignments, warnings, supervisors, visitsIncluded, eligibleSlot
     bucket.distance += a.distance_km || 0;
     bucket.count++;
   }
-
   const distanceByRank = [...rankBuckets.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([priority_number, bucket]) => ({
@@ -1174,8 +1479,6 @@ function finish(assignments, warnings, supervisors, visitsIncluded, eligibleSlot
       mean_km: Number((bucket.distance / bucket.count).toFixed(1)),
     }));
 
-  // Pure reporting/QA metric - proves the bucketing worked, doesn't drive
-  // anything. Negated so positive means "better rank -> further".
   let priorityCorrelation = 0;
   if (assignments.length >= 2) {
     priorityCorrelation = -correlation(
@@ -1184,27 +1487,35 @@ function finish(assignments, warnings, supervisors, visitsIncluded, eligibleSlot
     );
   }
 
+  const { tierStats, inversionCount, inversionSeverity, tierOverlap, monotonicityScore, totalPairs } =
+    computePriorityInversions(assignments, tiers);
+
+  const crossLgaCount = postingType === 'lga_based' ? assignments.filter((a) => a.cluster_break).length : 0;
+  const crossRouteCount = postingType === 'route_based' ? assignments.filter((a) => a.cluster_break).length : 0;
+  const distinctLgas = postingType === 'lga_based' ? new Set(assignments.map((a) => a.lga)).size : 0;
+
+  const repeatCountVal = assignments.filter((a) => a.repeat_school).length;
+  const unavoidableRepeats = assignments.filter((a) => a.repeat_school && a._unavoidable).length;
+
   const statistics = {
     total_assignments: assignments.length,
     total_schools: Object.keys(bySchool).length,
     by_visit: byVisit,
-    by_round: byVisit, // Alias for frontend compatibility
+    by_round: byVisit,
     supervisors_full: supervisorsWithPostings,
     supervisors_partial: 0,
-    supervisors_none: supervisors.length - supervisorsWithPostings,
-    visits_included: visitsIncluded,
-    filtered_slots_count: eligibleSlots.length,
+    supervisors_none: totalSupervisors - supervisorsWithPostings,
+    visits_included: numberOfPostings,
+    filtered_slots_count: slots.length,
 
-    avg_postings_per_supervisor: counts.length
-      ? Math.round(counts.reduce((a, b) => a + b, 0) / counts.length)
-      : 0,
+    avg_postings_per_supervisor: counts.length ? Math.round(counts.reduce((a, b) => a + b, 0) / counts.length) : 0,
     min_postings: counts.length ? Math.min(...counts) : 0,
     max_postings: counts.length ? Math.max(...counts) : 0,
 
-    // Distribution quality
-    repeat_school_assignments: assignments.filter((a) => a.repeat_school).length,
-    repeat_school_details: [...repeats.values()].slice(0, 20),
-    affinity_breaks: assignments.filter((a) => a.cluster_break).length,
+    repeat_school_assignments: repeatCountVal,
+    repeat_school_details: [...repeatsMap.values()].slice(0, 20),
+    affinity_breaks: postingType === 'random' ? 0 : assignments.filter((a) => a.cluster_break).length,
+
     load: {
       min: counts.length ? Math.min(...counts) : 0,
       max: counts.length ? Math.max(...counts) : 0,
@@ -1213,24 +1524,95 @@ function finish(assignments, warnings, supervisors, visitsIncluded, eligibleSlot
     travel_km: {
       min: travels.length ? Number(Math.min(...travels).toFixed(1)) : 0,
       max: travels.length ? Number(Math.max(...travels).toFixed(1)) : 0,
-      mean: travels.length
-        ? Number((travels.reduce((a, b) => a + b, 0) / travels.length).toFixed(1))
-        : 0,
+      mean: travels.length ? Number(average(travels).toFixed(1)) : 0,
     },
     distance_by_rank: distanceByRank,
     priority_correlation: Number(priorityCorrelation.toFixed(3)),
     quota_skipped: quotaSkipped,
+
+    // ---- new top-level fields ----
+    total_slots: slots.length,
+    total_assigned: assignments.length,
+    total_unassigned: Math.max(0, slots.length - assignments.length),
+    supervisors_total: totalSupervisors,
+    supervisors_used: supervisorsWithPostings,
+    utilization_rate: slots.length > 0 ? Number((assignments.length / slots.length).toFixed(3)) : 0,
+    assignments_by_visit: byVisit,
+    assignments_by_supervisor: bySupervisor,
+
+    workload: {
+      min: finalTotals.length ? Math.min(...finalTotals) : 0,
+      max: finalTotals.length ? Math.max(...finalTotals) : 0,
+      mean: finalTotals.length ? Number(average(finalTotals).toFixed(2)) : 0,
+      median: finalTotals.length ? Number(median(finalTotals).toFixed(2)) : 0,
+      standard_deviation: Number(standardDeviation(finalTotals).toFixed(2)),
+    },
+    travel: {
+      total_km: Number(travels.reduce((a, b) => a + b, 0).toFixed(1)),
+      min_supervisor_km: travels.length ? Number(Math.min(...travels).toFixed(1)) : 0,
+      max_supervisor_km: travels.length ? Number(Math.max(...travels).toFixed(1)) : 0,
+      mean_km: travels.length ? Number(average(travels).toFixed(1)) : 0,
+      standard_deviation: Number(standardDeviation(travels).toFixed(2)),
+    },
+    repeats: {
+      count: repeatCountVal,
+      rate: assignments.length > 0 ? Number((repeatCountVal / assignments.length).toFixed(3)) : 0,
+      unavoidable_count: unavoidableRepeats,
+    },
+    geography: {
+      lgAs: distinctLgas,
+      fragmented_assignments: postingType === 'random' ? 0 : assignments.filter((a) => a.cluster_break).length,
+      cross_lga_assignments: crossLgaCount,
+      cross_route_assignments: crossRouteCount,
+      unplaced_units: unplacedUnitsCount,
+    },
+    priority: {
+      enabled: priorityEnabled,
+      inversion_count: inversionCount,
+      inversion_severity: Number(inversionSeverity.toFixed(2)),
+      tier_overlap: tierOverlap,
+      monotonicity_score: Number(monotonicityScore.toFixed(3)),
+      distance_by_rank: distanceByRank,
+      tiers: tierStats,
+    },
+    optimization: optimizationMeta,
   };
 
-  if (context) {
-    statistics.cost_total = Number((costAfter ?? 0).toFixed(2));
-    statistics.local_search = {
-      swaps_applied: searchResult?.swaps_applied ?? 0,
-      passes: searchResult?.passes ?? 0,
-      cost_before: Number((costBefore ?? 0).toFixed(2)),
-      cost_after: Number((costAfter ?? 0).toFixed(2)),
-      budget_exhausted: searchResult?.budget_exhausted === true,
-    };
+  // Backward-compatible diagnostic scalarization (display only, never used to decide anything)
+  const scalarize = (v) =>
+    v.unassignedCount * 1e9 +
+    v.hardViolationCount * 1e8 +
+    v.priorityInversionCount * 1e6 +
+    v.priorityInversionSeverity * 1e4 +
+    v.crossLgaAssignmentCount * 1e3 +
+    v.lgaFragmentation * 1e2 +
+    v.repeatCount * 10 +
+    v.workloadImbalance +
+    v.travelImbalance;
+
+  statistics.cost_total = Number(scalarize(optimizationMeta.objective_after).toFixed(2));
+  statistics.local_search = {
+    swaps_applied: Object.values(optimizationMeta.moves_applied).reduce((a, b) => a + b, 0),
+    passes: optimizationMeta.improvement_passes,
+    cost_before: Number(scalarize(optimizationMeta.objective_before).toFixed(2)),
+    cost_after: Number(scalarize(optimizationMeta.objective_after).toFixed(2)),
+    budget_exhausted: optimizationMeta.budget_exhausted === true,
+  };
+
+  return statistics;
+}
+
+function buildWarnings(assignments, statistics, extras) {
+  const warnings = [...(extras.upstreamWarnings || [])];
+
+  if (extras.quotaSkipped > 0) {
+    warnings.push(`${extras.quotaSkipped} slot(s) skipped - the posting allocation for this session is exhausted`);
+  }
+
+  if (statistics.total_unassigned > 0) {
+    warnings.push(
+      `${statistics.total_unassigned} slot(s) could not be assigned (more slots than total supervisor capacity)`
+    );
   }
 
   if (statistics.repeat_school_assignments > 0) {
@@ -1239,9 +1621,27 @@ function finish(assignments, warnings, supervisors, visitsIncluded, eligibleSlot
     );
   }
 
-  if (statistics.affinity_breaks > 0) {
+  if (statistics.priority.inversion_count > 0) {
+    const affectedTiers = [...new Set(statistics.priority.tier_overlap.map((o) => o.tier_a))];
     warnings.push(
-      `${statistics.affinity_breaks} posting(s) fall outside the supervisor's usual route/LGA for that visit - the area ran out of available slots`
+      `${statistics.priority.inversion_count} priority inversion(s) remain because the senior priority tier(s) [${affectedTiers.join(', ')}] had insufficient remaining capacity.`
+    );
+  }
+
+  if (statistics.geography.cross_lga_assignments > 0 && extras.postingType === 'lga_based') {
+    warnings.push(
+      `${statistics.geography.cross_lga_assignments} slot(s) required cross-LGA allocation because LGA demand exceeded the available supervisor capacity assigned to that area.`
+    );
+  }
+  if (statistics.geography.cross_route_assignments > 0 && extras.postingType === 'route_based') {
+    warnings.push(
+      `${statistics.geography.cross_route_assignments} slot(s) required cross-route allocation because route demand exceeded the available supervisor capacity assigned to that area.`
+    );
+  }
+
+  if (statistics.geography.unplaced_units > 0) {
+    warnings.push(
+      `${statistics.geography.unplaced_units} geographical unit(s) could not be placed in any priority tier and were handled by a last-resort fallback pass.`
     );
   }
 
@@ -1249,35 +1649,273 @@ function finish(assignments, warnings, supervisors, visitsIncluded, eligibleSlot
   const seenSlots = new Map();
   const duplicates = [];
   for (const a of assignments) {
-    const slotKey = `${a.school_id}-${a.group_number}-${a.visit_number}`;
+    const slotKey = assignmentSlotKey(a);
     if (seenSlots.has(slotKey)) {
-      duplicates.push({
-        slot: slotKey,
-        first_supervisor: seenSlots.get(slotKey),
-        second_supervisor: a.supervisor_name,
-      });
+      duplicates.push({ slot: slotKey, first_supervisor: seenSlots.get(slotKey), second_supervisor: a.supervisor_name });
     } else {
       seenSlots.set(slotKey, a.supervisor_name);
     }
   }
-
   if (duplicates.length > 0) {
     warnings.push(`Algorithm error: ${duplicates.length} duplicate slot assignments detected`);
     statistics.duplicate_errors = duplicates;
   }
 
+  return warnings;
+}
+
+function finishResult(assignments, warnings, statistics) {
+  for (const a of assignments) {
+    delete a._unitKey;
+    delete a._unavoidable;
+  }
   return { assignments, warnings, statistics };
+}
+
+function emptyResult(warnings, numberOfPostings, slotsCount = 0) {
+  const statistics = {
+    total_assignments: 0,
+    total_schools: 0,
+    by_visit: {},
+    by_round: {},
+    supervisors_full: 0,
+    supervisors_partial: 0,
+    supervisors_none: 0,
+    visits_included: numberOfPostings,
+    filtered_slots_count: slotsCount,
+    avg_postings_per_supervisor: 0,
+    min_postings: 0,
+    max_postings: 0,
+    repeat_school_assignments: 0,
+    repeat_school_details: [],
+    affinity_breaks: 0,
+    load: { min: 0, max: 0, stddev: 0 },
+    travel_km: { min: 0, max: 0, mean: 0 },
+    distance_by_rank: [],
+    priority_correlation: 0,
+    quota_skipped: 0,
+    total_slots: slotsCount,
+    total_assigned: 0,
+    total_unassigned: slotsCount,
+    supervisors_total: 0,
+    supervisors_used: 0,
+    utilization_rate: 0,
+    assignments_by_visit: {},
+    assignments_by_supervisor: {},
+    workload: { min: 0, max: 0, mean: 0, median: 0, standard_deviation: 0 },
+    travel: { total_km: 0, min_supervisor_km: 0, max_supervisor_km: 0, mean_km: 0, standard_deviation: 0 },
+    repeats: { count: 0, rate: 0, unavoidable_count: 0 },
+    geography: { lgAs: 0, fragmented_assignments: 0, cross_lga_assignments: 0, cross_route_assignments: 0, unplaced_units: 0 },
+    priority: { enabled: false, inversion_count: 0, inversion_severity: 0, tier_overlap: [], monotonicity_score: 1, distance_by_rank: [], tiers: [] },
+    optimization: { strategy: null, candidate_solutions: [], improvement_passes: 0, objective_before: null, objective_after: null, moves_applied: { A: 0, B: 0, C: 0, D: 0 }, budget_exhausted: false },
+    cost_total: 0,
+    local_search: { swaps_applied: 0, passes: 0, cost_before: 0, cost_after: 0, budget_exhausted: false },
+  };
+  return { assignments: [], warnings, statistics };
+}
+
+// ============================================================================
+// MAIN ENTRY POINT
+// ============================================================================
+
+/**
+ * Assign supervisors to slots.
+ *
+ * @param {Array} supervisors - Eligible supervisors with remaining_slots and priority_number
+ * @param {Array} slots - Available slots (school+group+visit combinations)
+ * @param {number} numberOfPostings - Highest visit number to include (1 = Visit 1 only)
+ * @param {string} postingType - 'random' | 'route_based' | 'lga_based'
+ * @param {boolean} priorityEnabled - Pair higher ranks with harder/farther geographical work
+ * @param {Object} [options]
+ * @param {boolean} [options.avoidRepeatSchools=true]
+ * @param {Map}     [options.schoolHistory] - Map<supervisor_id, Set<school_id>> already covered
+ * @param {number}  [options.maxAssignments] - Hard ceiling (dean allocation)
+ * @param {Object}  [options.limits] - { maxPasses, maxComparisons, maxMoveDCount }
+ * @returns {{assignments: Array, warnings: Array, statistics: Object}}
+ */
+function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingType, priorityEnabled, options = {}) {
+  const {
+    avoidRepeatSchools = true,
+    schoolHistory = new Map(),
+    maxAssignments = Infinity,
+    limits = {},
+  } = options;
+
+  if (supervisors.length === 0) {
+    return emptyResult(['No eligible supervisors available'], numberOfPostings, 0);
+  }
+  if (slots.length === 0) {
+    return emptyResult(['No available slots to assign'], numberOfPostings, 0);
+  }
+
+  const preFilterEligible = slots.filter((s) => s.visit_number <= numberOfPostings);
+  if (preFilterEligible.length === 0) {
+    return emptyResult(
+      [`No available slots for Visit 1${numberOfPostings > 1 ? ` through ${numberOfPostings}` : ''}`],
+      numberOfPostings,
+      0
+    );
+  }
+  if (maxAssignments <= 0) {
+    return emptyResult(
+      ['No postings could be created - the posting allocation for this session is exhausted'],
+      numberOfPostings,
+      preFilterEligible.length
+    );
+  }
+
+  // ---- Phase 1: normalize ----
+  const normalized = normalizeInput(supervisors, slots, numberOfPostings, options);
+  const eligibleSlots = normalized.slots;
+  const upstreamWarnings = normalized.warnings;
+
+  if (eligibleSlots.length === 0) {
+    return emptyResult(
+      [...upstreamWarnings, `No available slots for Visit 1${numberOfPostings > 1 ? ` through ${numberOfPostings}` : ''}`],
+      numberOfPostings,
+      0
+    );
+  }
+
+  // ---- Phase 2: demand model ----
+  const demandModel = buildDemandModel(eligibleSlots, postingType);
+
+  // ---- Phase 3: supervisor capacity model ----
+  const baseSupervisorModel = buildSupervisorModel(normalized.supervisors, schoolHistory);
+
+  // ---- Phase 4: priority tiers ----
+  const baseTiers = buildPriorityTiers(baseSupervisorModel, priorityEnabled);
+
+  const totalDistance = eligibleSlots.reduce((sum, s) => sum + (s.distance_km || 0), 0);
+  const maxDistanceNorm = Math.max(totalDistance / normalized.supervisors.length, 1);
+
+  const scoringCtx = {
+    slots: eligibleSlots,
+    numberOfPostings,
+    maxAssignments: Number.isFinite(maxAssignments) ? maxAssignments : eligibleSlots.length,
+    postingType,
+    eligibleSlotCount: eligibleSlots.length,
+    supervisors: baseSupervisorModel.byId,
+    maxDistanceNorm,
+  };
+
+  // ---- Phase 5-6-8: multiple deterministic initial solutions ----
+  const candidates = generateInitialSolutions(
+    demandModel,
+    baseSupervisorModel,
+    baseTiers,
+    postingType,
+    priorityEnabled,
+    avoidRepeatSchools,
+    scoringCtx
+  );
+
+  let winner = selectBestCandidate(candidates);
+
+  // Respect dean ceiling as a hard cap on the chosen candidate (best-first by objective)
+  let quotaSkipped = 0;
+  if (winner.assignments.length > scoringCtx.maxAssignments) {
+    const ordered = [...winner.assignments].sort((a, b) => {
+      // Keep the "best" assignments per the same tie-break used elsewhere:
+      // priority (senior first when enabled), then distance desc, then ids
+      return (
+        (a.priority_number ?? 99) - (b.priority_number ?? 99) ||
+        (b.distance_km || 0) - (a.distance_km || 0) ||
+        a.school_id - b.school_id ||
+        a.group_number - b.group_number ||
+        a.visit_number - b.visit_number
+      );
+    });
+    quotaSkipped = ordered.length - scoringCtx.maxAssignments;
+    winner = { ...winner, assignments: ordered.slice(0, scoringCtx.maxAssignments) };
+  }
+
+  // ---- Phase 9: constrained local improvement ----
+  const improvement = improveSolution(
+    winner,
+    demandModel,
+    winner.supervisorModel,
+    winner.tiers,
+    postingType,
+    priorityEnabled,
+    avoidRepeatSchools,
+    scoringCtx,
+    limits
+  );
+
+  let finalAssignments = improvement.assignments;
+
+  // ---- Phase 10: authoritative validation + repair ----
+  const validation = validateSolution(
+    finalAssignments,
+    baseSupervisorModel.byId,
+    eligibleSlots,
+    numberOfPostings,
+    scoringCtx.maxAssignments
+  );
+  if (!validation.valid) {
+    finalAssignments = repairSolution(
+      finalAssignments,
+      baseSupervisorModel.byId,
+      eligibleSlots,
+      numberOfPostings,
+      scoringCtx.maxAssignments
+    );
+  }
+
+  reflagClusterBreaks(finalAssignments, postingType);
+
+  const optimizationMeta = {
+    strategy: winner.strategyName,
+    candidate_solutions: candidates.map((c) => ({ strategy: c.strategyName, objective: c.objective })),
+    improvement_passes: improvement.passes,
+    objective_before: improvement.objectiveBefore,
+    objective_after: improvement.objectiveAfter,
+    moves_applied: improvement.movesApplied,
+    budget_exhausted: improvement.budgetExhausted,
+  };
+
+  const unplacedUnitsCount = winner.unplacedUnits ? winner.unplacedUnits.length : 0;
+
+  const statistics = calculateStatistics(
+    finalAssignments,
+    baseSupervisorModel,
+    eligibleSlots,
+    numberOfPostings,
+    winner.tiers,
+    priorityEnabled,
+    postingType,
+    { quotaSkipped, unplacedUnitsCount, optimizationMeta }
+  );
+
+  const warnings = buildWarnings(finalAssignments, statistics, {
+    upstreamWarnings,
+    quotaSkipped,
+    postingType,
+  });
+
+  return finishResult(finalAssignments, warnings, statistics);
 }
 
 module.exports = {
   runAutoPostingAlgorithm,
-  DEFAULT_WEIGHTS,
-  // Exported for testing
+  // Small math/geography helpers
   clusterKeyFor,
   standardDeviation,
   correlation,
-  computePriorityTiers,
-  computeTierThresholds,
-  assignUnitsToTiers,
-  planPriorityAllocation,
+  calculateGeographyDifficulty,
+  // Pipeline stages, exported for testing
+  normalizeInput,
+  buildDemandModel,
+  buildSupervisorModel,
+  buildPriorityTiers,
+  solveLgaAllocation,
+  solveRouteAllocation,
+  solveRandomAllocation,
+  generateInitialSolutions,
+  assignSlotsWithinClusters,
+  scoreCandidate,
+  compareObjectives,
+  improveSolution,
+  validateSolution,
 };
