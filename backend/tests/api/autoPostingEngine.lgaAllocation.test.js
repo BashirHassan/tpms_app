@@ -232,6 +232,67 @@ describe('priority tier allocation', () => {
       expect(senior.every((a) => a.lga.endsWith('Far'))).toBe(true);
     }
   });
+
+  it('has genuinely zero rank influence when disabled, even at scale with many exact-load ties', () => {
+    // Regression for a real bug: the workload-fairness pass used each
+    // supervisor's real priority_number as a tie-break unconditionally, so
+    // even with priority OFF, distance_by_rank still showed a senior-leans-
+    // farther trend purely as a rebalancing artifact. At production scale
+    // (many supervisors, uniform capacity) exact-count ties during
+    // rebalancing are common, so this trend was clearly visible - it must
+    // be gone entirely now.
+    const tierSizes = [2, 3, 5, 10, 15, 15, 20];
+    const supervisors = [];
+    let id = 1;
+    tierSizes.forEach((count, tierIdx) => {
+      for (let i = 0; i < count; i++) {
+        supervisors.push({
+          id: id++,
+          name: `Supervisor ${id}`,
+          rank_code: `R${tierIdx + 1}`,
+          priority_number: tierIdx + 1,
+          current_postings: 0,
+          remaining_slots: 20,
+        });
+      }
+    });
+
+    const lgaSizes = [];
+    let total = 0;
+    let i = 0;
+    while (total < 263) {
+      const size = 2 + (i % 19);
+      lgaSizes.push(size);
+      total += size;
+      i++;
+    }
+    const slots = [];
+    let schoolId = 0;
+    lgaSizes.forEach((size, lgaIdx) => {
+      for (let s = 0; s < size; s++) {
+        schoolId++;
+        for (let visit = 1; visit <= 2; visit++) {
+          slots.push({
+            id: `${schoolId}-1-${visit}`,
+            school_id: schoolId,
+            school_name: `School ${schoolId}`,
+            group_number: 1,
+            visit_number: visit,
+            route_id: lgaIdx + 1,
+            route_name: `Route ${lgaIdx + 1}`,
+            lga: `LGA ${lgaIdx + 1}`,
+            distance_km: 5 + (schoolId % 200),
+          });
+        }
+      }
+    });
+
+    const { statistics } = runAutoPostingAlgorithm(supervisors, slots, 2, 'lga_based', false);
+
+    expect(statistics.priority.enabled).toBe(false);
+    // Near-zero correlation between rank and distance - no systematic trend.
+    expect(Math.abs(statistics.priority_correlation)).toBeLessThan(0.2);
+  }, 20000);
 });
 
 // ============================================================================

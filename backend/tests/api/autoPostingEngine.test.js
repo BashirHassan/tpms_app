@@ -467,6 +467,66 @@ describe('determinism', () => {
 });
 
 // ============================================================================
+// SEEDED SHUFFLE TIE-BREAKING
+//
+// Every tie-break used to fall back to raw supervisor ID, so the same
+// low-ID supervisors always won every genuine tie, run after run. Fix:
+// a per-batch seeded shuffle replaces ID as the final tie-break, so
+// (a) different batches produce different winners, but
+// (b) the exact same batch is still fully reproducible (Preview == Execute).
+// ============================================================================
+
+describe('seeded shuffle tie-breaking', () => {
+  it('is reproducible for the exact same batch (Preview and Execute must agree)', () => {
+    const supervisors = makeSupervisors(6, { remainingSlots: 4, priorities: [1, 1, 1, 1, 1, 1] });
+    const slots = makeFlatSlots({ schools: 12, visits: 1, distanceBase: 5 });
+
+    const run1 = runAutoPostingAlgorithm(
+      supervisors.map((s) => ({ ...s })),
+      slots.map((s) => ({ ...s })),
+      1,
+      'random',
+      false
+    );
+    const run2 = runAutoPostingAlgorithm(
+      supervisors.map((s) => ({ ...s })),
+      slots.map((s) => ({ ...s })),
+      1,
+      'random',
+      false
+    );
+
+    expect(run1.assignments).toEqual(run2.assignments);
+  });
+
+  it('breaks ties differently for a genuinely different batch, not always the lowest supervisor id', () => {
+    // Many equally-good supervisors (same capacity, same tier, no distance
+    // differences to break ties) - whoever wins ties should depend on the
+    // batch's shuffle, not always be the lowest id.
+    const makeBatch = (idOffset) => {
+      const supervisors = makeSupervisors(10, { remainingSlots: 2, priorities: Array(10).fill(1) }).map((s) => ({
+        ...s,
+        id: s.id + idOffset,
+      }));
+      const slots = makeFlatSlots({ schools: 4, visits: 1, distanceBase: 5 }); // fewer slots than capacity - lots of ties
+      return { supervisors, slots };
+    };
+
+    const batchA = makeBatch(0);
+    const batchB = makeBatch(1000); // different supervisor id set = different batch
+
+    const resultA = runAutoPostingAlgorithm(batchA.supervisors, batchA.slots, 1, 'random', false);
+    const resultB = runAutoPostingAlgorithm(batchB.supervisors, batchB.slots, 1, 'random', false);
+
+    // Map batch B's assignments back to "relative" ids to compare shapes
+    const relativeWinnersA = resultA.assignments.map((a) => a.supervisor_id).sort((a, b) => a - b);
+    const relativeWinnersB = resultB.assignments.map((a) => a.supervisor_id - 1000).sort((a, b) => a - b);
+
+    expect(relativeWinnersA).not.toEqual(relativeWinnersB);
+  });
+});
+
+// ============================================================================
 // STATISTICAL HELPERS
 // ============================================================================
 

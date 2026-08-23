@@ -24,16 +24,30 @@ const { runAutoPostingAlgorithm } = require('../services/autoPostingEngine');
 // VALIDATION SCHEMAS
 // ============================================================================
 
+/**
+ * z.coerce.boolean() is a footgun: Boolean(anyNonEmptyString) is always true,
+ * so a value that ever arrives as the STRING "false" (a query param, a
+ * doubly-stringified body, form data, a non-browser caller) would be
+ * silently coerced to `true`. This accepts a real boolean or the literal
+ * strings "true"/"false" and nothing else, so a mis-shaped request fails
+ * validation instead of silently flipping a checkbox's meaning.
+ */
+const strictBoolean = (defaultValue) =>
+  z
+    .union([z.boolean(), z.enum(['true', 'false'])])
+    .transform((v) => (typeof v === 'boolean' ? v : v === 'true'))
+    .default(defaultValue);
+
 const schemas = {
   autoPost: z.object({
     body: z.object({
       session_id: z.coerce.number().int().positive('Session ID is required'),
       number_of_postings: z.coerce.number().int().min(1).max(10).default(1),
       posting_type: z.enum(['random', 'route_based', 'lga_based']).default('random'),
-      priority_enabled: z.coerce.boolean().default(true),
-      avoid_repeat_schools: z.coerce.boolean().default(true), // Don't send a supervisor to the same school twice
+      priority_enabled: strictBoolean(true),
+      avoid_repeat_schools: strictBoolean(true), // Don't send a supervisor to the same school twice
       faculty_id: z.coerce.number().int().positive().optional().nullable(), // For dean filtering
-      dry_run: z.coerce.boolean().default(false), // Preview without creating
+      dry_run: strictBoolean(false), // Preview without creating
     }),
   }),
 };

@@ -121,6 +121,66 @@ function clusterKeyFor(slot, postingType) {
 }
 
 // ============================================================================
+// SEEDED SHUFFLE (deterministic-but-random tie-breaking)
+//
+// Every "who wins a tie" decision in the pipeline used to fall back to raw
+// supervisor ID, which - since IDs are typically assigned in account-creation
+// order - meant the same handful of low-ID supervisors won every genuine tie,
+// run after run, forever. That's not randomness, it's a permanent silent bias.
+//
+// The fix is a per-BATCH shuffled rank: a random total order over this run's
+// supervisor IDs, used as the final tie-break wherever ID used to be. It is
+// seeded from the batch's own inputs (posting type/criteria + the exact set
+// of supervisor and slot IDs) rather than Math.random(), so a Preview and the
+// Execute that immediately follows it (same inputs) always agree, and the
+// engine's "same input -> same output" determinism guarantee still holds -
+// but two different sessions, criteria, or batches naturally shuffle
+// differently, and once any postings are persisted the available-slot set
+// changes, so a follow-up batch reshuffles too.
+// ============================================================================
+
+/** Small, fast, deterministic string hash (FNV-1a) - not cryptographic, just a seed source. */
+function hashSeed(parts) {
+  const str = parts.join('|');
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/** mulberry32 - a small, fast, seeded PRNG. Returns a () => float in [0, 1) generator. */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * A random total order over `ids` for this run only, seeded so repeated runs
+ * of the same batch agree. Fisher-Yates shuffle, then rank = index in the
+ * shuffled order.
+ * @returns {Map<number, number>} id -> rank (lower rank = wins ties first)
+ */
+function buildShuffledRank(ids, seed) {
+  const shuffled = [...ids];
+  const rng = mulberry32(seed);
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  const rank = new Map();
+  shuffled.forEach((id, idx) => rank.set(id, idx));
+  return rank;
+}
+
+// ============================================================================
 // PHASE 1 - NORMALIZE
 // ============================================================================
 
@@ -414,7 +474,8 @@ function medianSupervisorCapacity(supervisorModel) {
  * this function stabilizes it further with a hard-to-fit-first secondary sort.
  */
 function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, options = {}) {
-  const { priorityEnabled = false } = options;
+  const { priorityEnabled = false, shuffledRank = new Map() } = options;
+  const rankOf = (id) => shuffledRank.get(id) ?? id;
   const medianCap = medianSupervisorCapacity(supervisorModel);
 
   // Step 1: how many DISTINCT supervisors this unit's demand genuinely needs,
@@ -535,7 +596,7 @@ function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, optio
         for (let i = 0; i < pool.length; i++) {
           const entry = supervisorModel.byId.get(pool[i]);
           if (remainingCapacity(entry) <= 0) continue;
-          const cmpKey = [repeatCost(entry, unit), entry.usedInRun, pool[i]];
+          const cmpKey = [repeatCost(entry, unit), entry.usedInRun, rankOf(pool[i])];
           if (bestKey === null || compareArrays(cmpKey, bestKey) < 0) {
             bestKey = cmpKey;
             bestIdx = i;
@@ -645,7 +706,8 @@ function solveRandomAllocation(orderedUnits, tiers, supervisorModel, options) {
  * slots. Within a unit, supervisors with more seats get first pick of
  * non-repeat schools; ties broken deterministically by school_id/group_number.
  */
-function assignSlotsWithinClusters(demandModel, seatPlan, supervisorModel, postingType, avoidRepeatSchools) {
+function assignSlotsWithinClusters(demandModel, seatPlan, supervisorModel, postingType, avoidRepeatSchools, shuffledRank = new Map()) {
+  const rankOf = (id) => shuffledRank.get(id) ?? id;
   const assignments = [];
   let unassignedCount = 0;
 
@@ -687,7 +749,7 @@ function assignSlotsWithinClusters(demandModel, seatPlan, supervisorModel, posti
           if (remaining <= 0) continue;
           const entry = supervisorModel.byId.get(supervisorId);
           const isRepeat = avoidRepeatSchools && entry.schoolHistory.has(slot.school_id) ? 1 : 0;
-          const keyArr = [isRepeat, -remaining, supervisorId];
+          const keyArr = [isRepeat, -remaining, rankOf(supervisorId)];
           if (bestKeyArr === null || compareArrays(keyArr, bestKeyArr) < 0) {
             bestKeyArr = keyArr;
             bestId = supervisorId;
@@ -983,6 +1045,7 @@ function buildCandidate(strategyName, demandModel, baseSupervisorModel, baseTier
 
   const { seatPlan, unplacedUnits } = solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, {
     priorityEnabled,
+    shuffledRank: ctx.shuffledRank,
   });
 
   const { assignments, unassignedCount } = assignSlotsWithinClusters(
@@ -990,7 +1053,8 @@ function buildCandidate(strategyName, demandModel, baseSupervisorModel, baseTier
     seatPlan,
     supervisorModel,
     postingType,
-    avoidRepeatSchools
+    avoidRepeatSchools,
+    ctx.shuffledRank
   );
 
   reflagClusterBreaks(assignments, postingType);
@@ -1338,7 +1402,8 @@ const EQUALIZE_MAX_MOVES = 5000; // defensive bound - never hang, matches LOCAL_
  * room. Pure reassignment - `assignments.length` never changes, so this can
  * never interact with the dean `maxAssignments` ceiling.
  */
-function equalizeWorkload(assignments, supervisorModel, tiers, postingType, avoidRepeatSchools) {
+function equalizeWorkload(assignments, supervisorModel, tiers, postingType, avoidRepeatSchools, priorityEnabled = false, shuffledRank = new Map()) {
+  const rankOf = (id) => shuffledRank.get(id) ?? id;
   const countBySupervisor = new Map();
   for (const a of assignments) {
     countBySupervisor.set(a.supervisor_id, (countBySupervisor.get(a.supervisor_id) || 0) + 1);
@@ -1362,8 +1427,10 @@ function equalizeWorkload(assignments, supervisorModel, tiers, postingType, avoi
         receiver === null ||
         count < countBySupervisor.get(receiver.supervisor.id) ||
         (count === countBySupervisor.get(receiver.supervisor.id) &&
-          (e.priorityNumber < receiver.priorityNumber ||
-            (e.priorityNumber === receiver.priorityNumber && e.supervisor.id < receiver.supervisor.id)))
+          (priorityEnabled
+            ? e.priorityNumber < receiver.priorityNumber ||
+              (e.priorityNumber === receiver.priorityNumber && rankOf(e.supervisor.id) < rankOf(receiver.supervisor.id))
+            : rankOf(e.supervisor.id) < rankOf(receiver.supervisor.id)))
       ) {
         receiver = e;
       }
@@ -1383,8 +1450,10 @@ function equalizeWorkload(assignments, supervisorModel, tiers, postingType, avoi
         donor === null ||
         count > countBySupervisor.get(donor.supervisor.id) ||
         (count === countBySupervisor.get(donor.supervisor.id) &&
-          (e.priorityNumber > donor.priorityNumber ||
-            (e.priorityNumber === donor.priorityNumber && e.supervisor.id > donor.supervisor.id)))
+          (priorityEnabled
+            ? e.priorityNumber > donor.priorityNumber ||
+              (e.priorityNumber === donor.priorityNumber && rankOf(e.supervisor.id) > rankOf(donor.supervisor.id))
+            : rankOf(e.supervisor.id) > rankOf(donor.supervisor.id)))
       ) {
         donor = e;
       }
@@ -1933,6 +2002,20 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
   // ---- Phase 4: priority tiers ----
   const baseTiers = buildPriorityTiers(baseSupervisorModel, priorityEnabled);
 
+  // Seeded shuffle for tie-breaking (see SEEDED SHUFFLE section above) -
+  // derived from this batch's own inputs so a Preview and the Execute that
+  // follows it agree, and re-running the identical batch is reproducible,
+  // while different sessions/criteria/batches naturally shuffle differently.
+  const seed = hashSeed([
+    postingType,
+    String(priorityEnabled),
+    String(avoidRepeatSchools),
+    String(numberOfPostings),
+    normalized.supervisors.map((s) => s.id).sort((a, b) => a - b).join(','),
+    eligibleSlots.map((s) => s.id).sort().join(','),
+  ]);
+  const shuffledRank = buildShuffledRank(normalized.supervisors.map((s) => s.id), seed);
+
   const totalDistance = eligibleSlots.reduce((sum, s) => sum + (s.distance_km || 0), 0);
   const maxDistanceNorm = Math.max(totalDistance / normalized.supervisors.length, 1);
 
@@ -1944,6 +2027,7 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
     eligibleSlotCount: eligibleSlots.length,
     supervisors: baseSupervisorModel.byId,
     maxDistanceNorm,
+    shuffledRank,
   };
 
   // ---- Phase 5-6-8: multiple deterministic initial solutions ----
@@ -1998,7 +2082,9 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
     baseSupervisorModel,
     winner.tiers,
     postingType,
-    avoidRepeatSchools
+    avoidRepeatSchools,
+    priorityEnabled,
+    shuffledRank
   );
   if (utilization.remainingGap > MAX_LOAD_GAP) {
     const reason = utilization.belowCapacityCeiling > 0
