@@ -1372,6 +1372,234 @@ function reflagRepeatFlag(trial, originalAssignment, newSupervisorId, supervisor
 }
 
 // ============================================================================
+// PHASE 9.4 - TRAVEL DISTANCE EQUALIZATION
+//
+// equalizeWorkload (below) balances posting COUNT, but count-fairness alone
+// does nothing for cumulative DISTANCE: whichever LGA/route unit(s) a
+// supervisor ends up owning entirely determines their total travel, and unit
+// difficulty varies a lot by design (see calculateGeographyDifficulty), so
+// two supervisors can land on the identical posting count with a wildly
+// different total distance - one supervisor's owned unit(s) happen to be
+// near, another's happen to be far, and nothing rebalanced that.
+//
+// The core allocator's objective vector does include travelImbalance, but it
+// is deliberately the LAST, lowest-priority term (see scoreCandidate) - by
+// design, since travel balance is a soft concern below repeat-avoidance and
+// workload-count balance. That means Move C in improveSolution, which could
+// in principle swap whole-unit ownership for travel reasons, rarely fires
+// for that reason alone: any regression in an earlier objective term blocks
+// it even when the travel improvement is large.
+//
+// This pass is a dedicated, un-gated mechanism for exactly that. The first
+// design tried was "swap a whole sole-owned unit between two supervisors" -
+// but that turned out to be mathematically futile whenever each supervisor's
+// total distance IS just that one unit's distance (the common case): trading
+// two whole values between exactly two people only relabels who holds which
+// value, it can never change the underlying set of distances or narrow the
+// population's spread. What actually works is asymmetric: repeatedly find
+// the globally busiest eligible supervisor, and peel off their single
+// costliest assignment - but ONLY from a visit where they are confined to
+// one unit already (never partially strip an already-mixed visit) - and
+// hand it to the least-loaded eligible supervisor who can receive it with
+// ZERO new fragmentation for THEM (either they have nothing yet for that
+// visit, or everything they already hold that visit is the SAME unit). That
+// last condition is what guarantees zero new out-of-area trips: both sides
+// of every move stay confined to a single area per visit throughout. It
+// never crosses a priority tier boundary, matching this engine's own
+// documented principle that travel balance only applies "within an
+// equivalent priority/area group". equalizeWorkload runs immediately after
+// this and has the final word on posting-count fairness, cleaning up any
+// small count drift these moves introduce.
+// ============================================================================
+
+const EQUALIZE_TRAVEL_MAX_MOVES = 500;
+const EQUALIZE_TRAVEL_MAX_COMPARISONS = 200000;
+
+/**
+ * Narrow the spread of cumulative distance per supervisor. Each move takes
+ * the single costliest assignment from the globally busiest eligible
+ * supervisor's own confined area for one visit, and gives it to the
+ * least-loaded eligible supervisor who can take it without ever spanning a
+ * second area for that visit - so cohesion (and out-of-area trip count) is
+ * never affected. Never crosses a priority tier.
+ */
+function equalizeTravel(assignments, supervisorModel, tiers, postingType, avoidRepeatSchools, priorityEnabled = false, shuffledRank = new Map()) {
+  const rankOf = (id) => shuffledRank.get(id) ?? id;
+  const unitOf = (a) => (postingType === 'random' ? null : clusterKeyFor(a, postingType));
+  const eligible = [...supervisorModel.byId.values()].filter((e) => e.totalCapacity > 0);
+
+  let movesApplied = 0;
+  let comparisons = 0;
+  let budgetExhausted = false;
+
+  for (let move = 0; move < EQUALIZE_TRAVEL_MAX_MOVES; move++) {
+    const distanceBySupervisor = new Map();
+    const countBySupervisor = new Map();
+    for (const e of eligible) {
+      distanceBySupervisor.set(e.supervisor.id, 0);
+      countBySupervisor.set(e.supervisor.id, 0);
+    }
+    for (const a of assignments) {
+      distanceBySupervisor.set(a.supervisor_id, (distanceBySupervisor.get(a.supervisor_id) || 0) + (a.distance_km || 0));
+      countBySupervisor.set(a.supervisor_id, (countBySupervisor.get(a.supervisor_id) || 0) + 1);
+    }
+
+    // Per (supervisor, visit): every assignment they hold there, grouped by
+    // unit - used to tell whether a supervisor is confined to a single area
+    // that visit (safe to peel from/give to) or already spans more than one
+    // (leave alone - already fragmented, don't compound it).
+    const bySupervisorVisit = new Map();
+    for (const a of assignments) {
+      const uk = unitOf(a);
+      if (!bySupervisorVisit.has(a.supervisor_id)) bySupervisorVisit.set(a.supervisor_id, new Map());
+      const byVisit = bySupervisorVisit.get(a.supervisor_id);
+      if (!byVisit.has(a.visit_number)) byVisit.set(a.visit_number, new Map());
+      const byUnit = byVisit.get(a.visit_number);
+      if (!byUnit.has(uk)) byUnit.set(uk, []);
+      byUnit.get(uk).push(a);
+    }
+    const soleUnitFor = (supervisorId, visit) => {
+      const byUnit = bySupervisorVisit.get(supervisorId)?.get(visit);
+      if (!byUnit || byUnit.size !== 1) return null;
+      return [...byUnit.keys()][0];
+    };
+
+    // Peer groups a swap can happen within: one group per priority tier when
+    // priority is enabled (a swap must never cross tiers), or a single group
+    // covering everyone when it's disabled. The spread that matters for
+    // deciding whether a move genuinely helps is the spread WITHIN a group,
+    // never the cross-tier population spread - cross-tier distance
+    // differences are intentional when priority is on and no same-tier swap
+    // could ever touch them, so comparing against the whole population would
+    // make every candidate look like a non-improvement.
+    const groups = (priorityEnabled
+      ? [...new Set(eligible.map((e) => e.priorityNumber))].map((pn) => eligible.filter((e) => e.priorityNumber === pn))
+      : [eligible]
+    )
+      .filter((g) => g.length >= 2) // nobody to trade with in a group of 1
+      .map((g) => {
+        const vals = g.map((e) => distanceBySupervisor.get(e.supervisor.id) || 0);
+        return { members: g, spread: Math.max(...vals) - Math.min(...vals) };
+      })
+      .sort((a, b) => b.spread - a.spread); // try the neediest group first
+
+    // Try each group's busiest member as donor, in spread-descending order,
+    // until one produces a genuine improvement - a smaller tier may still
+    // have room to improve even once the largest one is already optimal.
+    let applied = false;
+    for (const { members: group, spread: currentSpread } of groups) {
+      if (budgetExhausted) break;
+
+      let donor = null;
+      for (const e of group) {
+        const d = distanceBySupervisor.get(e.supervisor.id) || 0;
+        if (
+          donor === null ||
+          d > distanceBySupervisor.get(donor.supervisor.id) ||
+          (d === distanceBySupervisor.get(donor.supervisor.id) && rankOf(e.supervisor.id) > rankOf(donor.supervisor.id))
+        ) {
+          donor = e;
+        }
+      }
+      if (!donor) continue;
+
+      const groupValues = group.map((e) => distanceBySupervisor.get(e.supervisor.id) || 0);
+
+      // Candidates to peel off: donor's own assignments, but ONLY from a
+      // visit where the donor is confined to a single unit (never partially
+      // strip an already-mixed visit), costliest first - this is what
+      // genuinely lowers the donor's total instead of just relabelling who
+      // holds a whole unit.
+      const donorCandidates = assignments
+        .filter((a) => a.supervisor_id === donor.supervisor.id && soleUnitFor(a.supervisor_id, a.visit_number) === unitOf(a))
+        .sort((a, b) => b.distance_km - a.distance_km || a.school_id - b.school_id);
+
+      for (const candidate of donorCandidates) {
+        if (comparisons++ > EQUALIZE_TRAVEL_MAX_COMPARISONS) {
+          budgetExhausted = true;
+          break;
+        }
+
+        const uk = unitOf(candidate);
+        const visit = candidate.visit_number;
+        const donorDistance = distanceBySupervisor.get(donor.supervisor.id) || 0;
+
+        // Receiver: least-loaded compatible supervisor within the SAME
+        // group (never crosses a tier) - compatible means giving them this
+        // one slot creates ZERO new fragmentation for them: either they
+        // have nothing yet for this visit, or everything they already have
+        // this visit is the SAME unit as the candidate. Among compatible
+        // candidates, one who would NOT repeat this school is always
+        // preferred over one who would - repeat avoidance is a real
+        // constraint this pass must respect too, not just cohesion.
+        let receiver = null;
+        let receiverKey = null;
+        for (const e of group) {
+          if (e.supervisor.id === donor.supervisor.id) continue;
+          const count = countBySupervisor.get(e.supervisor.id) || 0;
+          if (count >= e.totalCapacity) continue;
+
+          const byUnitThisVisit = bySupervisorVisit.get(e.supervisor.id)?.get(visit);
+          const compatible = !byUnitThisVisit || byUnitThisVisit.size === 0 || (byUnitThisVisit.size === 1 && byUnitThisVisit.has(uk));
+          if (!compatible) continue;
+
+          const d = distanceBySupervisor.get(e.supervisor.id) || 0;
+          if (d >= donorDistance) continue; // wouldn't move either total toward the other
+
+          const wouldRepeat = avoidRepeatSchools && e.schoolHistory.has(candidate.school_id) ? 1 : 0;
+          const key = [wouldRepeat, d, rankOf(e.supervisor.id)];
+          if (receiver === null || compareArrays(key, receiverKey) < 0) {
+            receiver = e;
+            receiverKey = key;
+          }
+        }
+
+        if (receiver) {
+          // Confirm this specific move genuinely narrows the group's
+          // spread, not just the donor/receiver pairwise gap - otherwise
+          // skip it and try the donor's next costliest candidate. Without
+          // this gate, once a group is already as tight as an integer split
+          // of unit sizes allows, the loop would keep "trading" the same
+          // leftover slot back and forth forever (each trade looks locally
+          // sensible - receiver was below donor - while never actually
+          // reducing the true spread), burning the whole move budget on a
+          // no-op oscillation instead of stopping.
+          const donorNew = donorDistance - (candidate.distance_km || 0);
+          const receiverOld = distanceBySupervisor.get(receiver.supervisor.id) || 0;
+          const receiverNew = receiverOld + (candidate.distance_km || 0);
+          const simulated = groupValues.map((v, idx) => {
+            const id = group[idx].supervisor.id;
+            if (id === donor.supervisor.id) return donorNew;
+            if (id === receiver.supervisor.id) return receiverNew;
+            return v;
+          });
+          const newSpread = Math.max(...simulated) - Math.min(...simulated);
+          if (newSpread >= currentSpread - 1e-9) continue; // no genuine improvement - try a smaller candidate
+
+          candidate.supervisor_id = receiver.supervisor.id;
+          candidate.supervisor_name = receiver.supervisor.name;
+          candidate.rank_code = receiver.supervisor.rank_code;
+          candidate.priority_number = receiver.supervisor.priority_number;
+          candidate.repeat_school = avoidRepeatSchools ? receiver.schoolHistory.has(candidate.school_id) : false;
+          receiver.schoolHistory.add(candidate.school_id);
+          movesApplied++;
+          applied = true;
+          break;
+        }
+      }
+
+      if (applied) break;
+    }
+
+    if (!applied) break; // no group has a cohesion-safe move left that narrows its spread
+  }
+
+  if (movesApplied > 0) reflagClusterBreaks(assignments, postingType);
+
+  return { movesApplied, budgetExhausted };
+}
+
+// ============================================================================
 // PHASE 9.5 - WORKLOAD FAIRNESS EQUALIZATION
 //
 // Even with the fair-share grant cap in solveGeographicalAllocation, the gap
@@ -2076,6 +2304,17 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
 
   let finalAssignments = improvement.assignments;
 
+  // ---- Phase 9.4: narrow cumulative travel distance via whole-unit swaps ----
+  const travelEqualization = equalizeTravel(
+    finalAssignments,
+    baseSupervisorModel,
+    winner.tiers,
+    postingType,
+    avoidRepeatSchools,
+    priorityEnabled,
+    shuffledRank
+  );
+
   // ---- Phase 9.5: narrow the postings-per-supervisor gap to a fair share ----
   const utilization = equalizeWorkload(
     finalAssignments,
@@ -2115,6 +2354,27 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
 
   reflagClusterBreaks(finalAssignments, postingType);
 
+  // Neutral display order. `assignSlotsWithinClusters` builds this array by
+  // walking demand units hardest-difficulty-first (see buildDemandModel) -
+  // that's the right order for the allocation math, but it means the array's
+  // *first* entries are always the objectively farthest schools in the
+  // dataset, for every posting type and every priority setting, since
+  // distance_km is a fixed fact about each school. Any consumer that shows
+  // "the first N assignments" as a sample (e.g. the preview dialog's "Sample
+  // Assignments") would then always show the same extreme outlier schools
+  // regardless of what the admin changed, which looks like the settings have
+  // no effect even though the full result genuinely differs. Sorting into a
+  // neutral order here - after the allocation is fully decided - fixes this
+  // for every caller without affecting any aggregate statistic (all of the
+  // stats below are order-independent sums/counts, not order-sensitive).
+  finalAssignments = [...finalAssignments].sort(
+    (a, b) =>
+      a.visit_number - b.visit_number ||
+      a.supervisor_name.localeCompare(b.supervisor_name) ||
+      a.school_name.localeCompare(b.school_name) ||
+      a.group_number - b.group_number
+  );
+
   const optimizationMeta = {
     strategy: winner.strategyName,
     candidate_solutions: candidates.map((c) => ({ strategy: c.strategyName, objective: c.objective })),
@@ -2123,6 +2383,7 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
     objective_after: improvement.objectiveAfter,
     moves_applied: improvement.movesApplied,
     budget_exhausted: improvement.budgetExhausted,
+    travel_equalization_moves: travelEqualization.movesApplied,
   };
 
   const unplacedUnitsCount = winner.unplacedUnits ? winner.unplacedUnits.length : 0;
@@ -2167,6 +2428,7 @@ module.exports = {
   scoreCandidate,
   compareObjectives,
   improveSolution,
+  equalizeTravel,
   equalizeWorkload,
   validateSolution,
 };

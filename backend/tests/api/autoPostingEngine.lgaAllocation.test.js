@@ -16,6 +16,7 @@ const {
   buildPriorityTiers,
   solveLgaAllocation,
   equalizeWorkload,
+  equalizeTravel,
 } = require('../../src/services/autoPostingEngine');
 
 const makeSupervisors = (count, { remainingSlots = 10, priorities = null } = {}) =>
@@ -561,5 +562,203 @@ describe('workload fairness equalization', () => {
       result = equalizeWorkload(assignments, supervisorModel, tiers, 'lga_based', true);
     }).not.toThrow();
     expect(result.remainingGap).toBeLessThanOrEqual(3);
+  });
+});
+
+// ============================================================================
+// TRAVEL DISTANCE EQUALIZATION - narrows cumulative distance per supervisor
+// without any cohesion cost (zero new out-of-area trips), even though
+// posting COUNT is already fair. See equalizeTravel's own doc comment for
+// why a naive "swap whole units between two supervisors" design provably
+// cannot work (it's a pure permutation of a fixed value set) and what the
+// engine does instead (peel the costliest slot from the busiest supervisor's
+// own confined area, give it to the least-loaded compatible supervisor).
+// ============================================================================
+
+describe('travel distance equalization', () => {
+  it('narrows the distance spread materially at production scale, with priority disabled', () => {
+    const tierSizes = [2, 3, 5, 10, 15, 15, 20];
+    const supervisors = [];
+    let id = 1;
+    tierSizes.forEach((count, tierIdx) => {
+      for (let i = 0; i < count; i++) {
+        supervisors.push({
+          id: id++,
+          name: `Supervisor ${id}`,
+          rank_code: `R${tierIdx + 1}`,
+          priority_number: tierIdx + 1,
+          current_postings: 0,
+          remaining_slots: 20,
+        });
+      }
+    });
+
+    const lgaSizes = [];
+    let total = 0;
+    let i = 0;
+    while (total < 263) {
+      const size = 2 + (i % 19);
+      lgaSizes.push(size);
+      total += size;
+      i++;
+    }
+    const slots = [];
+    let schoolId = 0;
+    lgaSizes.forEach((size, lgaIdx) => {
+      for (let s = 0; s < size; s++) {
+        schoolId++;
+        for (let visit = 1; visit <= 2; visit++) {
+          slots.push({
+            id: `${schoolId}-1-${visit}`,
+            school_id: schoolId,
+            school_name: `School ${schoolId}`,
+            group_number: 1,
+            visit_number: visit,
+            route_id: lgaIdx + 1,
+            route_name: `Route ${lgaIdx + 1}`,
+            lga: `LGA ${lgaIdx + 1}`,
+            distance_km: 5 + (schoolId % 200),
+          });
+        }
+      }
+    });
+
+    const { statistics } = runAutoPostingAlgorithm(supervisors, slots, 2, 'lga_based', false);
+
+    // Previously observed baseline for this exact fixture: min~88, max~1506
+    // (a ~1400km spread). A materially tighter result proves the pass works;
+    // the exact figure isn't pinned down further since it depends on which
+    // supervisors happen to be idle-per-visit going into this pass.
+    const spread = statistics.travel_km.max - statistics.travel_km.min;
+    expect(spread).toBeLessThan(1100);
+    expect(statistics.optimization.travel_equalization_moves).toBeGreaterThan(0);
+  }, 20000);
+
+  it('preserves the intended cross-tier distance trend when priority is enabled', () => {
+    const supervisors = makeSupervisors(3, { remainingSlots: 10, priorities: [1, 2, 3] });
+    const slots = [
+      ...lgaSlotsWithDistances('Near', [10, 12, 14]),
+      ...lgaSlotsWithDistances('Mid', [50, 52, 54]),
+      ...lgaSlotsWithDistances('Far', [100, 102, 104]),
+    ];
+
+    const { statistics } = runAutoPostingAlgorithm(supervisors, slots, 1, 'lga_based', true);
+
+    const byRank = new Map(statistics.distance_by_rank.map((r) => [r.priority_number, r.mean_km]));
+    expect(byRank.get(1)).toBeGreaterThan(byRank.get(2));
+    expect(byRank.get(2)).toBeGreaterThan(byRank.get(3));
+  });
+
+  it('narrows the gap by peeling slots from the overloaded supervisor onto idle peers', () => {
+    const supervisors = [
+      { id: 1, name: 'A', rank_code: 'SL', priority_number: 1, current_postings: 0, remaining_slots: 10 },
+      { id: 2, name: 'B', rank_code: 'SL', priority_number: 1, current_postings: 0, remaining_slots: 10 },
+      { id: 3, name: 'C', rank_code: 'SL', priority_number: 1, current_postings: 0, remaining_slots: 10 },
+    ];
+    const supervisorModel = buildSupervisorModel(supervisors, new Map());
+    const tiers = buildPriorityTiers(supervisorModel, false);
+
+    // A alone owns 4 far schools (200km each = 800km total); B and C start
+    // completely idle for this visit - the realistic shape at production
+    // scale, where many supervisors end up with zero assignments in a given
+    // visit before this pass runs (see this file's earlier fixtures).
+    const assignments = [1, 2, 3, 4].map((n) => ({
+      supervisor_id: 1, supervisor_name: 'A', rank_code: 'SL', priority_number: 1,
+      school_id: n, school_name: `S${n}`, group_number: 1, visit_number: 1,
+      distance_km: 200, route_id: 1, route_name: 'R1', lga: 'Far',
+      repeat_school: false, cluster_break: false,
+    }));
+
+    const before = assignments.map((a) => a.distance_km).reduce((s, d) => s + d, 0);
+    const { movesApplied } = equalizeTravel(assignments, supervisorModel, tiers, 'lga_based', true, false, new Map());
+    const after = assignments.map((a) => a.distance_km).reduce((s, d) => s + d, 0);
+
+    expect(movesApplied).toBeGreaterThan(0);
+    expect(after).toBe(before); // pure reassignment, total distance unchanged
+
+    const distanceBySupervisor = new Map();
+    for (const a of assignments) {
+      distanceBySupervisor.set(a.supervisor_id, (distanceBySupervisor.get(a.supervisor_id) || 0) + a.distance_km);
+    }
+    const values = [...distanceBySupervisor.values()];
+    // Best achievable 3-way split of 4x200 is {400,200,200} (gap 200) -
+    // materially narrower than the starting {800,0,0} (gap 800).
+    expect(Math.max(...values) - Math.min(...values)).toBeLessThanOrEqual(200);
+    expect(Math.min(...values)).toBeGreaterThan(0); // both B and C actually received something
+  });
+
+  it('creates zero new out-of-area trips - every receiver stays confined to one area per visit', () => {
+    const supervisors = [
+      { id: 1, name: 'A', rank_code: 'SL', priority_number: 1, current_postings: 0, remaining_slots: 10 },
+      { id: 2, name: 'B', rank_code: 'SL', priority_number: 1, current_postings: 0, remaining_slots: 10 },
+      { id: 3, name: 'C', rank_code: 'SL', priority_number: 1, current_postings: 0, remaining_slots: 10 },
+    ];
+    const supervisorModel = buildSupervisorModel(supervisors, new Map());
+    const tiers = buildPriorityTiers(supervisorModel, false);
+
+    const assignments = [1, 2, 3, 4].map((n) => ({
+      supervisor_id: 1, supervisor_name: 'A', rank_code: 'SL', priority_number: 1,
+      school_id: n, school_name: `S${n}`, group_number: 1, visit_number: 1,
+      distance_km: 200, route_id: 1, route_name: 'R1', lga: 'Far',
+      repeat_school: false, cluster_break: false,
+    }));
+
+    const { movesApplied } = equalizeTravel(assignments, supervisorModel, tiers, 'lga_based', true, false, new Map());
+    expect(movesApplied).toBeGreaterThan(0); // sanity: moves actually happened, this test exercises something
+
+    const lgasPerSupervisorVisit = new Map();
+    for (const a of assignments) {
+      const key = `${a.supervisor_id}-${a.visit_number}`;
+      if (!lgasPerSupervisorVisit.has(key)) lgasPerSupervisorVisit.set(key, new Set());
+      lgasPerSupervisorVisit.get(key).add(a.lga);
+    }
+    for (const lgas of lgasPerSupervisorVisit.values()) {
+      expect(lgas.size).toBe(1);
+    }
+    expect(assignments.every((a) => a.cluster_break === false)).toBe(true);
+  });
+
+  it('never crosses a priority tier boundary', () => {
+    const supervisors = [
+      { id: 1, name: 'Senior', rank_code: 'SL', priority_number: 1, current_postings: 0, remaining_slots: 10 },
+      { id: 2, name: 'Junior', rank_code: 'SL', priority_number: 2, current_postings: 0, remaining_slots: 10 },
+    ];
+    const supervisorModel = buildSupervisorModel(supervisors, new Map());
+    const tiers = buildPriorityTiers(supervisorModel, true);
+
+    const assignments = [
+      { supervisor_id: 1, supervisor_name: 'Senior', rank_code: 'SL', priority_number: 1, school_id: 1, school_name: 'S1', group_number: 1, visit_number: 1, distance_km: 300, route_id: 1, route_name: 'R1', lga: 'Far', repeat_school: false, cluster_break: false },
+      { supervisor_id: 2, supervisor_name: 'Junior', rank_code: 'SL', priority_number: 2, school_id: 2, school_name: 'S2', group_number: 1, visit_number: 1, distance_km: 5, route_id: 1, route_name: 'R1', lga: 'Near', repeat_school: false, cluster_break: false },
+    ];
+
+    // priorityEnabled=true - even though moving Senior's slot to Junior would
+    // narrow the gap a lot, it must never happen across tiers.
+    const { movesApplied } = equalizeTravel(assignments, supervisorModel, tiers, 'lga_based', true, true, new Map());
+
+    expect(movesApplied).toBe(0);
+    expect(assignments[0].supervisor_id).toBe(1);
+    expect(assignments[1].supervisor_id).toBe(2);
+  });
+
+  it('never hangs on an adversarial input (bounded iteration)', () => {
+    const supervisors = Array.from({ length: 30 }, (_, i) => ({
+      id: i + 1, name: `S${i + 1}`, rank_code: 'SL', priority_number: 1, current_postings: 0, remaining_slots: 50,
+    }));
+    const supervisorModel = buildSupervisorModel(supervisors, new Map());
+    const tiers = buildPriorityTiers(supervisorModel, false);
+
+    // Every posting starts on supervisor 1, spread across many single-LGA visits.
+    const assignments = Array.from({ length: 60 }, (_, n) => ({
+      supervisor_id: 1, supervisor_name: 'S1', rank_code: 'SL', priority_number: 1,
+      school_id: n + 1, school_name: `S${n + 1}`, group_number: 1, visit_number: (n % 10) + 1,
+      distance_km: n + 1, route_id: 1, route_name: 'R1', lga: `LGA ${(n % 10) + 1}`,
+      repeat_school: false, cluster_break: false,
+    }));
+
+    let result;
+    expect(() => {
+      result = equalizeTravel(assignments, supervisorModel, tiers, 'lga_based', true, false, new Map());
+    }).not.toThrow();
+    expect(result.movesApplied).toBeGreaterThanOrEqual(0);
   });
 });
