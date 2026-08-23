@@ -513,6 +513,18 @@ function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, optio
     }
     ownedHere.sort((a, b) => b.unit.difficulty - a.unit.difficulty || a.key.localeCompare(b.key));
 
+    // Fair-share cap: a unit's demand must rotate across this tier's own
+    // members instead of one supervisor absorbing a whole unit just because
+    // their remaining capacity happens to cover it. Without this, a tier with
+    // many members but generous per-supervisor capacity leaves most of its
+    // members untouched even though the tier's total owned demand could
+    // easily be spread across all of them - the dominant cause of eligible
+    // supervisors ending up with zero postings. Capping to a tier-wide target
+    // (not a per-unit one) is what actually spreads load across the whole
+    // tier, since a single small unit alone can't force rotation on its own.
+    const tierOwnedDemand = ownedHere.reduce((sum, o) => sum + o.amount, 0);
+    const targetPerSupervisor = Math.max(1, Math.ceil(tierOwnedDemand / Math.max(1, tier.supervisorIds.length)));
+
     for (const { key, unit, amount } of ownedHere) {
       const seats = seatPlan.get(key) || [];
       let seatsToFill = amount;
@@ -533,7 +545,7 @@ function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, optio
 
         const supervisorId = pool[bestIdx];
         const entry = supervisorModel.byId.get(supervisorId);
-        const grant = Math.min(seatsToFill, remainingCapacity(entry));
+        const grant = Math.min(seatsToFill, remainingCapacity(entry), targetPerSupervisor);
         entry.usedInRun += grant;
         entry.visitUnit.set(unit.visit_number, unit.key);
         seats.push({ supervisorId, seats: grant });
@@ -1296,6 +1308,141 @@ function reflagRepeatFlag(trial, originalAssignment, newSupervisorId, supervisor
 }
 
 // ============================================================================
+// PHASE 9.5 - WORKLOAD FAIRNESS EQUALIZATION
+//
+// Even with the fair-share grant cap in solveGeographicalAllocation, the gap
+// between the busiest and least-busy eligible supervisor can still be wide -
+// a small senior tier legitimately owns less geography than a large junior
+// one, so "nobody is idle" alone doesn't mean the spread is fair. This final
+// deterministic pass narrows every eligible supervisor's posting count to
+// within MAX_LOAD_GAP of each other wherever their own capacity allows,
+// pulling from whichever supervisor is busiest regardless of tier (so a
+// tier that has used up its own geography/capacity naturally stops donating,
+// and a tier with slack naturally starts receiving - the same loop handles
+// overflow in both directions without special-casing "which tier is
+// exhausted"). When a cross-tier move is unavoidable, the donor's SHORTEST
+// distance posting is the one reassigned - a receiver that outranks the
+// donor gets a small, short-distance top-up rather than a large one, which
+// is exactly the bounded "small share of shorter distance if necessary"
+// flexibility this pass is allowed and the core allocator (objective vector,
+// Move A-D) is not.
+// ============================================================================
+
+const MAX_LOAD_GAP = 3; // "fair share" ceiling on max-min postings per eligible supervisor
+const EQUALIZE_MAX_MOVES = 5000; // defensive bound - never hang, matches LOCAL_SEARCH's own guard style
+
+/**
+ * Narrow the spread of postings-per-supervisor across every eligible
+ * supervisor (capacity > 0) to at most MAX_LOAD_GAP, by repeatedly moving one
+ * assignment from the busiest supervisor to the least-busy one who still has
+ * room. Pure reassignment - `assignments.length` never changes, so this can
+ * never interact with the dean `maxAssignments` ceiling.
+ */
+function equalizeWorkload(assignments, supervisorModel, tiers, postingType, avoidRepeatSchools) {
+  const countBySupervisor = new Map();
+  for (const a of assignments) {
+    countBySupervisor.set(a.supervisor_id, (countBySupervisor.get(a.supervisor_id) || 0) + 1);
+  }
+
+  const eligible = [...supervisorModel.byId.values()].filter((e) => e.totalCapacity > 0);
+  for (const e of eligible) {
+    if (!countBySupervisor.has(e.supervisor.id)) countBySupervisor.set(e.supervisor.id, 0);
+  }
+
+  let movesApplied = 0;
+  let budgetExhausted = false;
+
+  for (let move = 0; move < EQUALIZE_MAX_MOVES; move++) {
+    // Receiver: the least-loaded eligible supervisor who still has capacity room.
+    let receiver = null;
+    for (const e of eligible) {
+      const count = countBySupervisor.get(e.supervisor.id);
+      if (count >= e.totalCapacity) continue;
+      if (
+        receiver === null ||
+        count < countBySupervisor.get(receiver.supervisor.id) ||
+        (count === countBySupervisor.get(receiver.supervisor.id) &&
+          (e.priorityNumber < receiver.priorityNumber ||
+            (e.priorityNumber === receiver.priorityNumber && e.supervisor.id < receiver.supervisor.id)))
+      ) {
+        receiver = e;
+      }
+    }
+    if (!receiver) break; // nobody has room left to receive anything
+
+    const receiverCount = countBySupervisor.get(receiver.supervisor.id);
+
+    // Donor: the busiest eligible supervisor, strictly more loaded than the
+    // receiver would be after the move (so it actually shrinks the gap).
+    let donor = null;
+    for (const e of eligible) {
+      if (e.supervisor.id === receiver.supervisor.id) continue;
+      const count = countBySupervisor.get(e.supervisor.id);
+      if (count <= receiverCount + 1) continue;
+      if (
+        donor === null ||
+        count > countBySupervisor.get(donor.supervisor.id) ||
+        (count === countBySupervisor.get(donor.supervisor.id) &&
+          (e.priorityNumber > donor.priorityNumber ||
+            (e.priorityNumber === donor.priorityNumber && e.supervisor.id > donor.supervisor.id)))
+      ) {
+        donor = e;
+      }
+    }
+    if (!donor) break; // no donor can shrink the gap any further
+
+    const donorCount = countBySupervisor.get(donor.supervisor.id);
+    if (donorCount - receiverCount <= MAX_LOAD_GAP) break; // target already met
+
+    // Prefer a school the receiver doesn't already cover, then shortest
+    // distance: within the same tier the distance ordering is a purely
+    // cosmetic tie-break, but across tiers it's the mechanism itself - the
+    // donor's remaining set stays skewed toward their own harder work, and a
+    // cross-tier receiver only ever gets a modest top-up rather than a large
+    // chunk of the donor's load.
+    const repeatForReceiver = (a) => (avoidRepeatSchools && receiver.schoolHistory.has(a.school_id) ? 1 : 0);
+    const donorAssignments = assignments
+      .filter((a) => a.supervisor_id === donor.supervisor.id)
+      .sort(
+        (a, b) =>
+          repeatForReceiver(a) - repeatForReceiver(b) ||
+          a.distance_km - b.distance_km ||
+          a.school_id - b.school_id
+      );
+    const moved = donorAssignments[0];
+    if (!moved) break;
+
+    moved.supervisor_id = receiver.supervisor.id;
+    moved.supervisor_name = receiver.supervisor.name;
+    moved.rank_code = receiver.supervisor.rank_code;
+    moved.priority_number = receiver.supervisor.priority_number;
+    moved.repeat_school = avoidRepeatSchools ? receiver.schoolHistory.has(moved.school_id) : false;
+
+    countBySupervisor.set(donor.supervisor.id, donorCount - 1);
+    countBySupervisor.set(receiver.supervisor.id, receiverCount + 1);
+    receiver.schoolHistory.add(moved.school_id);
+    movesApplied++;
+
+    if (move === EQUALIZE_MAX_MOVES - 1) budgetExhausted = true;
+  }
+
+  const finalCounts = eligible.map((e) => countBySupervisor.get(e.supervisor.id));
+  const remainingGap = finalCounts.length ? Math.max(...finalCounts) - Math.min(...finalCounts) : 0;
+  // Supervisors still below a fair share purely because their OWN
+  // remaining_slots ceiling is lower than their peers' - a genuine capacity
+  // constraint, not a bug, so it's reported rather than forced.
+  const belowCapacityCeiling = eligible.filter((e) => {
+    const count = countBySupervisor.get(e.supervisor.id);
+    const maxCount = Math.max(...finalCounts);
+    return count < maxCount - MAX_LOAD_GAP && count >= e.totalCapacity;
+  }).length;
+
+  if (movesApplied > 0) reflagClusterBreaks(assignments, postingType);
+
+  return { movesApplied, remainingGap, belowCapacityCeiling, budgetExhausted };
+}
+
+// ============================================================================
 // PHASE 10 - VALIDATION (authoritative, never trusts running ledgers)
 // ============================================================================
 
@@ -1845,6 +1992,23 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
 
   let finalAssignments = improvement.assignments;
 
+  // ---- Phase 9.5: narrow the postings-per-supervisor gap to a fair share ----
+  const utilization = equalizeWorkload(
+    finalAssignments,
+    baseSupervisorModel,
+    winner.tiers,
+    postingType,
+    avoidRepeatSchools
+  );
+  if (utilization.remainingGap > MAX_LOAD_GAP) {
+    const reason = utilization.belowCapacityCeiling > 0
+      ? `${utilization.belowCapacityCeiling} of them are capped by their own lower posting capacity`
+      : 'no further reassignment was available without exceeding another hard constraint';
+    upstreamWarnings.push(
+      `Postings-per-supervisor gap is ${utilization.remainingGap} (target: ${MAX_LOAD_GAP}) - ${reason}.`
+    );
+  }
+
   // ---- Phase 10: authoritative validation + repair ----
   const validation = validateSolution(
     finalAssignments,
@@ -1917,5 +2081,6 @@ module.exports = {
   scoreCandidate,
   compareObjectives,
   improveSolution,
+  equalizeWorkload,
   validateSolution,
 };
