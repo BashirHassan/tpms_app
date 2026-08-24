@@ -22,6 +22,19 @@ const { requireFeature } = require('../middleware/featureToggle');
 // ============================================================================
 
 /**
+ * Get what an auto-posting run can be scoped to (faculties, supervisors,
+ * states/LGAs, routes, visits) - each counted from the currently eligible pool
+ */
+router.get(
+  '/:institutionId/auto-posting/options',
+  authenticate,
+  requireInstitutionAccess(),
+  isSuperAdmin,
+  requireFeature('posting_management'),
+  autoPostingController.getAutoPostingOptions
+);
+
+/**
  * Preview auto-posting results without creating
  * Returns projected assignments based on criteria
  */

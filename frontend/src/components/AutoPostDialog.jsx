@@ -15,11 +15,12 @@
  * @see docs/AUTOMATED_POSTING_SYSTEM.md for full specification
  */
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Dialog } from './ui/Dialog';
 import { Button } from './ui/Button';
 import { Select } from './ui/Select';
 import { Badge } from './ui/Badge';
+import { MultiSelectPicker } from './ui/MultiSelectPicker';
 import { Switch } from './forms/InstitutionFormSections';
 import { autoPostingApi } from '../api';
 import { useToast } from '../context/ToastContext';
@@ -33,6 +34,7 @@ import {
   IconUsers,
   IconBuildingBank as IconSchool,
   IconRoute,
+  IconFilter,
 } from '@tabler/icons-react';
 
 const POSTING_TYPES = [
@@ -83,23 +85,81 @@ function AutoPostDialog({
   const [priorityEnabled, setPriorityEnabled] = useState(true);
   const [avoidRepeatSchools, setAvoidRepeatSchools] = useState(true);
 
+  // Scope-narrowing state - all empty means institution-wide, matching today's behavior
+  const [scopeOptions, setScopeOptions] = useState(null);
+  const [scopeLoading, setScopeLoading] = useState(false);
+  const [selectedSupervisorIds, setSelectedSupervisorIds] = useState([]);
+  const [selectedFacultyIds, setSelectedFacultyIds] = useState([]);
+  const [selectedStates, setSelectedStates] = useState([]);
+  const [selectedLgas, setSelectedLgas] = useState([]); // [{state, lga}]
+  const [selectedRouteIds, setSelectedRouteIds] = useState([]);
+  const [selectedVisitNumbers, setSelectedVisitNumbers] = useState([]);
+
   // UI state
-  const [step, setStep] = useState('configure'); // 'configure' | 'preview' | 'success'
+  const [step, setStep] = useState('scope'); // 'scope' | 'configure' | 'preview' | 'success'
   const [loading, setLoading] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [resultData, setResultData] = useState(null);
 
+  // Fetch scope-picker data whenever the dialog opens for a session
+  useEffect(() => {
+    if (!open || !sessionId) return;
+    setScopeLoading(true);
+    autoPostingApi
+      .getOptions({ session_id: sessionId, faculty_id: facultyId })
+      .then((response) => {
+        setScopeOptions(response.data?.data || response.data);
+      })
+      .catch((error) => {
+        showToast('error', error.response?.data?.message || 'Failed to load scope options');
+      })
+      .finally(() => setScopeLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, sessionId, facultyId]);
+
+  // Dean context: lock the faculty filter to the dean's own faculty, never editable
+  useEffect(() => {
+    if (facultyId) setSelectedFacultyIds([facultyId]);
+  }, [facultyId]);
+
   // Reset state when dialog closes
   const handleClose = () => {
-    setStep('configure');
+    setStep('scope');
     setPreviewData(null);
     setResultData(null);
     setNumberOfPostings(1);
     setPostingType('random');
     setPriorityEnabled(true);
     setAvoidRepeatSchools(true);
+    setScopeOptions(null);
+    setSelectedSupervisorIds([]);
+    setSelectedFacultyIds(facultyId ? [facultyId] : []);
+    setSelectedStates([]);
+    setSelectedLgas([]);
+    setSelectedRouteIds([]);
+    setSelectedVisitNumbers([]);
     onClose();
   };
+
+  const handleClearScope = () => {
+    setSelectedSupervisorIds([]);
+    if (!facultyId) setSelectedFacultyIds([]);
+    setSelectedStates([]);
+    setSelectedLgas([]);
+    setSelectedRouteIds([]);
+    setSelectedVisitNumbers([]);
+  };
+
+  // LGA choices depend on the selected states - matched as (state, lga) pairs since
+  // LGA names repeat across different states
+  const lgaOptions = useMemo(() => {
+    const locations = scopeOptions?.locations || [];
+    const relevant =
+      selectedStates.length > 0 ? locations.filter((l) => selectedStates.includes(l.state)) : locations;
+    return relevant.flatMap((l) => l.lgas.map((lga) => ({ state: l.state, lga: lga.lga, slot_count: lga.slot_count })));
+  }, [scopeOptions, selectedStates]);
+
+  const lgaKey = ({ state, lga }) => `${state}::${lga}`;
 
   // Generate preview
   const handlePreview = async () => {
@@ -117,6 +177,12 @@ function AutoPostDialog({
         priority_enabled: priorityEnabled,
         avoid_repeat_schools: avoidRepeatSchools,
         faculty_id: facultyId,
+        supervisor_ids: selectedSupervisorIds,
+        faculty_ids: facultyId ? [facultyId] : selectedFacultyIds,
+        states: selectedStates,
+        lgas: selectedLgas,
+        route_ids: selectedRouteIds,
+        visit_numbers: selectedVisitNumbers,
       });
 
       setPreviewData(response.data?.data || response.data);
@@ -139,6 +205,12 @@ function AutoPostDialog({
         priority_enabled: priorityEnabled,
         avoid_repeat_schools: avoidRepeatSchools,
         faculty_id: facultyId,
+        supervisor_ids: selectedSupervisorIds,
+        faculty_ids: facultyId ? [facultyId] : selectedFacultyIds,
+        states: selectedStates,
+        lgas: selectedLgas,
+        route_ids: selectedRouteIds,
+        visit_numbers: selectedVisitNumbers,
       });
 
       const data = response.data?.data || response.data;
@@ -299,6 +371,161 @@ function AutoPostDialog({
     );
   };
 
+  // Render scope-narrowing step - everything here is optional; leaving it all
+  // empty reproduces today's institution-wide behavior exactly
+  const renderScopeStep = () => {
+    if (scopeLoading) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-2 py-16 text-gray-500">
+          <IconLoader2 className="h-6 w-6 animate-spin" />
+          <span className="text-sm">Loading scope options...</span>
+        </div>
+      );
+    }
+
+    if (!scopeOptions) {
+      return (
+        <div className="p-6 bg-amber-50 border border-amber-200 rounded-lg text-center">
+          <IconAlertTriangle className="h-6 w-6 text-amber-500 mx-auto mb-2" />
+          <p className="text-sm text-amber-700 mb-3">
+            Couldn&apos;t load scope options. You can still continue with an institution-wide run.
+          </p>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setScopeLoading(true);
+              autoPostingApi
+                .getOptions({ session_id: sessionId, faculty_id: facultyId })
+                .then((response) => setScopeOptions(response.data?.data || response.data))
+                .catch((error) => showToast('error', error.response?.data?.message || 'Failed to load scope options'))
+                .finally(() => setScopeLoading(false));
+            }}
+          >
+            <IconRefresh className="h-4 w-4 mr-2" />
+            Retry
+          </Button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+          Narrow this run to specific faculties, supervisors, locations, routes or visits - or leave
+          everything below empty to run across the whole institution as usual.
+        </div>
+
+        <MultiSelectPicker
+          label="Faculty"
+          options={scopeOptions.faculties}
+          value={selectedFacultyIds}
+          onChange={setSelectedFacultyIds}
+          getOptionValue={(f) => f.id}
+          getOptionLabel={(f) => f.name}
+          getOptionCount={(f) => f.supervisor_count}
+          placeholder="All faculties"
+          searchPlaceholder="Search faculties..."
+          disabled={!!facultyId}
+        />
+        {facultyId && (
+          <p className="-mt-4 text-xs text-gray-500">Locked to your faculty.</p>
+        )}
+
+        <MultiSelectPicker
+          label="Supervisors"
+          options={scopeOptions.supervisors}
+          value={selectedSupervisorIds}
+          onChange={setSelectedSupervisorIds}
+          getOptionValue={(s) => s.id}
+          getOptionLabel={(s) => s.name}
+          getOptionCount={(s) => `${s.remaining_slots} left`}
+          placeholder="All eligible supervisors"
+          searchPlaceholder="Search supervisors..."
+        />
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <MultiSelectPicker
+            label="States"
+            options={scopeOptions.locations}
+            value={selectedStates}
+            onChange={(next) => {
+              setSelectedStates(next);
+              // Drop any LGA selections that no longer belong to a selected state
+              setSelectedLgas((prev) => prev.filter((l) => next.length === 0 || next.includes(l.state)));
+            }}
+            getOptionValue={(l) => l.state}
+            getOptionLabel={(l) => l.state}
+            getOptionCount={(l) => `${l.slot_count} slots`}
+            placeholder="All states"
+            searchPlaceholder="Search states..."
+          />
+
+          <MultiSelectPicker
+            label="LGAs"
+            options={lgaOptions}
+            value={selectedLgas.map(lgaKey)}
+            onChange={(nextKeys) => {
+              const keySet = new Set(nextKeys);
+              setSelectedLgas(lgaOptions.filter((l) => keySet.has(lgaKey(l))).map(({ state, lga }) => ({ state, lga })));
+            }}
+            getOptionValue={lgaKey}
+            getOptionLabel={(l) => `${l.lga} (${l.state})`}
+            getOptionCount={(l) => `${l.slot_count} slots`}
+            placeholder="All LGAs"
+            searchPlaceholder="Search LGAs..."
+          />
+        </div>
+
+        <MultiSelectPicker
+          label="Routes"
+          options={scopeOptions.routes}
+          value={selectedRouteIds}
+          onChange={setSelectedRouteIds}
+          getOptionValue={(r) => r.id}
+          getOptionLabel={(r) => r.name}
+          getOptionCount={(r) => `${r.slot_count} slots`}
+          placeholder="All routes"
+          searchPlaceholder="Search routes..."
+        />
+
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">Specific Visits (optional)</label>
+          <div className="flex flex-wrap gap-2">
+            {Array.from({ length: maxVisits }, (_, i) => i + 1).map((n) => {
+              const isSelected = selectedVisitNumbers.includes(n);
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() =>
+                    setSelectedVisitNumbers((prev) =>
+                      isSelected ? prev.filter((v) => v !== n) : [...prev, n]
+                    )
+                  }
+                  className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
+                    isSelected
+                      ? 'bg-primary-600 border-primary-600 text-white'
+                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  Visit {n}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-gray-500">
+            Leave empty to use the Visits-to-Include setting on the next step. Selecting any visit(s)
+            here (even non-consecutive ones) overrides that setting.
+          </p>
+        </div>
+
+        <Button variant="outline" onClick={handleClearScope}>
+          Clear scope
+        </Button>
+      </div>
+    );
+  };
+
   // Render configuration step
   const renderConfigureStep = () => (
     <div className="space-y-6">
@@ -307,20 +534,37 @@ function AutoPostDialog({
         <label className="block text-sm font-medium text-gray-700">
           Visits to Include
         </label>
-        <Select
-          value={numberOfPostings}
-          onChange={(e) => setNumberOfPostings(parseInt(e.target.value))}
-          className="w-full"
-        >
-          {Array.from({ length: maxVisits }, (_, i) => i + 1).map(n => (
-            <option key={n} value={n}>
-              {n === 1 ? 'Visit 1 only' : `Visits 1 through ${n}`}
-            </option>
-          ))}
-        </Select>
-        <p className="text-xs text-gray-500">
-          Maximum visits per session: {maxVisits}. All available slots for selected visits will be distributed fairly among supervisors.
-        </p>
+        {selectedVisitNumbers.length > 0 ? (
+          <div className="flex items-center justify-between px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-600">
+            <span>
+              Using explicit visits: <span className="font-medium text-gray-900">{[...selectedVisitNumbers].sort((a, b) => a - b).join(', ')}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setStep('scope')}
+              className="text-primary-600 hover:text-primary-700 font-medium"
+            >
+              Change in Scope step
+            </button>
+          </div>
+        ) : (
+          <>
+            <Select
+              value={numberOfPostings}
+              onChange={(e) => setNumberOfPostings(parseInt(e.target.value))}
+              className="w-full"
+            >
+              {Array.from({ length: maxVisits }, (_, i) => i + 1).map(n => (
+                <option key={n} value={n}>
+                  {n === 1 ? 'Visit 1 only' : `Visits 1 through ${n}`}
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-gray-500">
+              Maximum visits per session: {maxVisits}. All available slots for selected visits will be distributed fairly among supervisors.
+            </p>
+          </>
+        )}
       </div>
 
       {/* Posting Type */}
@@ -415,9 +659,43 @@ function AutoPostDialog({
     </div>
   );
 
+  // Scope recap - only rendered once a run has actually been narrowed
+  const renderScopeRecap = (filtersApplied) => {
+    if (!filtersApplied?.is_scoped) return null;
+
+    const parts = [];
+    if (filtersApplied.supervisor_count > 0) parts.push(`${filtersApplied.supervisor_count} supervisor(s)`);
+    if (filtersApplied.faculty_count > 0) parts.push(`Faculty: ${filtersApplied.faculty_names.join(', ')}`);
+    if (filtersApplied.states?.length > 0) parts.push(`States: ${filtersApplied.states.join(', ')}`);
+    if (filtersApplied.lgas?.length > 0) {
+      parts.push(`LGAs: ${filtersApplied.lgas.map((l) => `${l.lga} (${l.state})`).join(', ')}`);
+    }
+    if (filtersApplied.route_count > 0) parts.push(`Routes: ${filtersApplied.route_names.join(', ')}`);
+    if (filtersApplied.visit_numbers?.length > 0) parts.push(`Visits: ${filtersApplied.visit_numbers.join(', ')}`);
+
+    return (
+      <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-800 flex items-start justify-between gap-3">
+        <div className="flex items-start gap-2">
+          <IconFilter className="h-4 w-4 mt-0.5 flex-shrink-0" />
+          <span>Scoped to: {parts.join(' · ')}</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setStep('scope')}
+          className="flex-shrink-0 text-purple-700 hover:text-purple-900 font-medium underline"
+        >
+          Change scope
+        </button>
+      </div>
+    );
+  };
+
   // Render preview step
   const renderPreviewStep = () => (
     <div className="space-y-4">
+      {/* Scope recap */}
+      {renderScopeRecap(previewData?.filters_applied)}
+
       {/* Visits info banner */}
       {previewData?.visits_included && (
         <div className="px-3 py-2 bg-primary-50 border border-primary-200 rounded-lg text-sm text-primary-700">
@@ -584,6 +862,9 @@ function AutoPostDialog({
   // Render success step
   const renderSuccessStep = () => (
     <div className="space-y-4">
+      {/* Scope recap */}
+      {renderScopeRecap(resultData?.filters_applied)}
+
       {/* Success message */}
       <div className="p-6 bg-green-50 border border-green-200 rounded-lg text-center">
         <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -707,19 +988,38 @@ function AutoPostDialog({
       );
     }
 
+    if (step === 'scope') {
+      return (
+        <div className="flex justify-end gap-3">
+          <Button variant="outline" onClick={handleClose}>
+            Cancel
+          </Button>
+          <Button onClick={() => setStep('configure')}>
+            Next
+          </Button>
+        </div>
+      );
+    }
+
     return (
-      <div className="flex justify-end gap-3">
-        <Button variant="outline" onClick={handleClose} disabled={loading}>
-          Cancel
+      <div className="flex justify-between gap-3 w-full">
+        <Button variant="outline" onClick={() => setStep('scope')} disabled={loading}>
+          <IconArrowLeft className="h-4 w-4 mr-2" />
+          Back to Scope
         </Button>
-        <Button onClick={handlePreview} disabled={loading || !sessionId}>
-          {loading ? (
-            <IconLoader2 className="h-4 w-4 animate-spin mr-2" />
-          ) : (
-            <IconWand className="h-4 w-4 mr-2" />
-          )}
-          Preview Assignments
-        </Button>
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={handleClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button onClick={handlePreview} disabled={loading || !sessionId}>
+            {loading ? (
+              <IconLoader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <IconWand className="h-4 w-4 mr-2" />
+            )}
+            Preview Assignments
+          </Button>
+        </div>
       </div>
     );
   };
@@ -737,6 +1037,7 @@ function AutoPostDialog({
       width="4xl"
       footer={renderFooter()}
     >
+      {step === 'scope' && renderScopeStep()}
       {step === 'configure' && renderConfigureStep()}
       {step === 'preview' && renderPreviewStep()}
       {step === 'success' && renderSuccessStep()}

@@ -50,14 +50,24 @@ export function createAutoPostingApi(institutionId) {
      * @param {number} [params.limit] - Limit results
      * @param {number} [params.offset] - Offset for pagination
      */
-    getHistory: (params = {}) => 
+    getHistory: (params = {}) =>
       apiClient.get(`${basePath}/history`, { params }),
-    
+
+    /**
+     * Get scope-narrowing options (faculties, supervisors, states/LGAs, routes, visits) -
+     * each counted from the currently eligible pool, for the Scope step of the dialog
+     * @param {Object} params
+     * @param {number} params.session_id - Session ID (required)
+     * @param {number} [params.faculty_id] - Dean-context faculty, narrows the returned pool
+     */
+    getOptions: (params) =>
+      apiClient.get(`${basePath}/options`, { params }),
+
     /**
      * Rollback an auto-posting batch
      * @param {number} batchId - Batch ID to rollback
      */
-    rollback: (batchId) => 
+    rollback: (batchId) =>
       apiClient.post(`${basePath}/${batchId}/rollback`),
   };
 }
@@ -79,5 +89,6 @@ export const autoPostingApi = {
   preview: (criteria) => apiClient.post(`${getBasePath()}/preview`, criteria),
   execute: (criteria) => apiClient.post(`${getBasePath()}/execute`, criteria),
   getHistory: (params = {}) => apiClient.get(`${getBasePath()}/history`, { params }),
+  getOptions: (params) => apiClient.get(`${getBasePath()}/options`, { params }),
   rollback: (batchId) => apiClient.post(`${getBasePath()}/${batchId}/rollback`),
 };

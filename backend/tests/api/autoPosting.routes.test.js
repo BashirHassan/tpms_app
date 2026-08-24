@@ -15,6 +15,7 @@ const { isSuperAdmin, isHeadOfTP, staffOnly } = require('../../src/middleware/rb
 const router = require('../../src/routes/autoPosting');
 
 const AUTO_POSTING_PATHS = [
+  { path: '/:institutionId/auto-posting/options', method: 'get' },
   { path: '/:institutionId/auto-posting/preview', method: 'post' },
   { path: '/:institutionId/auto-posting/execute', method: 'post' },
   { path: '/:institutionId/auto-posting/history', method: 'get' },

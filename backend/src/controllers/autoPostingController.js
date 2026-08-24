@@ -38,6 +38,8 @@ const strictBoolean = (defaultValue) =>
     .transform((v) => (typeof v === 'boolean' ? v : v === 'true'))
     .default(defaultValue);
 
+const idList = () => z.array(z.coerce.number().int().positive()).optional().default([]);
+
 const schemas = {
   autoPost: z.object({
     body: z.object({
@@ -48,6 +50,15 @@ const schemas = {
       avoid_repeat_schools: strictBoolean(true), // Don't send a supervisor to the same school twice
       faculty_id: z.coerce.number().int().positive().optional().nullable(), // For dean filtering
       dry_run: strictBoolean(false), // Preview without creating
+
+      // Scope-narrowing filters - request-time only, never persisted as config.
+      // All default to [] (no narrowing), preserving today's institution-wide behavior.
+      supervisor_ids: idList(),
+      faculty_ids: idList(), // Admin-editable narrowing; ANDs with faculty_id, never replaces it
+      states: z.array(z.string().min(1)).optional().default([]),
+      lgas: z.array(z.object({ state: z.string().min(1), lga: z.string().min(1) })).optional().default([]),
+      route_ids: idList(),
+      visit_numbers: z.array(z.coerce.number().int().min(1).max(10)).optional().default([]),
     }),
   }),
 };
@@ -68,6 +79,96 @@ async function getSession(institutionId, sessionId) {
 }
 
 /**
+ * Append an `AND column IN (...)` clause when values is non-empty, pushing params.
+ * A no-op when values is empty/undefined, so callers can chain filters unconditionally.
+ */
+function appendInClause(sql, params, column, values) {
+  if (!values || values.length === 0) return sql;
+  params.push(...values);
+  return `${sql} AND ${column} IN (${values.map(() => '?').join(',')})`;
+}
+
+/**
+ * Resolve and validate the scope-narrowing filters from a request body.
+ *
+ * digitaltp uses plain integer IDs (no opaque public_ids), so validation is a
+ * direct institution-scoped existence check: any submitted ID not found in this
+ * institution throws, naming the offender, rather than silently widening scope.
+ *
+ * States/LGAs are matched as (state, lga) pairs - never a bare LGA name - because
+ * LGA names repeat across different states.
+ */
+async function resolveAutoPostFilters(institutionId, body) {
+  const instId = parseInt(institutionId);
+
+  const resolveIds = async (table, ids, label) => {
+    if (!ids || ids.length === 0) return [];
+    const unique = [...new Set(ids)];
+    const rows = await query(
+      `SELECT id FROM ${table} WHERE institution_id = ? AND id IN (${unique.map(() => '?').join(',')})`,
+      [instId, ...unique]
+    );
+    const found = new Set(rows.map((r) => r.id));
+    const missing = unique.filter((id) => !found.has(id));
+    if (missing.length > 0) {
+      throw new ValidationError(`${label} id(s) ${missing.join(', ')} were not found in this institution`);
+    }
+    return unique;
+  };
+
+  const normalise = (v) => String(v ?? '').trim().toUpperCase();
+  const states = [...new Set((body.states || []).map((s) => String(s).trim()).filter(Boolean))];
+  const lgaPairs = (body.lgas || [])
+    .map(({ state, lga }) => ({ state: String(state).trim(), lga: String(lga).trim() }))
+    .filter(({ state, lga }) => state && lga);
+
+  if (states.length > 0 || lgaPairs.length > 0) {
+    const known = await query(
+      `SELECT DISTINCT ms.state, ms.lga
+       FROM institution_schools isv
+       JOIN master_schools ms ON isv.master_school_id = ms.id
+       WHERE isv.institution_id = ? AND isv.status = 'active'`,
+      [instId]
+    );
+    const knownStates = new Set(known.map((r) => normalise(r.state)));
+    const knownPairs = new Set(known.map((r) => `${normalise(r.state)}::${normalise(r.lga)}`));
+
+    const badStates = states.filter((s) => !knownStates.has(normalise(s)));
+    if (badStates.length > 0) {
+      throw new ValidationError(`State(s) ${badStates.join(', ')} have no schools in this institution`);
+    }
+    const badPairs = lgaPairs.filter(({ state, lga }) => !knownPairs.has(`${normalise(state)}::${normalise(lga)}`));
+    if (badPairs.length > 0) {
+      throw new ValidationError(
+        `LGA(s) ${badPairs.map((p) => `${p.lga} (${p.state})`).join(', ')} have no schools in this institution`
+      );
+    }
+  }
+
+  return {
+    supervisorIds: await resolveIds('users', body.supervisor_ids, 'Supervisor'),
+    facultyIds: await resolveIds('faculties', body.faculty_ids, 'Faculty'),
+    routeIds: await resolveIds('routes', body.route_ids, 'Route'),
+    states,
+    lgaPairs,
+    visitNumbers: [...new Set(body.visit_numbers || [])].sort((a, b) => a - b),
+  };
+}
+
+/**
+ * Reject an explicit visit number beyond the session's supervision-visit limit.
+ */
+function assertVisitNumbersWithinSession(visitNumbers, session) {
+  const maxVisits = session.max_supervision_visits;
+  const overflow = visitNumbers.find((v) => v > maxVisits);
+  if (overflow !== undefined) {
+    throw new ValidationError(
+      `Visit ${overflow} is outside this session's limit of ${maxVisits} supervision visit(s)`
+    );
+  }
+}
+
+/**
  * Get max primary postings per supervisor from session settings
  * This is the cap on how many postings a supervisor can receive
  */
@@ -84,7 +185,7 @@ async function getMaxPostingsPerSupervisor(institutionId, sessionId) {
  * Eligible roles: supervisor, head_of_teaching_practice.
  * Field monitors do monitoring visits, not supervision postings, so they are excluded.
  */
-async function getEligibleSupervisors(institutionId, sessionId, priorityEnabled, facultyId = null) {
+async function getEligibleSupervisors(institutionId, sessionId, priorityEnabled, facultyId = null, filters = {}) {
   const maxPostings = await getMaxPostingsPerSupervisor(institutionId, sessionId);
 
   let sql = `
@@ -125,6 +226,9 @@ async function getEligibleSupervisors(institutionId, sessionId, priorityEnabled,
     params.push(parseInt(facultyId));
   }
 
+  sql = appendInClause(sql, params, 'u.id', filters.supervisorIds);
+  sql = appendInClause(sql, params, 'u.faculty_id', filters.facultyIds);
+
   // Order by priority if enabled, then by fewest existing postings
   if (priorityEnabled) {
     sql += ' ORDER BY COALESCE(r.priority_number, 99) ASC, COALESCE(ps.posting_count, 0) ASC, u.name ASC';
@@ -144,7 +248,7 @@ async function getEligibleSupervisors(institutionId, sessionId, priorityEnabled,
  * acceptances per school per group_number.
  * Secondary/merged groups are excluded as they get dependent postings automatically.
  */
-async function getAvailableSlots(institutionId, sessionId) {
+async function getAvailableSlots(institutionId, sessionId, filters = {}) {
   // Get session settings
   const [session] = await query(
     'SELECT max_supervision_visits FROM academic_sessions WHERE id = ?',
@@ -155,8 +259,8 @@ async function getAvailableSlots(institutionId, sessionId) {
   // Get all schools with their groups (only schools with students)
   // Derives groups from student_acceptances table (approved students grouped by group_number)
   // Excludes secondary/merged groups - they get dependent postings automatically
-  const schools = await query(
-    `SELECT 
+  let schoolsSql = `
+    SELECT
       isv.id as school_id,
       ms.name as school_name,
       ms.lga,
@@ -170,19 +274,30 @@ async function getAvailableSlots(institutionId, sessionId) {
     FROM institution_schools isv
     JOIN master_schools ms ON isv.master_school_id = ms.id
     LEFT JOIN routes r ON isv.route_id = r.id
-    JOIN student_acceptances sa ON sa.institution_school_id = isv.id 
-      AND sa.session_id = ? 
-      AND sa.institution_id = ? 
+    JOIN student_acceptances sa ON sa.institution_school_id = isv.id
+      AND sa.session_id = ?
+      AND sa.institution_id = ?
       AND sa.status = 'approved'
-    LEFT JOIN merged_groups mg ON mg.secondary_institution_school_id = isv.id 
+    LEFT JOIN merged_groups mg ON mg.secondary_institution_school_id = isv.id
       AND mg.secondary_group_number = sa.group_number
       AND mg.session_id = sa.session_id
       AND mg.status = 'active'
     WHERE isv.institution_id = ? AND isv.status = 'active' AND mg.id IS NULL
+  `;
+  const schoolParams = [parseInt(sessionId), parseInt(institutionId), parseInt(institutionId)];
+
+  schoolsSql = appendInClause(schoolsSql, schoolParams, 'ms.state', filters.states);
+  schoolsSql = appendInClause(schoolsSql, schoolParams, 'isv.route_id', filters.routeIds);
+  if (filters.lgaPairs && filters.lgaPairs.length > 0) {
+    schoolsSql += ` AND (ms.state, ms.lga) IN (${filters.lgaPairs.map(() => '(?,?)').join(',')})`;
+    for (const { state, lga } of filters.lgaPairs) schoolParams.push(state, lga);
+  }
+
+  schoolsSql += `
     GROUP BY isv.id, ms.name, ms.lga, ms.state, isv.route_id, r.name, isv.distance_km, isv.location_category, sa.group_number
-    HAVING student_count > 0`,
-    [parseInt(sessionId), parseInt(institutionId), parseInt(institutionId)]
-  );
+    HAVING student_count > 0`;
+
+  const schools = await query(schoolsSql, schoolParams);
 
   // Get existing postings to find available slots
   const existingPostings = await query(
@@ -211,6 +326,7 @@ async function getAvailableSlots(institutionId, sessionId) {
           visit_number: visit,
           route_id: school.route_id,
           route_name: school.route_name,
+          state: school.state,
           lga: school.lga,
           distance_km: parseFloat(school.distance_km) || 0,
           location_category: school.location_category,
@@ -585,6 +701,37 @@ async function createPostingsFromAssignments(
 // ============================================================================
 
 /**
+ * Summarise the resolved scope filters for display in preview/execute/history.
+ */
+function summariseFilters(filters, supervisors, slots) {
+  const isScoped =
+    filters.supervisorIds.length > 0 ||
+    filters.facultyIds.length > 0 ||
+    filters.states.length > 0 ||
+    filters.lgaPairs.length > 0 ||
+    filters.routeIds.length > 0 ||
+    filters.visitNumbers.length > 0;
+
+  return {
+    is_scoped: isScoped,
+    supervisor_count: filters.supervisorIds.length,
+    faculty_count: filters.facultyIds.length,
+    faculty_names:
+      filters.facultyIds.length > 0
+        ? [...new Set(supervisors.map((s) => s.faculty_name).filter(Boolean))]
+        : [],
+    states: filters.states,
+    lgas: filters.lgaPairs,
+    route_count: filters.routeIds.length,
+    route_names:
+      filters.routeIds.length > 0
+        ? [...new Set(slots.map((s) => s.route_name).filter(Boolean))]
+        : [],
+    visit_numbers: filters.visitNumbers,
+  };
+}
+
+/**
  * Preview auto-posting results without creating
  * POST /:institutionId/auto-posting/preview
  */
@@ -592,7 +739,7 @@ const previewAutoPosting = async (req, res, next) => {
   try {
     const { institutionId } = req.params;
     const validation = schemas.autoPost.safeParse({ body: req.body });
-    
+
     if (!validation.success) {
       throw new ValidationError('Validation failed', validation.error.flatten().fieldErrors);
     }
@@ -610,20 +757,33 @@ const previewAutoPosting = async (req, res, next) => {
       );
     }
 
+    const filters = await resolveAutoPostFilters(institutionId, validation.data.body);
+    assertVisitNumbersWithinSession(filters.visitNumbers, session);
+
     // Get data
-    const supervisors = await getEligibleSupervisors(institutionId, session_id, priority_enabled, faculty_id);
-    const slots = await getAvailableSlots(institutionId, session_id);
+    const supervisors = await getEligibleSupervisors(institutionId, session_id, priority_enabled, faculty_id, filters);
+    let slots = await getAvailableSlots(institutionId, session_id, filters);
     const schoolHistory = await getSupervisorSchoolHistory(institutionId, session_id);
     const deanAllocation = await getDeanAllocation(institutionId, session_id, req.user);
 
+    // Explicit visit numbers narrow the slot pool exactly (including non-contiguous
+    // selections like [1,3]); the engine's own numberOfPostings argument still keeps
+    // its "up to N" contiguous semantics, so we pass the max as a harmless bound -
+    // the array it filters is already restricted to only the selected visits.
+    let effectiveNumberOfPostings = number_of_postings;
+    if (filters.visitNumbers.length > 0) {
+      slots = slots.filter((s) => filters.visitNumbers.includes(s.visit_number));
+      effectiveNumberOfPostings = Math.max(...filters.visitNumbers);
+    }
+
     // Log for debugging
-    console.log(`[Auto-Post Preview] visits_to_include=${number_of_postings}, total_slots=${slots.length}, supervisors=${supervisors.length}`);
+    console.log(`[Auto-Post Preview] visits_to_include=${effectiveNumberOfPostings}, total_slots=${slots.length}, supervisors=${supervisors.length}`);
 
     // Run algorithm (dry run)
     const result = runAutoPostingAlgorithm(
       supervisors,
       slots,
-      number_of_postings,
+      effectiveNumberOfPostings,
       posting_type,
       priority_enabled,
       {
@@ -634,13 +794,17 @@ const previewAutoPosting = async (req, res, next) => {
     );
 
     // Calculate filtered slots count for display (slots for selected visits only)
-    const filteredSlotsCount = slots.filter(s => s.visit_number <= number_of_postings).length;
+    const filteredSlotsCount =
+      filters.visitNumbers.length > 0
+        ? slots.length // already filtered to exactly the selected visits
+        : slots.filter(s => s.visit_number <= number_of_postings).length;
 
     res.json({
       success: true,
       data: {
         preview: true,
         visits_included: number_of_postings,
+        explicit_visit_numbers: filters.visitNumbers.length > 0 ? filters.visitNumbers : null,
         total_supervisors: supervisors.length,
         total_available_slots: filteredSlotsCount, // Show only slots for selected visits
         total_all_slots: slots.length, // Total including all visits
@@ -648,6 +812,7 @@ const previewAutoPosting = async (req, res, next) => {
         statistics: result.statistics,
         warnings: result.warnings,
         data_quality: collectDataQuality(supervisors, slots),
+        filters_applied: summariseFilters(filters, supervisors, slots),
         dean_allocation: deanAllocation
           ? {
               allocated: deanAllocation.allocated_postings,
@@ -688,9 +853,12 @@ const executeAutoPosting = async (req, res, next) => {
       );
     }
 
+    const filters = await resolveAutoPostFilters(institutionId, validation.data.body);
+    assertVisitNumbersWithinSession(filters.visitNumbers, session);
+
     // Get data
-    const supervisors = await getEligibleSupervisors(institutionId, session_id, priority_enabled, faculty_id);
-    const slots = await getAvailableSlots(institutionId, session_id);
+    const supervisors = await getEligibleSupervisors(institutionId, session_id, priority_enabled, faculty_id, filters);
+    let slots = await getAvailableSlots(institutionId, session_id, filters);
     const schoolHistory = await getSupervisorSchoolHistory(institutionId, session_id);
     const deanAllocation = await getDeanAllocation(institutionId, session_id, req.user);
     const maxPostingsPerSupervisor = await getMaxPostingsPerSupervisor(institutionId, session_id);
@@ -701,11 +869,19 @@ const executeAutoPosting = async (req, res, next) => {
       );
     }
 
+    // Explicit visit numbers narrow the slot pool exactly (including non-contiguous
+    // selections like [1,3]); see previewAutoPosting for the full rationale.
+    let effectiveNumberOfPostings = number_of_postings;
+    if (filters.visitNumbers.length > 0) {
+      slots = slots.filter((s) => filters.visitNumbers.includes(s.visit_number));
+      effectiveNumberOfPostings = Math.max(...filters.visitNumbers);
+    }
+
     // Run algorithm
     const result = runAutoPostingAlgorithm(
       supervisors,
       slots,
-      number_of_postings,
+      effectiveNumberOfPostings,
       posting_type,
       priority_enabled,
       {
@@ -721,14 +897,26 @@ const executeAutoPosting = async (req, res, next) => {
 
     // Create batch record
     const batch = await query(
-      `INSERT INTO auto_posting_batches 
+      `INSERT INTO auto_posting_batches
        (institution_id, session_id, initiated_by, criteria, status, started_at)
        VALUES (?, ?, ?, ?, 'processing', NOW())`,
       [
         parseInt(institutionId),
         parseInt(session_id),
         userId,
-        JSON.stringify({ number_of_postings, posting_type, priority_enabled, avoid_repeat_schools, faculty_id }),
+        JSON.stringify({
+          number_of_postings,
+          posting_type,
+          priority_enabled,
+          avoid_repeat_schools,
+          faculty_id,
+          supervisor_ids: filters.supervisorIds,
+          faculty_ids: filters.facultyIds,
+          states: filters.states,
+          lgas: filters.lgaPairs,
+          route_ids: filters.routeIds,
+          visit_numbers: filters.visitNumbers,
+        }),
       ]
     );
 
@@ -775,6 +963,7 @@ const executeAutoPosting = async (req, res, next) => {
           statistics: result.statistics,
           warnings: result.warnings,
           data_quality: collectDataQuality(supervisors, slots),
+          filters_applied: summariseFilters(filters, supervisors, slots),
           dean_allocation: deanAllocation
             ? {
                 allocated: deanAllocation.allocated_postings,
@@ -792,6 +981,110 @@ const executeAutoPosting = async (req, res, next) => {
       );
       throw error;
     }
+  } catch (error) {
+    next(error);
+  }
+};
+
+function totalSupervisorCapacity(supervisors) {
+  return supervisors.reduce((sum, s) => sum + Math.max(0, Number(s.remaining_slots) || 0), 0);
+}
+
+/**
+ * Get what an auto-posting run can be scoped to: faculties, supervisors,
+ * states/LGAs, routes and visits - each counted from the CURRENTLY ELIGIBLE
+ * pool (no filters applied here), so every picker option's count is honest
+ * about what selecting just that one filter would actually match.
+ * GET /:institutionId/auto-posting/options
+ */
+const getAutoPostingOptions = async (req, res, next) => {
+  try {
+    const { institutionId } = req.params;
+    const { session_id, faculty_id } = req.query;
+    if (!session_id) throw new ValidationError('session_id is required');
+
+    const session = await getSession(institutionId, session_id);
+    if (!session) throw new NotFoundError('Session not found');
+
+    const [supervisors, slots] = await Promise.all([
+      getEligibleSupervisors(institutionId, session.id, true, faculty_id),
+      getAvailableSlots(institutionId, session.id),
+    ]);
+
+    const stateIndex = new Map();
+    const routeIndex = new Map();
+    const visitIndex = new Map();
+
+    for (const slot of slots) {
+      const stateName = slot.state || 'Unknown';
+      if (!stateIndex.has(stateName)) {
+        stateIndex.set(stateName, { state: stateName, slot_count: 0, lgas: new Map() });
+      }
+      const stateEntry = stateIndex.get(stateName);
+      stateEntry.slot_count++;
+      const lgaName = slot.lga || 'Unknown';
+      if (!stateEntry.lgas.has(lgaName)) {
+        stateEntry.lgas.set(lgaName, { lga: lgaName, slot_count: 0, schools: new Set() });
+      }
+      const lgaEntry = stateEntry.lgas.get(lgaName);
+      lgaEntry.slot_count++;
+      lgaEntry.schools.add(slot.school_id);
+
+      if (slot.route_id) {
+        if (!routeIndex.has(slot.route_id)) {
+          routeIndex.set(slot.route_id, { name: slot.route_name, slot_count: 0 });
+        }
+        routeIndex.get(slot.route_id).slot_count++;
+      }
+      visitIndex.set(slot.visit_number, (visitIndex.get(slot.visit_number) || 0) + 1);
+    }
+
+    const facultyIndex = new Map();
+    for (const s of supervisors) {
+      if (!s.faculty_id) continue;
+      const entry = facultyIndex.get(s.faculty_id) || { id: s.faculty_id, name: s.faculty_name, supervisor_count: 0 };
+      entry.supervisor_count++;
+      facultyIndex.set(s.faculty_id, entry);
+    }
+
+    const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''));
+
+    res.json({
+      success: true,
+      data: {
+        max_visits: session.max_supervision_visits || 3,
+        max_postings_per_supervisor: await getMaxPostingsPerSupervisor(institutionId, session_id),
+        total_available_slots: slots.length,
+        total_supervisor_capacity: totalSupervisorCapacity(supervisors),
+        supervisors: supervisors.map((s) => ({
+          id: s.id,
+          name: s.name,
+          rank_code: s.rank_code,
+          rank_name: s.rank_name,
+          priority_number: s.priority_number,
+          faculty_id: s.faculty_id,
+          faculty_name: s.faculty_name,
+          current_postings: Number(s.current_postings) || 0,
+          remaining_slots: Number(s.remaining_slots) || 0,
+        })),
+        locations: [...stateIndex.values()]
+          .sort((a, b) => String(a.state).localeCompare(String(b.state)))
+          .map((entry) => ({
+            state: entry.state,
+            slot_count: entry.slot_count,
+            lgas: [...entry.lgas.values()]
+              .sort((a, b) => String(a.lga).localeCompare(String(b.lga)))
+              .map((l) => ({ lga: l.lga, slot_count: l.slot_count, school_count: l.schools.size })),
+          })),
+        routes: [...routeIndex.entries()]
+          .map(([id, v]) => ({ id, name: v.name, slot_count: v.slot_count }))
+          .sort(byName),
+        faculties: [...facultyIndex.values()].sort(byName),
+        visits: [...visitIndex.entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([visit_number, slot_count]) => ({ visit_number, slot_count })),
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -899,6 +1192,7 @@ module.exports = {
   previewAutoPosting,
   executeAutoPosting,
   getAutoPostingHistory,
+  getAutoPostingOptions,
   rollbackAutoPosting,
   schemas,
   // Re-exported from services/autoPostingEngine for tests and existing callers
