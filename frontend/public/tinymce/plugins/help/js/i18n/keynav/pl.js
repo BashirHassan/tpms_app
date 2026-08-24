@@ -18,8 +18,8 @@ tinymce.Resource.add('tinymce.html-i18n.help-keynav.pl',
   '  <dd>Windows, Linux lub macOS: Ctrl+F9</dd>\n' +
   '</dl>\n' +
   '\n' +
-  '<p>Nawigacja zostanie rozpoczęta od pierwszego elementu interfejsu użytkownika, który jest podświetlony lub - w przypadku pierwszego elementu\n' +
-  '  w ścieżce elementów w sekcji Footer - podkreślony.</p>\n' +
+  '<p>Nawigacja zostanie rozpoczęta od pierwszego elementu interfejsu użytkownika, który jest podświetlony lub — w przypadku pierwszego elementu\n' +
+  '  w ścieżce elementów w sekcji Footer — podkreślony.</p>\n' +
   '\n' +
   '<h1>Nawigacja pomiędzy sekcjami interfejsu użytkownika</h1>\n' +
   '\n' +

@@ -459,6 +459,10 @@ const DataTable = forwardRef(function DataTable(
     pagination = null, // { page, limit, total, onPageChange, onLimitChange? }
     pageSizeOptions = [20, 50, 100, 200],
 
+    // Footer - a single summary row (e.g. totals) pinned below the body.
+    // Kept out of `data` so it's never sorted, searched, filtered, or paginated away.
+    footerData = null,
+
     // Callbacks
     onRowClick,
     onSort,
@@ -912,7 +916,7 @@ const DataTable = forwardRef(function DataTable(
     setIsExporting(true);
     setExportProgress({ phase: 'fetching', loaded: 0, total: null });
     try {
-      let dataForExport = sortedData;
+      let dataForExport = footerData ? [...sortedData, footerData] : sortedData;
 
       if (typeof onServerExport === 'function') {
         const result = await onServerExport({
@@ -951,10 +955,11 @@ const DataTable = forwardRef(function DataTable(
       setIsExporting(false);
       setExportProgress(null);
     }
-  }, [exportType, exportFilename, onServerExport, sortedData]);
+  }, [exportType, exportFilename, onServerExport, sortedData, footerData]);
 
   const exportDataFromRef = useCallback(async () => {
     setIsExporting(true);
+    const dataForExport = footerData ? [...sortedData, footerData] : sortedData;
     try {
       if (typeof onServerExport === 'function') {
         const handled = await onServerExport({
@@ -970,14 +975,14 @@ const DataTable = forwardRef(function DataTable(
         }
       }
 
-      await exportToExcel(sortedData, columns, exportFilename);
+      await exportToExcel(dataForExport, columns, exportFilename);
     } catch (error) {
       console.error('Failed to export data from ref:', error);
-      await exportToExcel(sortedData, columns, exportFilename);
+      await exportToExcel(dataForExport, columns, exportFilename);
     } finally {
       setIsExporting(false);
     }
-  }, [columns, exportFilename, onServerExport, sortedData]);
+  }, [columns, exportFilename, onServerExport, sortedData, footerData]);
 
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
@@ -1141,6 +1146,26 @@ const DataTable = forwardRef(function DataTable(
               })
             )}
           </tbody>
+          {footerData && (
+            <tfoot className="sticky bottom-0 z-10 bg-gray-50 border-t-2 border-gray-300">
+              <tr>
+                {selectable && <td className="px-4 py-3 w-10" />}
+                {columns.map((column, colIndex) => (
+                  <td
+                    key={column.accessor || colIndex}
+                    className={cn(
+                      'px-4 py-2 whitespace-nowrap text-sm text-gray-900',
+                      column.cellClassName,
+                      column.align === 'center' && 'text-center',
+                      column.align === 'right' && 'text-right'
+                    )}
+                  >
+                    {renderCell(column, footerData, -1)}
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
 

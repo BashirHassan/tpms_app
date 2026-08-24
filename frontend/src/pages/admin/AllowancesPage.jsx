@@ -23,6 +23,15 @@ import {
 } from '@tabler/icons-react';
 import { getOrdinal, formatCurrency } from '../../utils/helpers';
 
+// Backend SUM()/MAX() aggregates come back as decimal strings from MySQL, so the
+// DataTable's default `<` comparison sorts them lexicographically (e.g. "9" > "10").
+// Compare numerically instead.
+const numericSort = (field) => (a, b, direction) => {
+  const aVal = parseFloat(a[field]) || 0;
+  const bVal = parseFloat(b[field]) || 0;
+  return direction === 'asc' ? aVal - bVal : bVal - aVal;
+};
+
 function AllowancesPage() {
   const { toast } = useToast();
 
@@ -43,10 +52,11 @@ function AllowancesPage() {
 
 
 
-  // Calculate totals for by supervisor data
-  const bySupervisorWithTotals = useMemo(() => {
-    if (bySupervisor.length === 0) return [];
-    
+  // Totals footer for the By Supervisor table. Kept separate from `bySupervisor`
+  // (rather than appended as a row) so it never gets caught up in sorting or search.
+  const bySupervisorTotals = useMemo(() => {
+    if (bySupervisor.length === 0) return null;
+
     const totals = bySupervisor.reduce(
       (acc, row) => ({
         total_postings: acc.total_postings + (parseInt(row.total_postings) || 0),
@@ -72,10 +82,9 @@ function AllowancesPage() {
       }
     );
 
-    // Add balance calculation
     totals.balance = totals.subtotal - totals.tetfund;
 
-    const totalsRow = {
+    return {
       id: 'totals-row',
       supervisor_name: 'TOTAL',
       file_number: '',
@@ -86,9 +95,47 @@ function AllowancesPage() {
       _isTotalsRow: true,
       ...totals,
     };
-
-    return [...bySupervisor, totalsRow];
   }, [bySupervisor]);
+
+  // Totals footer for the By Supervisor & Visit table.
+  const bySupervisorVisitTotals = useMemo(() => {
+    if (bySupervisorVisit.length === 0) return null;
+
+    const totals = bySupervisorVisit.reduce(
+      (acc, row) => ({
+        total_postings: acc.total_postings + (parseInt(row.total_postings) || 0),
+        inside_count: acc.inside_count + (parseInt(row.inside_count) || 0),
+        outside_count: acc.outside_count + (parseInt(row.outside_count) || 0),
+        local_running: acc.local_running + (parseFloat(row.local_running) || 0),
+        transport: acc.transport + (parseFloat(row.transport) || 0),
+        dsa: acc.dsa + (parseFloat(row.dsa) || 0),
+        dta: acc.dta + (parseFloat(row.dta) || 0),
+        total: acc.total + (parseFloat(row.total) || 0),
+      }),
+      {
+        total_postings: 0,
+        inside_count: 0,
+        outside_count: 0,
+        local_running: 0,
+        transport: 0,
+        dsa: 0,
+        dta: 0,
+        total: 0,
+      }
+    );
+
+    return {
+      id: 'totals-row',
+      supervisor_name: 'TOTAL',
+      file_number: '',
+      rank_code: '',
+      rank_name: '',
+      faculty_code: '',
+      visit_number: '',
+      _isTotalsRow: true,
+      ...totals,
+    };
+  }, [bySupervisorVisit]);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -219,6 +266,7 @@ function AllowancesPage() {
         accessor: 'total_postings',
         header: 'Total Postings',
         searchable: false,
+        sortFn: numericSort('total_postings'),
         render: (value, row) => (
           <div className="flex items-center justify-center gap-1">
             <span className="font-semibold">{value}</span>
@@ -235,6 +283,7 @@ function AllowancesPage() {
         header: 'Local Running',
         align: 'right',
         searchable: false,
+        sortFn: numericSort('local_running'),
         render: (value, row) => (
           <span className={row._isTotalsRow ? 'font-bold text-primary-700' : ''}>
             {formatCurrency(value)}
@@ -247,6 +296,7 @@ function AllowancesPage() {
         header: 'Transport',
         align: 'right',
         searchable: false,
+        sortFn: numericSort('transport'),
         render: (value, row) => (
           <span className={row._isTotalsRow ? 'font-bold text-primary-700' : ''}>
             {formatCurrency(value)}
@@ -259,6 +309,7 @@ function AllowancesPage() {
         header: 'DSA',
         align: 'right',
         searchable: false,
+        sortFn: numericSort('dsa'),
         render: (value, row) => (
           <span className={row._isTotalsRow ? 'font-bold text-primary-700' : ''}>
             {formatCurrency(value)}
@@ -271,6 +322,7 @@ function AllowancesPage() {
         header: 'DTA',
         align: 'right',
         searchable: false,
+        sortFn: numericSort('dta'),
         render: (value, row) => (
           <span className={row._isTotalsRow ? 'font-bold text-primary-700' : ''}>
             {formatCurrency(value)}
@@ -283,6 +335,7 @@ function AllowancesPage() {
         header: 'Subtotal',
         align: 'right',
         searchable: false,
+        sortFn: numericSort('subtotal'),
         render: (value, row) => (
           <span className={`font-medium ${row._isTotalsRow ? 'font-bold text-primary-700' : ''}`}>
             {formatCurrency(value)}
@@ -295,6 +348,7 @@ function AllowancesPage() {
         header: 'TETFund',
         align: 'right',
         searchable: false,
+        sortFn: numericSort('tetfund'),
         render: (value, row) => (
           <Badge variant={row._isTotalsRow ? 'primary' : 'info'} className={`font-mono ${row._isTotalsRow ? 'font-bold' : ''}`}>
             {formatCurrency(value)}
@@ -307,6 +361,13 @@ function AllowancesPage() {
         header: 'Total',
         align: 'right',
         searchable: false,
+        // No `total` field on the row (it's computed below), so the default
+        // accessor-based sort would compare `undefined` to `undefined` and never move rows.
+        sortFn: (a, b, direction) => {
+          const aVal = (parseFloat(a.subtotal) || 0) + (parseFloat(a.tetfund) || 0);
+          const bVal = (parseFloat(b.subtotal) || 0) + (parseFloat(b.tetfund) || 0);
+          return direction === 'asc' ? aVal - bVal : bVal - aVal;
+        },
         render: (_, row) => (
           <span className={`font-bold ${row._isTotalsRow ? 'text-primary-800 text-base' : 'text-green-600'}`}>
             {formatCurrency((parseFloat(row.subtotal) || 0) + (parseFloat(row.tetfund) || 0))}
@@ -319,6 +380,12 @@ function AllowancesPage() {
         header: 'Balance',
         align: 'right',
         searchable: false,
+        // Same as `total` above - `balance` isn't a real field, it's derived.
+        sortFn: (a, b, direction) => {
+          const aVal = (parseFloat(a.subtotal) || 0) - (parseFloat(a.tetfund) || 0);
+          const bVal = (parseFloat(b.subtotal) || 0) - (parseFloat(b.tetfund) || 0);
+          return direction === 'asc' ? aVal - bVal : bVal - aVal;
+        },
         render: (value, row) => (
           <span className={`font-bold ${row._isTotalsRow ? 'text-primary-800 text-base' : 'text-primary-600'}`}>
             {formatCurrency(row.subtotal - row.tetfund)}
@@ -345,6 +412,7 @@ function AllowancesPage() {
       {
         accessor: 'total_postings',
         header: 'Total Postings',
+        sortFn: numericSort('total_postings'),
         render: (value, row) => (
           <div className="text-center">
             <span className="font-semibold text-lg">{value}</span>
@@ -360,30 +428,35 @@ function AllowancesPage() {
         accessor: 'local_running',
         header: 'Local Running',
         align: 'right',
+        sortFn: numericSort('local_running'),
         render: (value) => formatCurrency(value),
       },
       {
         accessor: 'transport',
         header: 'Transport',
         align: 'right',
+        sortFn: numericSort('transport'),
         render: (value) => formatCurrency(value),
       },
       {
         accessor: 'dsa',
         header: 'DSA',
         align: 'right',
+        sortFn: numericSort('dsa'),
         render: (value) => formatCurrency(value),
       },
       {
         accessor: 'dta',
         header: 'DTA',
         align: 'right',
+        sortFn: numericSort('dta'),
         render: (value) => formatCurrency(value),
       },
       {
         accessor: 'total',
         header: 'Total',
         align: 'right',
+        sortFn: numericSort('total'),
         render: (value) => (
           <span className="font-bold text-primary-600 text-lg">{formatCurrency(value)}</span>
         ),
@@ -399,48 +472,58 @@ function AllowancesPage() {
         accessor: 'sn',
         header: 'S/N',
         sortable: false,
-        render: (_, __, index) => index + 1,
+        render: (_, row, index) => row._isTotalsRow ? '' : index + 1,
+        exportFormatter: (_, row) => row._isTotalsRow ? '' : '',
       },
       {
         accessor: 'supervisor_name',
         header: 'Supervisor Name',
-        render: (value) => <span className="font-medium text-gray-900">{value}</span>,
+        render: (value, row) => (
+          <span className={`font-medium ${row._isTotalsRow ? 'text-primary-700 font-bold text-base' : 'text-gray-900'}`}>
+            {value}
+          </span>
+        ),
       },
       {
         accessor: 'file_number',
         header: 'File Number',
         searchable: false,
-        render: (value) => value || 'N/A',
+        render: (value, row) => row._isTotalsRow ? '' : (value || 'N/A'),
+        exportFormatter: (value, row) => row._isTotalsRow ? '' : (value || 'N/A'),
       },
       {
         accessor: 'rank_code',
         header: 'Rank',
         searchable: false,
-        render: (value, row) => (
+        render: (value, row) => row._isTotalsRow ? '' : (
           <span title={row.rank_name || ''}>{value || 'N/A'}</span>
         ),
+        exportFormatter: (value, row) => row._isTotalsRow ? '' : (value || 'N/A'),
       },
       {
         accessor: 'faculty_code',
         header: 'Faculty',
         searchable: false,
-        render: (value, row) => (
+        render: (value, row) => row._isTotalsRow ? '' : (
           <span title={row.faculty_name || ''}>{value || 'N/A'}</span>
         ),
+        exportFormatter: (value, row) => row._isTotalsRow ? '' : (value || 'N/A'),
       },
       {
         accessor: 'visit_number',
         header: 'Visit',
         searchable: false,
-        render: (value) => <Badge variant="outline">{getOrdinal(value)} Visit</Badge>,
+        render: (value, row) => row._isTotalsRow ? '' : <Badge variant="outline">{getOrdinal(value)} Visit</Badge>,
+        exportFormatter: (value, row) => row._isTotalsRow ? '' : `${getOrdinal(value)} Visit`,
       },
       {
         accessor: 'total_postings',
         header: 'Total Postings',
         searchable: false,
+        sortFn: numericSort('total_postings'),
         render: (value, row) => (
           <div className="text-center">
-            <span className="font-semibold">{value}</span>
+            <span className={`font-semibold ${row._isTotalsRow ? 'text-primary-700' : ''}`}>{value}</span>
             <div className="text-xs text-gray-500">
               <span className="text-green-600">{row.inside_count} In</span>
               {' / '}
@@ -448,43 +531,72 @@ function AllowancesPage() {
             </div>
           </div>
         ),
+        exportFormatter: (value, row) => `${value} (${row.inside_count} In / ${row.outside_count} Out)`,
       },
       {
         accessor: 'local_running',
         header: 'Local Running',
         align: 'right',
         searchable: false,
-        render: (value) => formatCurrency(value),
+        sortFn: numericSort('local_running'),
+        render: (value, row) => (
+          <span className={row._isTotalsRow ? 'font-bold text-primary-700' : ''}>
+            {formatCurrency(value)}
+          </span>
+        ),
+        exportFormatter: (value) => (parseFloat(value) || 0).toLocaleString(),
       },
       {
         accessor: 'transport',
         header: 'Transport',
         align: 'right',
         searchable: false,
-        render: (value) => formatCurrency(value),
+        sortFn: numericSort('transport'),
+        render: (value, row) => (
+          <span className={row._isTotalsRow ? 'font-bold text-primary-700' : ''}>
+            {formatCurrency(value)}
+          </span>
+        ),
+        exportFormatter: (value) => (parseFloat(value) || 0).toLocaleString(),
       },
       {
         accessor: 'dsa',
         header: 'DSA',
         align: 'right',
         searchable: false,
-        render: (value) => formatCurrency(value),
+        sortFn: numericSort('dsa'),
+        render: (value, row) => (
+          <span className={row._isTotalsRow ? 'font-bold text-primary-700' : ''}>
+            {formatCurrency(value)}
+          </span>
+        ),
+        exportFormatter: (value) => (parseFloat(value) || 0).toLocaleString(),
       },
       {
         accessor: 'dta',
         header: 'DTA',
         align: 'right',
         searchable: false,
-        render: (value) => formatCurrency(value),
+        sortFn: numericSort('dta'),
+        render: (value, row) => (
+          <span className={row._isTotalsRow ? 'font-bold text-primary-700' : ''}>
+            {formatCurrency(value)}
+          </span>
+        ),
+        exportFormatter: (value) => (parseFloat(value) || 0).toLocaleString(),
       },
       {
         accessor: 'total',
         header: 'Total',
         align: 'right',
         searchable: false,
-        render: (value) => (
-          <span className="font-bold text-primary-600">{formatCurrency(value)}</span>
+        sortFn: numericSort('total'),
+        render: (value, row) => (
+          <span className={`font-bold ${row._isTotalsRow ? 'text-primary-800 text-base' : 'text-primary-600'}`}>
+            {formatCurrency(value)}
+          </span>
         ),
+        exportFormatter: (value) => (parseFloat(value) || 0).toLocaleString(),
       },
     ],
     []
@@ -494,7 +606,7 @@ function AllowancesPage() {
   const getCurrentData = () => {
     switch (activeTab) {
       case 'by-supervisor':
-        return bySupervisorWithTotals;
+        return bySupervisor;
       case 'by-visit':
         return byVisit;
       case 'by-supervisor-visit':
@@ -515,6 +627,20 @@ function AllowancesPage() {
         return bySupervisorVisitColumns;
       default:
         return [];
+    }
+  };
+
+  // Totals footer, shown for the By Supervisor and By Supervisor & Visit tabs.
+  // Kept out of the table's own data (see bySupervisorTotals/bySupervisorVisitTotals)
+  // so it stays pinned instead of being sorted or searched away.
+  const getCurrentFooterData = () => {
+    switch (activeTab) {
+      case 'by-supervisor':
+        return bySupervisorTotals;
+      case 'by-supervisor-visit':
+        return bySupervisorVisitTotals;
+      default:
+        return null;
     }
   };
 
@@ -700,6 +826,7 @@ function AllowancesPage() {
       <DataTable
         data={getCurrentData()}
         columns={getCurrentColumns()}
+        footerData={getCurrentFooterData()}
         loading={loading}
         sortable
         searchable={activeTab === 'by-supervisor' || activeTab === 'by-supervisor-visit'}
@@ -707,7 +834,6 @@ function AllowancesPage() {
         toolbar={activeTab === 'by-supervisor-visit' ? visitFilterToolbar : undefined}
         exportable
         exportFilename={`allowances-${activeTab}-${new Date().toISOString().split('T')[0]}`}
-        rowClassName={(row) => row._isTotalsRow ? 'bg-primary-50 border-t-2 border-primary-300' : ''}
         emptyMessage={
           activeTab === 'by-supervisor'
             ? 'No supervisor allowances found for this session'
