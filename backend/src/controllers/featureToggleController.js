@@ -223,19 +223,6 @@ const update = async (req, res, next) => {
 
     const feature = features[0];
 
-    // Check if premium feature requires subscription
-    if (feature.is_premium && is_enabled) {
-      const institutions = await query(
-        'SELECT subscription_plan FROM institutions WHERE id = ?',
-        [parseInt(institutionId)]
-      );
-      
-      const plan = institutions[0]?.subscription_plan;
-      if (plan === 'basic') {
-        throw new ValidationError('This premium feature requires a higher subscription plan');
-      }
-    }
-
     // Check if institution override exists
     const existing = await query(
       'SELECT id FROM institution_feature_toggles WHERE institution_id = ? AND feature_toggle_id = ?',
@@ -488,19 +475,6 @@ const toggle = async (req, res, next) => {
 
     const feature = features[0];
     const is_enabled = enabled === true || enabled === 'true' || enabled === 1;
-
-    // Check if premium feature requires subscription
-    if (feature.is_premium && is_enabled) {
-      const institutions = await query(
-        'SELECT subscription_plan FROM institutions WHERE id = ?',
-        [parseInt(institutionId)]
-      );
-      
-      const plan = institutions[0]?.subscription_plan;
-      if (plan === 'basic') {
-        throw new ValidationError('This premium feature requires a higher subscription plan');
-      }
-    }
 
     // Check if institution override exists
     const existing = await query(
