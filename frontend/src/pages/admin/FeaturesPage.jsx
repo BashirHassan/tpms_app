@@ -139,8 +139,8 @@ function FeaturesPage() {
         name: feature.name,
         description: feature.description || '',
         module: feature.module || 'other',
-        isEnabled: feature.is_enabled,
-        isPremium: feature.is_premium,
+        isEnabled: toBoolean(feature.is_enabled),
+        isPremium: toBoolean(feature.is_premium),
       });
     } else {
       setEditingFeature(null);
