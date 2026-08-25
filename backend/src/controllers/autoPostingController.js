@@ -715,6 +715,8 @@ function summariseFilters(filters, supervisors, slots) {
   return {
     is_scoped: isScoped,
     supervisor_count: filters.supervisorIds.length,
+    supervisor_names:
+      filters.supervisorIds.length > 0 ? supervisors.slice(0, 50).map((s) => s.name) : [],
     faculty_count: filters.facultyIds.length,
     faculty_names:
       filters.facultyIds.length > 0
@@ -803,8 +805,10 @@ const previewAutoPosting = async (req, res, next) => {
       success: true,
       data: {
         preview: true,
-        visits_included: number_of_postings,
-        explicit_visit_numbers: filters.visitNumbers.length > 0 ? filters.visitNumbers : null,
+        // A number for a plain 1..N run, or the exact array when specific visits were chosen -
+        // callers that need to display this should handle both shapes (see describeVisits on
+        // the frontend)
+        visits_included: filters.visitNumbers.length > 0 ? filters.visitNumbers : number_of_postings,
         total_supervisors: supervisors.length,
         total_available_slots: filteredSlotsCount, // Show only slots for selected visits
         total_all_slots: slots.length, // Total including all visits

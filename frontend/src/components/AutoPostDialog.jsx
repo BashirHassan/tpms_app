@@ -1,27 +1,34 @@
 /**
  * Auto-Post Dialog Component
- * 
- * Dialog for configuring and executing automated supervisor posting
- * with preview functionality and configurable criteria:
- * - Number of postings per supervisor
- * - Posting type (random, route-based, LGA-based)
- * - Priority-based distribution
- * 
- * Round-Robin Distribution:
- * - Visits are exhausted in order (all Visit 1s before Visit 2s, etc.)
- * - Schools are distributed serially within each visit round
- * - Supervisors are assigned round-robin across all slots
- * 
+ *
+ * Three steps: Scope → Options → Preview.
+ *
+ * SCOPE narrows the run - which supervisors, which states/LGAs, which routes, which
+ * visits. Every list is optional and leaving one empty means "no narrowing", so an
+ * admin who skips this step gets the institution-wide run auto-posting has always
+ * done. Scoping exists because a real posting round arrives in pieces: acceptances
+ * come in state by state, and a faculty's supervisors are ready before the rest.
+ *
+ * OPTIONS is the allocation configuration - visits to include, distribution type,
+ * priority posting, school variety.
+ *
+ * PREVIEW reports how *good* the resulting distribution is, not just how big: load and
+ * travel spread, out-of-area trips, mean journey per rank band, and the data-quality
+ * problems that would silently produce financially wrong postings.
+ *
  * @see docs/AUTOMATED_POSTING_SYSTEM.md for full specification
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Dialog } from './ui/Dialog';
 import { Button } from './ui/Button';
 import { Select } from './ui/Select';
 import { Badge } from './ui/Badge';
-import { MultiSelectPicker } from './ui/MultiSelectPicker';
+import { StatsCard } from './ui/StatsCard';
 import { Switch } from './forms/InstitutionFormSections';
+import { RadioGroup } from './ui/RadioGroup';
+import { MultiSelectList } from './ui/MultiSelectList';
+import { Stepper, Step } from './ui/Stepper';
 import { autoPostingApi } from '../api';
 import { useToast } from '../context/ToastContext';
 import {
@@ -30,10 +37,12 @@ import {
   IconAlertTriangle,
   IconCheck,
   IconArrowLeft,
+  IconArrowRight,
   IconRefresh,
   IconUsers,
   IconBuildingBank as IconSchool,
   IconRoute,
+  IconMapPin,
   IconFilter,
 } from '@tabler/icons-react';
 
@@ -58,9 +67,30 @@ const POSTING_TYPES = [
   },
 ];
 
+const STEPS = [
+  { key: 'scope', title: 'Scope' },
+  { key: 'options', title: 'Options' },
+  { key: 'preview', title: 'Preview' },
+];
+
+/** An LGA is only identified by its state as well - the names repeat across states. */
+const lgaKey = (state, lga) => `${state}::${lga}`;
+const parseLgaKey = (key) => {
+  const [state, ...rest] = key.split('::');
+  return { state, lga: rest.join('::') };
+};
+
+/** `visits_included` is a number for a 1..N run and an array for an explicit selection. */
+const describeVisits = (visits) => {
+  if (Array.isArray(visits)) {
+    return visits.length === 1 ? `Visit ${visits[0]}` : `Visits ${visits.join(', ')}`;
+  }
+  return visits > 1 ? `Visits 1 through ${visits}` : 'Visit 1';
+};
+
 /**
  * Auto-Post Dialog for configuring and executing automated supervisor posting
- * 
+ *
  * @param {Object} props
  * @param {boolean} props.open - Whether the dialog is open
  * @param {function} props.onClose - Function to close the dialog
@@ -69,60 +99,196 @@ const POSTING_TYPES = [
  * @param {function} props.onComplete - Callback when auto-posting completes successfully
  * @param {number} [props.facultyId] - Optional faculty ID for dean filtering
  */
-function AutoPostDialog({ 
-  open, 
-  onClose, 
-  sessionId, 
-  maxVisits = 3, 
+function AutoPostDialog({
+  open,
+  onClose,
+  sessionId,
+  maxVisits = 3,
   onComplete,
   facultyId = null,
 }) {
   const { showToast } = useToast();
 
-  // Form state
+  // Allocation options
   const [numberOfPostings, setNumberOfPostings] = useState(1);
   const [postingType, setPostingType] = useState('random');
   const [priorityEnabled, setPriorityEnabled] = useState(true);
   const [avoidRepeatSchools, setAvoidRepeatSchools] = useState(true);
 
-  // Scope-narrowing state - all empty means institution-wide, matching today's behavior
+  // Scope. Every list empty = run across everything, which is the pre-scoping behaviour.
   const [scopeOptions, setScopeOptions] = useState(null);
-  const [scopeLoading, setScopeLoading] = useState(false);
-  const [selectedSupervisorIds, setSelectedSupervisorIds] = useState([]);
-  const [selectedFacultyIds, setSelectedFacultyIds] = useState([]);
+  const [loadingOptions, setLoadingOptions] = useState(false);
+  const [selectedSupervisors, setSelectedSupervisors] = useState([]);
+  const [selectedFaculties, setSelectedFaculties] = useState([]);
   const [selectedStates, setSelectedStates] = useState([]);
-  const [selectedLgas, setSelectedLgas] = useState([]); // [{state, lga}]
-  const [selectedRouteIds, setSelectedRouteIds] = useState([]);
-  const [selectedVisitNumbers, setSelectedVisitNumbers] = useState([]);
+  const [selectedLgas, setSelectedLgas] = useState([]);
+  const [selectedRoutes, setSelectedRoutes] = useState([]);
+  const [selectedVisits, setSelectedVisits] = useState([]);
 
   // UI state
-  const [step, setStep] = useState('scope'); // 'scope' | 'configure' | 'preview' | 'success'
+  const [step, setStep] = useState('scope');
   const [loading, setLoading] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [resultData, setResultData] = useState(null);
 
-  // Fetch scope-picker data whenever the dialog opens for a session
+  const resetScope = useCallback(() => {
+    setSelectedSupervisors([]);
+    setSelectedFaculties([]);
+    setSelectedStates([]);
+    setSelectedLgas([]);
+    setSelectedRoutes([]);
+    setSelectedVisits([]);
+  }, []);
+
+  // Load what can be scoped to. Counts come from the slots that are still open, so the
+  // pickers never offer an area with nothing left to fill. A dean's faculty_id narrows
+  // the returned supervisors/faculties server-side, so no separate lock/disable is needed.
   useEffect(() => {
     if (!open || !sessionId) return;
-    setScopeLoading(true);
+
+    let cancelled = false;
+    setLoadingOptions(true);
+
     autoPostingApi
-      .getOptions({ session_id: sessionId, faculty_id: facultyId })
+      .getOptions({ session_id: sessionId, ...(facultyId ? { faculty_id: facultyId } : {}) })
       .then((response) => {
+        if (cancelled) return;
         setScopeOptions(response.data?.data || response.data);
       })
       .catch((error) => {
-        showToast('error', error.response?.data?.message || 'Failed to load scope options');
+        if (cancelled) return;
+        showToast(
+          'error',
+          error.response?.data?.message || error.message || 'Failed to load scope options'
+        );
       })
-      .finally(() => setScopeLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, sessionId, facultyId]);
+      .finally(() => {
+        if (!cancelled) setLoadingOptions(false);
+      });
 
-  // Dean context: lock the faculty filter to the dean's own faculty, never editable
+    return () => {
+      cancelled = true;
+    };
+  }, [open, sessionId, facultyId, showToast]);
+
+  // ==========================================================================
+  // DERIVED SCOPE
+  // ==========================================================================
+
+  const allSupervisors = useMemo(() => scopeOptions?.supervisors || [], [scopeOptions]);
+  const allLocations = useMemo(() => scopeOptions?.locations || [], [scopeOptions]);
+
+  // Faculty narrows which supervisors are even offered, so the two mechanisms compose -
+  // ticking a faculty and then three names means "these three", not a conflict
+  const supervisorOptions = useMemo(() => {
+    const faculties = new Set(selectedFaculties);
+    return allSupervisors.filter((s) => faculties.size === 0 || faculties.has(s.faculty_id));
+  }, [allSupervisors, selectedFaculties]);
+
+  // A supervisor hidden by a faculty change must not stay silently selected
   useEffect(() => {
-    if (facultyId) setSelectedFacultyIds([facultyId]);
-  }, [facultyId]);
+    setSelectedSupervisors((current) => {
+      if (current.length === 0) return current;
+      const offered = new Set(supervisorOptions.map((s) => s.id));
+      const kept = current.filter((id) => offered.has(id));
+      return kept.length === current.length ? current : kept;
+    });
+  }, [supervisorOptions]);
 
-  // Reset state when dialog closes
+  const lgaOptions = useMemo(() => {
+    const states = new Set(selectedStates);
+    return allLocations
+      .filter((location) => states.size === 0 || states.has(location.state))
+      .flatMap((location) =>
+        location.lgas.map((entry) => ({
+          key: lgaKey(location.state, entry.lga),
+          state: location.state,
+          lga: entry.lga,
+          slot_count: entry.slot_count,
+          school_count: entry.school_count,
+        }))
+      );
+  }, [allLocations, selectedStates]);
+
+  // Dropping a state must drop its LGAs too, or the scope would still carry them
+  useEffect(() => {
+    setSelectedLgas((current) => {
+      if (current.length === 0) return current;
+      const offered = new Set(lgaOptions.map((l) => l.key));
+      const kept = current.filter((key) => offered.has(key));
+      return kept.length === current.length ? current : kept;
+    });
+  }, [lgaOptions]);
+
+  const scopeSummary = useMemo(() => {
+    const pool = selectedSupervisors.length > 0
+      ? supervisorOptions.filter((s) => selectedSupervisors.includes(s.id))
+      : supervisorOptions;
+
+    const capacity = pool.reduce((sum, s) => sum + (s.remaining_slots || 0), 0);
+
+    // Slots in the selected areas. Route and visit filters narrow this further, and the
+    // aggregate payload cannot express that intersection - the preview gives the exact
+    // figure, so this is deliberately labelled as an estimate.
+    let areaSlots;
+    if (selectedLgas.length > 0) {
+      const chosen = new Set(selectedLgas);
+      areaSlots = lgaOptions
+        .filter((l) => chosen.has(l.key))
+        .reduce((sum, l) => sum + l.slot_count, 0);
+    } else if (selectedStates.length > 0) {
+      const chosen = new Set(selectedStates);
+      areaSlots = allLocations
+        .filter((location) => chosen.has(location.state))
+        .reduce((sum, location) => sum + location.slot_count, 0);
+    } else {
+      areaSlots = scopeOptions?.total_available_slots ?? 0;
+    }
+
+    const isNarrowed =
+      selectedSupervisors.length > 0 ||
+      selectedFaculties.length > 0 ||
+      selectedStates.length > 0 ||
+      selectedLgas.length > 0 ||
+      selectedRoutes.length > 0 ||
+      selectedVisits.length > 0;
+
+    const isNarrowedByAreaOnly = selectedRoutes.length === 0 && selectedVisits.length === 0;
+
+    return { supervisorCount: pool.length, capacity, areaSlots, isNarrowed, isNarrowedByAreaOnly };
+  }, [
+    supervisorOptions, selectedSupervisors, selectedFaculties,
+    selectedStates, selectedLgas, selectedRoutes, selectedVisits, lgaOptions,
+    allLocations, scopeOptions,
+  ]);
+
+  // ==========================================================================
+  // ACTIONS
+  // ==========================================================================
+
+  const buildCriteria = useCallback(
+    () => ({
+      session_id: sessionId,
+      number_of_postings: numberOfPostings,
+      posting_type: postingType,
+      priority_enabled: priorityEnabled,
+      avoid_repeat_schools: avoidRepeatSchools,
+      faculty_id: facultyId,
+
+      supervisor_ids: selectedSupervisors,
+      faculty_ids: selectedFaculties,
+      states: selectedStates,
+      lgas: selectedLgas.map(parseLgaKey),
+      route_ids: selectedRoutes,
+      visit_numbers: selectedVisits,
+    }),
+    [
+      sessionId, numberOfPostings, postingType, priorityEnabled, avoidRepeatSchools,
+      facultyId, selectedSupervisors, selectedFaculties,
+      selectedStates, selectedLgas, selectedRoutes, selectedVisits,
+    ]
+  );
+
   const handleClose = () => {
     setStep('scope');
     setPreviewData(null);
@@ -131,37 +297,10 @@ function AutoPostDialog({
     setPostingType('random');
     setPriorityEnabled(true);
     setAvoidRepeatSchools(true);
-    setScopeOptions(null);
-    setSelectedSupervisorIds([]);
-    setSelectedFacultyIds(facultyId ? [facultyId] : []);
-    setSelectedStates([]);
-    setSelectedLgas([]);
-    setSelectedRouteIds([]);
-    setSelectedVisitNumbers([]);
+    resetScope();
     onClose();
   };
 
-  const handleClearScope = () => {
-    setSelectedSupervisorIds([]);
-    if (!facultyId) setSelectedFacultyIds([]);
-    setSelectedStates([]);
-    setSelectedLgas([]);
-    setSelectedRouteIds([]);
-    setSelectedVisitNumbers([]);
-  };
-
-  // LGA choices depend on the selected states - matched as (state, lga) pairs since
-  // LGA names repeat across different states
-  const lgaOptions = useMemo(() => {
-    const locations = scopeOptions?.locations || [];
-    const relevant =
-      selectedStates.length > 0 ? locations.filter((l) => selectedStates.includes(l.state)) : locations;
-    return relevant.flatMap((l) => l.lgas.map((lga) => ({ state: l.state, lga: lga.lga, slot_count: lga.slot_count })));
-  }, [scopeOptions, selectedStates]);
-
-  const lgaKey = ({ state, lga }) => `${state}::${lga}`;
-
-  // Generate preview
   const handlePreview = async () => {
     if (!sessionId) {
       showToast('error', 'Please select a session first');
@@ -170,21 +309,7 @@ function AutoPostDialog({
 
     setLoading(true);
     try {
-      const response = await autoPostingApi.preview({
-        session_id: sessionId,
-        number_of_postings: numberOfPostings,
-        posting_type: postingType,
-        priority_enabled: priorityEnabled,
-        avoid_repeat_schools: avoidRepeatSchools,
-        faculty_id: facultyId,
-        supervisor_ids: selectedSupervisorIds,
-        faculty_ids: facultyId ? [facultyId] : selectedFacultyIds,
-        states: selectedStates,
-        lgas: selectedLgas,
-        route_ids: selectedRouteIds,
-        visit_numbers: selectedVisitNumbers,
-      });
-
+      const response = await autoPostingApi.preview(buildCriteria());
       setPreviewData(response.data?.data || response.data);
       setStep('preview');
     } catch (error) {
@@ -194,24 +319,10 @@ function AutoPostDialog({
     }
   };
 
-  // Execute auto-posting
   const handleExecute = async () => {
     setLoading(true);
     try {
-      const response = await autoPostingApi.execute({
-        session_id: sessionId,
-        number_of_postings: numberOfPostings,
-        posting_type: postingType,
-        priority_enabled: priorityEnabled,
-        avoid_repeat_schools: avoidRepeatSchools,
-        faculty_id: facultyId,
-        supervisor_ids: selectedSupervisorIds,
-        faculty_ids: facultyId ? [facultyId] : selectedFacultyIds,
-        states: selectedStates,
-        lgas: selectedLgas,
-        route_ids: selectedRouteIds,
-        visit_numbers: selectedVisitNumbers,
-      });
+      const response = await autoPostingApi.execute(buildCriteria());
 
       const data = response.data?.data || response.data;
       setResultData(data);
@@ -224,6 +335,10 @@ function AutoPostDialog({
       setLoading(false);
     }
   };
+
+  // ==========================================================================
+  // SHARED PANELS
+  // ==========================================================================
 
   // Supervisors that had to be sent back to a school they already cover
   const renderRepeatSchoolsNotice = (statistics) => {
@@ -288,6 +403,56 @@ function AutoPostDialog({
             </p>
           </div>
         )}
+      </div>
+    );
+  };
+
+  // What the run was narrowed to, so nobody confirms a batch they cannot read
+  const renderScopeBanner = (filters) => {
+    if (!filters?.is_scoped) return null;
+
+    const parts = [];
+    if (filters.supervisor_count > 0) {
+      parts.push({
+        label: `${filters.supervisor_count} supervisor(s)`,
+        detail: filters.supervisor_names?.join(', '),
+      });
+    }
+    if (filters.faculty_count > 0) {
+      parts.push({ label: 'Faculty', detail: filters.faculty_names?.join(', ') });
+    }
+    if (filters.states?.length > 0) {
+      parts.push({ label: 'States', detail: filters.states.join(', ') });
+    }
+    if (filters.lgas?.length > 0) {
+      parts.push({
+        label: 'LGAs',
+        detail: filters.lgas.map((l) => `${l.lga} (${l.state})`).join(', '),
+      });
+    }
+    if (filters.route_count > 0) {
+      parts.push({ label: 'Routes', detail: filters.route_names?.join(', ') });
+    }
+    if (filters.visit_numbers?.length > 0) {
+      parts.push({ label: 'Visits', detail: filters.visit_numbers.join(', ') });
+    }
+
+    return (
+      <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+        <div className="flex items-center gap-2 text-indigo-800 font-medium text-sm mb-1.5">
+          <IconFilter className="h-4 w-4" />
+          Scoped run
+        </div>
+        <dl className="grid sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+          {parts.map((part) => (
+            <div key={part.label} className="min-w-0">
+              <dt className="text-indigo-700 font-medium">{part.label}</dt>
+              <dd className="text-indigo-600 truncate" title={part.detail}>
+                {part.detail || '—'}
+              </dd>
+            </div>
+          ))}
+        </dl>
       </div>
     );
   };
@@ -371,200 +536,258 @@ function AutoPostDialog({
     );
   };
 
-  // Render scope-narrowing step - everything here is optional; leaving it all
-  // empty reproduces today's institution-wide behavior exactly
+  // ==========================================================================
+  // STEP 1 - SCOPE
+  // ==========================================================================
+
   const renderScopeStep = () => {
-    if (scopeLoading) {
+    if (loadingOptions) {
       return (
-        <div className="flex flex-col items-center justify-center gap-2 py-16 text-gray-500">
-          <IconLoader2 className="h-6 w-6 animate-spin" />
-          <span className="text-sm">Loading scope options...</span>
+        <div className="py-16 text-center text-gray-500">
+          <IconLoader2 className="h-6 w-6 animate-spin mx-auto mb-3" />
+          Loading supervisors and locations…
         </div>
       );
     }
 
     if (!scopeOptions) {
       return (
-        <div className="p-6 bg-amber-50 border border-amber-200 rounded-lg text-center">
-          <IconAlertTriangle className="h-6 w-6 text-amber-500 mx-auto mb-2" />
-          <p className="text-sm text-amber-700 mb-3">
-            Couldn&apos;t load scope options. You can still continue with an institution-wide run.
-          </p>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setScopeLoading(true);
-              autoPostingApi
-                .getOptions({ session_id: sessionId, faculty_id: facultyId })
-                .then((response) => setScopeOptions(response.data?.data || response.data))
-                .catch((error) => showToast('error', error.response?.data?.message || 'Failed to load scope options'))
-                .finally(() => setScopeLoading(false));
-            }}
-          >
-            <IconRefresh className="h-4 w-4 mr-2" />
-            Retry
-          </Button>
+        <div className="p-6 bg-gray-50 border border-gray-200 rounded-lg text-center text-sm text-gray-600">
+          Scope options could not be loaded. You can still continue - the run will cover
+          every eligible supervisor and every open slot.
         </div>
       );
     }
 
+    const visits = scopeOptions.visits || [];
+
     return (
       <div className="space-y-6">
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
-          Narrow this run to specific faculties, supervisors, locations, routes or visits - or leave
-          everything below empty to run across the whole institution as usual.
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+          Leave a list untouched to include everything in it. Narrow only what you want to
+          post right now - the rest stays available for a later run.
         </div>
 
-        <MultiSelectPicker
-          label="Faculty"
-          options={scopeOptions.faculties}
-          value={selectedFacultyIds}
-          onChange={setSelectedFacultyIds}
-          getOptionValue={(f) => f.id}
-          getOptionLabel={(f) => f.name}
-          getOptionCount={(f) => f.supervisor_count}
-          placeholder="All faculties"
-          searchPlaceholder="Search faculties..."
-          disabled={!!facultyId}
-        />
-        {facultyId && (
-          <p className="-mt-4 text-xs text-gray-500">Locked to your faculty.</p>
-        )}
+        {/* Who */}
+        <div className="space-y-4">
+          <h4 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+            <IconUsers className="h-4 w-4 text-gray-500" />
+            Who gets posted
+          </h4>
 
-        <MultiSelectPicker
-          label="Supervisors"
-          options={scopeOptions.supervisors}
-          value={selectedSupervisorIds}
-          onChange={setSelectedSupervisorIds}
-          getOptionValue={(s) => s.id}
-          getOptionLabel={(s) => s.name}
-          getOptionCount={(s) => `${s.remaining_slots} left`}
-          placeholder="All eligible supervisors"
-          searchPlaceholder="Search supervisors..."
-        />
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <MultiSelectPicker
-            label="States"
-            options={scopeOptions.locations}
-            value={selectedStates}
-            onChange={(next) => {
-              setSelectedStates(next);
-              // Drop any LGA selections that no longer belong to a selected state
-              setSelectedLgas((prev) => prev.filter((l) => next.length === 0 || next.includes(l.state)));
-            }}
-            getOptionValue={(l) => l.state}
-            getOptionLabel={(l) => l.state}
-            getOptionCount={(l) => `${l.slot_count} slots`}
-            placeholder="All states"
-            searchPlaceholder="Search states..."
+          <MultiSelectList
+            label="Faculty"
+            options={scopeOptions.faculties || []}
+            value={selectedFaculties}
+            onChange={setSelectedFaculties}
+            allSelectedMessage="All faculties"
+            getOptionMeta={(f) => `${f.supervisor_count} available`}
+            emptyMessage="No faculties on the eligible supervisors"
+            maxHeight="max-h-40"
           />
 
-          <MultiSelectPicker
-            label="LGAs"
-            options={lgaOptions}
-            value={selectedLgas.map(lgaKey)}
-            onChange={(nextKeys) => {
-              const keySet = new Set(nextKeys);
-              setSelectedLgas(lgaOptions.filter((l) => keySet.has(lgaKey(l))).map(({ state, lga }) => ({ state, lga })));
-            }}
-            getOptionValue={lgaKey}
-            getOptionLabel={(l) => `${l.lga} (${l.state})`}
-            getOptionCount={(l) => `${l.slot_count} slots`}
-            placeholder="All LGAs"
-            searchPlaceholder="Search LGAs..."
+          <MultiSelectList
+            label="Supervisors"
+            options={supervisorOptions}
+            value={selectedSupervisors}
+            onChange={setSelectedSupervisors}
+            allSelectedMessage="All supervisors"
+            hint={`max ${scopeOptions.max_postings_per_supervisor} posting(s) each`}
+            searchPlaceholder="Search supervisors…"
+            emptyMessage="No supervisor has remaining capacity this session"
+            getOptionLabel={(s) => s.name}
+            getOptionMeta={(s) =>
+              `${s.current_postings}/${scopeOptions.max_postings_per_supervisor} used`
+            }
+            renderOption={(s) => (
+              <span className="block text-xs text-gray-500 truncate">
+                {[s.rank_code, s.faculty_name].filter(Boolean).join(' · ')}
+              </span>
+            )}
           />
         </div>
 
-        <MultiSelectPicker
-          label="Routes"
-          options={scopeOptions.routes}
-          value={selectedRouteIds}
-          onChange={setSelectedRouteIds}
-          getOptionValue={(r) => r.id}
-          getOptionLabel={(r) => r.name}
-          getOptionCount={(r) => `${r.slot_count} slots`}
-          placeholder="All routes"
-          searchPlaceholder="Search routes..."
-        />
+        {/* Where */}
+        <div className="space-y-4 pt-2 border-t border-gray-200">
+          <h4 className="text-sm font-semibold text-gray-900 flex items-center gap-2 pt-4">
+            <IconMapPin className="h-4 w-4 text-gray-500" />
+            Where they get posted
+          </h4>
 
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-gray-700">Specific Visits (optional)</label>
-          <div className="flex flex-wrap gap-2">
-            {Array.from({ length: maxVisits }, (_, i) => i + 1).map((n) => {
-              const isSelected = selectedVisitNumbers.includes(n);
+          <div className="grid sm:grid-cols-2 gap-4">
+            <MultiSelectList
+              label="States"
+              options={allLocations}
+              value={selectedStates}
+              onChange={setSelectedStates}
+              allSelectedMessage="All states"
+              getOptionValue={(location) => location.state}
+              getOptionLabel={(location) => location.state}
+              getOptionMeta={(location) => `${location.slot_count} slots`}
+              emptyMessage="No open slots this session"
+              maxHeight="max-h-40"
+            />
+            <MultiSelectList
+              label="LGAs"
+              options={lgaOptions}
+              value={selectedLgas}
+              onChange={setSelectedLgas}
+              allSelectedMessage={
+                selectedStates.length > 0 ? 'All LGAs in the selected states' : 'All LGAs'
+              }
+              groupBy={(l) => l.state}
+              getOptionValue={(l) => l.key}
+              getOptionLabel={(l) => l.lga}
+              getOptionMeta={(l) => `${l.slot_count} slots`}
+              searchPlaceholder="Search LGAs…"
+              emptyMessage="No LGAs available"
+              maxHeight="max-h-40"
+            />
+          </div>
+
+          <MultiSelectList
+            label="Routes"
+            options={scopeOptions.routes || []}
+            value={selectedRoutes}
+            onChange={setSelectedRoutes}
+            allSelectedMessage="All routes"
+            getOptionMeta={(r) => `${r.slot_count} slots`}
+            emptyMessage="No routes on the open slots"
+            maxHeight="max-h-40"
+          />
+        </div>
+
+        {/* Which visits */}
+        <div className="space-y-2 pt-2 border-t border-gray-200">
+          <h4 className="text-sm font-semibold text-gray-900 pt-4">Which visits</h4>
+          <p className="text-xs text-gray-500">
+            Pick exact visits to fill - useful once Visit 1 is already posted. Leave empty to
+            use the &ldquo;visits to include&rdquo; setting on the next step.
+          </p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            {visits.length === 0 && (
+              <span className="text-sm text-gray-500">No open slots to choose from</span>
+            )}
+            {visits.map(({ visit_number: visit, slot_count: slotCount }) => {
+              const isSelected = selectedVisits.includes(visit);
               return (
                 <button
-                  key={n}
+                  key={visit}
                   type="button"
                   onClick={() =>
-                    setSelectedVisitNumbers((prev) =>
-                      isSelected ? prev.filter((v) => v !== n) : [...prev, n]
+                    setSelectedVisits(
+                      isSelected
+                        ? selectedVisits.filter((v) => v !== visit)
+                        : [...selectedVisits, visit].sort((a, b) => a - b)
                     )
                   }
-                  className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
+                  className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${
                     isSelected
                       ? 'bg-primary-600 border-primary-600 text-white'
                       : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
                   }`}
                 >
-                  Visit {n}
+                  Visit {visit}
+                  <span className={isSelected ? 'text-primary-100' : 'text-gray-400'}>
+                    {' '}· {slotCount}
+                  </span>
                 </button>
               );
             })}
           </div>
-          <p className="text-xs text-gray-500">
-            Leave empty to use the Visits-to-Include setting on the next step. Selecting any visit(s)
-            here (even non-consecutive ones) overrides that setting.
-          </p>
         </div>
 
-        <Button variant="outline" onClick={handleClearScope}>
-          Clear scope
-        </Button>
+        {/* Live read on whether the scope is workable */}
+        <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
+            <span className="text-gray-700">
+              <span className="font-medium text-gray-900">{scopeSummary.supervisorCount}</span>{' '}
+              supervisor(s) in scope
+            </span>
+            <span className="text-gray-700">
+              <span className="font-medium text-gray-900">{scopeSummary.capacity}</span>{' '}
+              posting(s) of capacity
+            </span>
+            <span className="text-gray-700">
+              <span className="font-medium text-gray-900">{scopeSummary.areaSlots}</span>{' '}
+              slot(s) in the selected areas
+            </span>
+          </div>
+          {!scopeSummary.isNarrowedByAreaOnly && (
+            <p className="text-xs text-gray-500 mt-1">
+              Route and visit filters narrow the slot count further - the preview shows the
+              exact figure.
+            </p>
+          )}
+          {scopeSummary.capacity < scopeSummary.areaSlots && scopeSummary.isNarrowedByAreaOnly && (
+            <p className="text-xs text-amber-700 mt-1">
+              Capacity is below the number of slots in scope, so some slots will be left for a
+              later run.
+            </p>
+          )}
+        </div>
       </div>
     );
   };
 
-  // Render configuration step
-  const renderConfigureStep = () => (
+  // ==========================================================================
+  // STEP 2 - OPTIONS
+  // ==========================================================================
+
+  const renderOptionsStep = () => (
     <div className="space-y-6">
+      {/* Read-only recap of what was scoped, so the settings are read in context */}
+      {scopeSummary.isNarrowed && (
+        <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-sm text-indigo-800 flex items-start gap-2">
+          <IconFilter className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <span>
+            Scoped to <span className="font-medium">{scopeSummary.supervisorCount}</span>{' '}
+            supervisor(s)
+            {selectedStates.length > 0 && <> in {selectedStates.join(', ')}</>}
+            {selectedLgas.length > 0 && <> ({selectedLgas.length} LGA(s))</>}
+            {selectedRoutes.length > 0 && <> · {selectedRoutes.length} route(s)</>}
+            {selectedVisits.length > 0 && <> · {describeVisits(selectedVisits)}</>}.
+            <button
+              type="button"
+              onClick={() => setStep('scope')}
+              className="ml-2 underline hover:no-underline"
+            >
+              Change
+            </button>
+          </span>
+        </div>
+      )}
+
       {/* Visits to Include */}
       <div className="space-y-2">
         <label className="block text-sm font-medium text-gray-700">
           Visits to Include
         </label>
-        {selectedVisitNumbers.length > 0 ? (
-          <div className="flex items-center justify-between px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-600">
-            <span>
-              Using explicit visits: <span className="font-medium text-gray-900">{[...selectedVisitNumbers].sort((a, b) => a - b).join(', ')}</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setStep('scope')}
-              className="text-primary-600 hover:text-primary-700 font-medium"
-            >
-              Change in Scope step
-            </button>
-          </div>
-        ) : (
-          <>
-            <Select
-              value={numberOfPostings}
-              onChange={(e) => setNumberOfPostings(parseInt(e.target.value))}
-              className="w-full"
-            >
-              {Array.from({ length: maxVisits }, (_, i) => i + 1).map(n => (
-                <option key={n} value={n}>
-                  {n === 1 ? 'Visit 1 only' : `Visits 1 through ${n}`}
-                </option>
-              ))}
-            </Select>
-            <p className="text-xs text-gray-500">
-              Maximum visits per session: {maxVisits}. All available slots for selected visits will be distributed fairly among supervisors.
-            </p>
-          </>
-        )}
+        <Select
+          value={numberOfPostings}
+          onChange={(e) => setNumberOfPostings(parseInt(e.target.value))}
+          className="w-full"
+          disabled={selectedVisits.length > 0}
+        >
+          {Array.from({ length: maxVisits }, (_, i) => i + 1).map(n => (
+            <option key={n} value={n}>
+              {n === 1 ? 'Visit 1 only' : `Visits 1 through ${n}`}
+            </option>
+          ))}
+        </Select>
+        <p className="text-xs text-gray-500">
+          {selectedVisits.length > 0 ? (
+            <>
+              Overridden by the visit selection on the previous step:{' '}
+              <span className="font-medium">{describeVisits(selectedVisits)}</span>.
+            </>
+          ) : (
+            <>
+              Maximum visits per session: {maxVisits}. All available slots for selected visits
+              will be distributed fairly among supervisors.
+            </>
+          )}
+        </p>
       </div>
 
       {/* Posting Type */}
@@ -572,37 +795,24 @@ function AutoPostDialog({
         <label className="block text-sm font-medium text-gray-700">
           Posting Distribution Type
         </label>
-        <div className="grid gap-3">
-          {POSTING_TYPES.map(type => {
+        <RadioGroup
+          name="postingType"
+          value={postingType}
+          onChange={setPostingType}
+          options={POSTING_TYPES}
+          renderOption={(type) => {
             const Icon = type.icon;
             return (
-              <label
-                key={type.value}
-                className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                  postingType === type.value 
-                    ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-500' 
-                    : 'border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="postingType"
-                  value={type.value}
-                  checked={postingType === type.value}
-                  onChange={(e) => setPostingType(e.target.value)}
-                  className="mt-1 h-4 w-4 text-primary-600 focus:ring-primary-500"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <Icon className="h-4 w-4 text-gray-500" />
-                    <span className="font-medium text-gray-900">{type.label}</span>
-                  </div>
-                  <div className="text-sm text-gray-500 mt-0.5">{type.description}</div>
+              <>
+                <div className="flex items-center gap-2">
+                  <Icon className="h-4 w-4 text-gray-500" />
+                  <span className="font-medium text-gray-900">{type.label}</span>
                 </div>
-              </label>
+                <div className="text-sm text-gray-500 mt-0.5">{type.description}</div>
+              </>
             );
-          })}
-        </div>
+          }}
+        />
       </div>
 
       {/* Priority Toggle */}
@@ -628,8 +838,9 @@ function AutoPostDialog({
             Avoid Repeating Schools
           </label>
           <p className="text-sm text-gray-500 mt-0.5">
-            A supervisor won&apos;t be sent to the same school for more than one visit unless no other
-            supervisor is available. Schools they are already posted to this session are counted too.
+            A supervisor won&apos;t be sent to the same school for more than one visit unless no
+            other supervisor is available. Schools they are already posted to this session are
+            counted too.
           </p>
         </div>
         <Switch
@@ -645,8 +856,8 @@ function AutoPostDialog({
           <div className="text-sm text-blue-800">
             <p className="font-medium mb-1">How Auto-Posting Works</p>
             <ul className="list-disc list-inside space-y-1 text-blue-700">
+              <li>Only the supervisors and locations you scoped to are considered</li>
               <li>All Visit 1 slots are filled first, then Visit 2, and so on (round-robin by visit)</li>
-              <li>Schools are distributed serially within each visit round</li>
               <li>Postings are shared evenly - counts stay within one of each other</li>
               <li>A supervisor is not sent back to a school they already cover unless unavoidable</li>
               <li>With priority on, senior supervisors take the longer journeys (same workload, more distance)</li>
@@ -659,79 +870,37 @@ function AutoPostDialog({
     </div>
   );
 
-  // Scope recap - only rendered once a run has actually been narrowed
-  const renderScopeRecap = (filtersApplied) => {
-    if (!filtersApplied?.is_scoped) return null;
+  // ==========================================================================
+  // STEP 3 - PREVIEW
+  // ==========================================================================
 
-    const parts = [];
-    if (filtersApplied.supervisor_count > 0) parts.push(`${filtersApplied.supervisor_count} supervisor(s)`);
-    if (filtersApplied.faculty_count > 0) parts.push(`Faculty: ${filtersApplied.faculty_names.join(', ')}`);
-    if (filtersApplied.states?.length > 0) parts.push(`States: ${filtersApplied.states.join(', ')}`);
-    if (filtersApplied.lgas?.length > 0) {
-      parts.push(`LGAs: ${filtersApplied.lgas.map((l) => `${l.lga} (${l.state})`).join(', ')}`);
-    }
-    if (filtersApplied.route_count > 0) parts.push(`Routes: ${filtersApplied.route_names.join(', ')}`);
-    if (filtersApplied.visit_numbers?.length > 0) parts.push(`Visits: ${filtersApplied.visit_numbers.join(', ')}`);
-
-    return (
-      <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-800 flex items-start justify-between gap-3">
-        <div className="flex items-start gap-2">
-          <IconFilter className="h-4 w-4 mt-0.5 flex-shrink-0" />
-          <span>Scoped to: {parts.join(' · ')}</span>
-        </div>
-        <button
-          type="button"
-          onClick={() => setStep('scope')}
-          className="flex-shrink-0 text-purple-700 hover:text-purple-900 font-medium underline"
-        >
-          Change scope
-        </button>
-      </div>
-    );
-  };
-
-  // Render preview step
   const renderPreviewStep = () => (
     <div className="space-y-4">
-      {/* Scope recap */}
-      {renderScopeRecap(previewData?.filters_applied)}
-
       {/* Visits info banner */}
       {previewData?.visits_included && (
         <div className="px-3 py-2 bg-primary-50 border border-primary-200 rounded-lg text-sm text-primary-700">
           Showing results for: <span className="font-medium">
-            {previewData.visits_included === 1 ? 'Visit 1 only' : `Visits 1 through ${previewData.visits_included}`}
+            {describeVisits(previewData.visits_included)}
           </span>
         </div>
       )}
 
+      {/* What the run was narrowed to */}
+      {renderScopeBanner(previewData?.filters_applied)}
+
       {/* Summary Cards */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="p-4 bg-blue-50 rounded-lg text-center border border-blue-100">
-          <div className="text-2xl font-bold text-blue-700">
-            {previewData?.total_supervisors || 0}
-          </div>
-          <div className="text-sm text-blue-600">Eligible Supervisors</div>
-        </div>
-        <div className="p-4 bg-green-50 rounded-lg text-center border border-green-100">
-          <div className="text-2xl font-bold text-green-700">
-            {previewData?.assignments?.length || 0}
-          </div>
-          <div className="text-sm text-green-600">Postings to Create</div>
-        </div>
-        <div className="p-4 bg-orange-50 rounded-lg text-center border border-orange-100">
-          <div className="text-2xl font-bold text-orange-700">
-            {previewData?.total_available_slots || 0}
-          </div>
-          <div className="text-sm text-orange-600">
-            Available Slots
-            {previewData?.visits_included && previewData.visits_included > 1 && (
-              <span className="text-xs block text-orange-500">
-                (Visit 1-{previewData.visits_included})
-              </span>
-            )}
-          </div>
-        </div>
+        <StatsCard title="Eligible Supervisors" value={previewData?.total_supervisors} icon={IconUsers} valueClassName="text-blue-700" labelClassName="text-blue-600" />
+        <StatsCard title="Postings to Create" value={previewData?.assignments?.length} icon={IconCheck} tone="green" valueClassName="text-green-700" labelClassName="text-green-600" />
+        <StatsCard
+          title="Available Slots"
+          value={previewData?.total_available_slots}
+          icon={IconSchool}
+          tone="orange"
+          valueClassName="text-orange-700"
+          labelClassName="text-orange-600"
+          subValue={previewData?.visits_included ? describeVisits(previewData.visits_included) : null}
+        />
       </div>
 
       {/* Statistics */}
@@ -817,16 +986,16 @@ function AutoPostDialog({
                   {a.rank_code && (
                     <Badge variant="primary">{a.rank_code}</Badge>
                   )}
-                </div>
-                <div className="flex items-center gap-2 text-gray-600">
-                  <span className="truncate max-w-[180px]" title={a.school_name}>{a.school_name}</span>
-                  <Badge variant="secondary">G{a.group_number}</Badge>
-                  <Badge variant="default">V{a.visit_number}</Badge>
                   {a.repeat_school && (
                     <Badge variant="warning" title="Supervisor already covers this school">
                       Repeat
                     </Badge>
                   )}
+                </div>
+                <div className="flex items-center gap-2 text-gray-600">
+                  <span className="truncate max-w-[180px]" title={a.school_name}>{a.school_name}</span>
+                  <Badge variant="secondary">G{a.group_number}</Badge>
+                  <Badge variant="default">V{a.visit_number}</Badge>
                   <span className="text-gray-400">{a.distance_km?.toFixed(1)} km</span>
                 </div>
               </div>
@@ -844,6 +1013,7 @@ function AutoPostDialog({
             There are no valid assignments that can be made. This could be because:
           </p>
           <ul className="text-sm text-red-600 mt-2 list-disc list-inside">
+            <li>The scope is too narrow - no open slots match it</li>
             <li>No available school slots (all visits assigned)</li>
             <li>No eligible supervisors (all at max postings)</li>
             <li>No schools with student groups</li>
@@ -852,7 +1022,7 @@ function AutoPostDialog({
       )}
 
       {/* Back button */}
-      <Button variant="outline" onClick={() => setStep('configure')} className="mt-2">
+      <Button variant="outline" onClick={() => setStep('options')} className="mt-2">
         <IconArrowLeft className="h-4 w-4 mr-2" />
         Back to Settings
       </Button>
@@ -862,9 +1032,6 @@ function AutoPostDialog({
   // Render success step
   const renderSuccessStep = () => (
     <div className="space-y-4">
-      {/* Scope recap */}
-      {renderScopeRecap(resultData?.filters_applied)}
-
       {/* Success message */}
       <div className="p-6 bg-green-50 border border-green-200 rounded-lg text-center">
         <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -872,21 +1039,18 @@ function AutoPostDialog({
         </div>
         <h4 className="text-lg font-medium text-green-800 mb-1">Auto-Posting Complete!</h4>
         <p className="text-green-600">
-          Successfully created {resultData?.total_postings_created || 0} postings 
+          Successfully created {resultData?.total_postings_created || 0} postings
           for {resultData?.total_supervisors || 0} supervisors
         </p>
       </div>
 
+      {/* What the run was narrowed to */}
+      {renderScopeBanner(resultData?.filters_applied)}
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="p-4 bg-white border border-gray-200 rounded-lg">
-          <div className="text-sm text-gray-500">Batch ID</div>
-          <div className="text-lg font-semibold text-gray-900">#{resultData?.batch_id}</div>
-        </div>
-        <div className="p-4 bg-white border border-gray-200 rounded-lg">
-          <div className="text-sm text-gray-500">Total Postings</div>
-          <div className="text-lg font-semibold text-gray-900">{resultData?.total_postings_created}</div>
-        </div>
+        <StatsCard title="Batch ID" value={`#${resultData?.batch_id}`} icon={IconWand} tone="primary" valueClassName="text-lg" />
+        <StatsCard title="Total Postings" value={resultData?.total_postings_created} icon={IconCheck} tone="green" valueClassName="text-lg" />
       </div>
 
       {/* Statistics */}
@@ -944,7 +1108,34 @@ function AutoPostDialog({
     </div>
   );
 
-  // Footer buttons based on step
+  // ==========================================================================
+  // CHROME
+  // ==========================================================================
+
+  const renderStepper = () => {
+    if (step === 'success') return null;
+    const currentIndex = STEPS.findIndex((s) => s.key === step);
+
+    return (
+      <div className="mb-6">
+        <Stepper>
+          {STEPS.map((s, index) => (
+            <Step
+              key={s.key}
+              step={index + 1}
+              title={s.title}
+              status={
+                index < currentIndex ? 'complete' : index === currentIndex ? 'current' : 'upcoming'
+              }
+              isLast={index === STEPS.length - 1}
+              onClick={index < currentIndex ? () => setStep(s.key) : undefined}
+            />
+          ))}
+        </Stepper>
+      </div>
+    );
+  };
+
   const renderFooter = () => {
     if (step === 'success') {
       return (
@@ -952,9 +1143,9 @@ function AutoPostDialog({
           <Button variant="outline" onClick={handleClose}>
             Close
           </Button>
-          <Button 
+          <Button
             onClick={() => {
-              setStep('configure');
+              setStep('scope');
               setPreviewData(null);
               setResultData(null);
             }}
@@ -972,8 +1163,8 @@ function AutoPostDialog({
           <Button variant="outline" onClick={handleClose} disabled={loading}>
             Cancel
           </Button>
-          <Button 
-            onClick={handleExecute} 
+          <Button
+            onClick={handleExecute}
             disabled={loading || !previewData?.assignments?.length}
             variant="primary"
           >
@@ -988,38 +1179,39 @@ function AutoPostDialog({
       );
     }
 
-    if (step === 'scope') {
+    if (step === 'options') {
       return (
-        <div className="flex justify-end gap-3">
-          <Button variant="outline" onClick={handleClose}>
-            Cancel
+        <div className="flex justify-between gap-3">
+          <Button variant="outline" onClick={() => setStep('scope')} disabled={loading}>
+            <IconArrowLeft className="h-4 w-4 mr-2" />
+            Back
           </Button>
-          <Button onClick={() => setStep('configure')}>
-            Next
-          </Button>
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={handleClose} disabled={loading}>
+              Cancel
+            </Button>
+            <Button onClick={handlePreview} disabled={loading || !sessionId}>
+              {loading ? (
+                <IconLoader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <IconWand className="h-4 w-4 mr-2" />
+              )}
+              Preview Assignments
+            </Button>
+          </div>
         </div>
       );
     }
 
     return (
-      <div className="flex justify-between gap-3 w-full">
-        <Button variant="outline" onClick={() => setStep('scope')} disabled={loading}>
-          <IconArrowLeft className="h-4 w-4 mr-2" />
-          Back to Scope
+      <div className="flex justify-end gap-3">
+        <Button variant="outline" onClick={handleClose} disabled={loading}>
+          Cancel
         </Button>
-        <div className="flex gap-3">
-          <Button variant="outline" onClick={handleClose} disabled={loading}>
-            Cancel
-          </Button>
-          <Button onClick={handlePreview} disabled={loading || !sessionId}>
-            {loading ? (
-              <IconLoader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : (
-              <IconWand className="h-4 w-4 mr-2" />
-            )}
-            Preview Assignments
-          </Button>
-        </div>
+        <Button onClick={() => setStep('options')} disabled={loadingOptions || !sessionId}>
+          Next: Options
+          <IconArrowRight className="h-4 w-4 ml-2" />
+        </Button>
       </div>
     );
   };
@@ -1037,8 +1229,9 @@ function AutoPostDialog({
       width="4xl"
       footer={renderFooter()}
     >
+      {renderStepper()}
       {step === 'scope' && renderScopeStep()}
-      {step === 'configure' && renderConfigureStep()}
+      {step === 'options' && renderOptionsStep()}
       {step === 'preview' && renderPreviewStep()}
       {step === 'success' && renderSuccessStep()}
     </Dialog>

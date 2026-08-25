@@ -1,11 +1,11 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from './Card';
-import { cn, formatNumber } from '../../utils/helpers';
+import { cn, formatNumber } from '@/utils/helpers';
 
 const cardVariants = {
   initial: { opacity: 0, y: 12 },
-  animate: { opacity: 1, y: 0  },
+  animate: { opacity: 1, y: 0 },
 };
 const cardTransition = { duration: 0.4, ease: 'easeOut' };
 

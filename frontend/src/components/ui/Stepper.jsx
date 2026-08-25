@@ -3,7 +3,7 @@
  * A modern, reusable multi-step form component with mobile-first design
  */
 
-import { cn } from '../../utils/helpers';
+import { cn } from '@/utils/helpers';
 import { IconCheck } from '@tabler/icons-react';
 
 /**
@@ -24,9 +24,9 @@ export function Stepper({ children, className }) {
 /**
  * Step - Individual step item
  */
-export function Step({ 
-  step, 
-  title, 
+export function Step({
+  step,
+  title,
   description,
   status = 'upcoming', // 'complete' | 'current' | 'upcoming'
   isLast = false,
@@ -115,11 +115,11 @@ export function Step({
       {/* Connector Line */}
       {!isLast && (
         <div className="flex-1 mx-2 md:mx-3">
-          <div 
+          <div
             className={cn(
               'h-0.5 md:h-1 rounded-full transition-all duration-500',
-              isComplete 
-                ? 'bg-gradient-to-r from-primary-500 to-primary-400' 
+              isComplete
+                ? 'bg-gradient-to-r from-primary-500 to-primary-400'
                 : 'bg-gray-200'
             )}
           />
