@@ -240,8 +240,7 @@ function AdminLocationLogsPage() {
       {
         accessor: 'validation_status',
         header: 'Status',
-        render: (value, row) => {
-          const isSuspicious = row.validation_message?.includes('ALERT');
+        render: (value) => {
           if (value === 'validated') {
             return (
               <Badge variant="success" className="flex items-center gap-1">
@@ -256,18 +255,18 @@ function AdminLocationLogsPage() {
                 Overridden
               </Badge>
             );
+          } else if (value === 'rejected') {
+            return (
+              <Badge variant="danger" className="flex items-center gap-1">
+                <IconAlertTriangle className="h-3 w-3" />
+                Rejected
+              </Badge>
+            );
           } else {
             return (
-              <Badge
-                variant={isSuspicious ? 'danger' : 'warning'}
-                className="flex items-center gap-1"
-              >
-                {isSuspicious ? (
-                  <IconAlertTriangle className="h-3 w-3" />
-                ) : (
-                  <IconClock className="h-3 w-3" />
-                )}
-                {isSuspicious ? 'Suspicious' : 'Pending'}
+              <Badge variant="warning" className="flex items-center gap-1">
+                <IconClock className="h-3 w-3" />
+                Pending
               </Badge>
             );
           }
@@ -290,7 +289,7 @@ function AdminLocationLogsPage() {
             <Button size="sm" variant="ghost" onClick={() => handleViewDetails(row)} title="View Details">
               <IconEye className="h-4 w-4" />
             </Button>
-            {canOverride && row.validation_status === 'pending' && (
+            {canOverride && ['pending', 'rejected'].includes(row.validation_status) && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -352,6 +351,7 @@ function AdminLocationLogsPage() {
         <option value="">All Status</option>
         <option value="validated">Validated</option>
         <option value="pending">Pending</option>
+        <option value="rejected">Rejected</option>
         <option value="overridden">Overridden</option>
       </Select>
 
@@ -546,12 +546,24 @@ function AdminLocationLogsPage() {
             {selectedLog.validation_message && (
               <div
                 className={`rounded-lg p-3 ${
-                  selectedLog.validation_message.includes('ALERT')
+                  ['pending', 'rejected'].includes(selectedLog.validation_status)
                     ? 'bg-red-50 border border-red-200'
                     : 'bg-gray-50'
                 }`}
               >
                 <p className="text-sm">{selectedLog.validation_message}</p>
+                {selectedLog.flag_reasons?.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {(Array.isArray(selectedLog.flag_reasons)
+                      ? selectedLog.flag_reasons
+                      : JSON.parse(selectedLog.flag_reasons)
+                    ).map((reason) => (
+                      <Badge key={reason} variant="danger">
+                        {reason.replace(/_/g, ' ')}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -589,7 +601,7 @@ function AdminLocationLogsPage() {
               <p className="text-sm text-gray-500">{selectedLog.school_name}</p>
             </div>
 
-            {selectedLog.validation_message?.includes('ALERT') && (
+            {['pending', 'rejected'].includes(selectedLog.validation_status) && selectedLog.validation_message && (
               <div className="rounded-lg bg-red-50 border border-red-200 p-3">
                 <div className="flex items-start gap-2">
                   <IconAlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />

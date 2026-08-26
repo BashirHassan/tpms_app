@@ -347,7 +347,9 @@ const update = async (req, res, next) => {
     const params = [];
 
     if (visit_number !== undefined) {
-      updates.push('visit_number = ?');
+      // A changed visit number represents a location check that was never actually
+      // performed for that new value - reset verification so it must be re-recorded.
+      updates.push('visit_number = ?', 'location_verified = 0', 'location_verified_at = NULL', 'location_log_id = NULL');
       params.push(visit_number);
     }
     if (notes !== undefined) {

@@ -70,6 +70,18 @@ export const locationApi = {
     const institutionId = getCurrentInstitutionId();
     return client.get(`/${institutionId}/location/admin/stats`, { params });
   },
+
+  /**
+   * Approve or reject a pending/rejected location log
+   * @param {number} logId - The location log ID
+   * @param {Object} data
+   * @param {boolean} data.approve - true to approve (marks posting verified), false to reject
+   * @param {string} data.reason - Reason for the decision (min 10 chars)
+   */
+  overrideLocationValidation: (logId, data) => {
+    const institutionId = getCurrentInstitutionId();
+    return client.patch(`/${institutionId}/location/admin/logs/${logId}/override`, data);
+  },
 };
 
 export default locationApi;

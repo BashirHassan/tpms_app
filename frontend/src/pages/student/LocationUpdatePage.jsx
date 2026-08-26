@@ -6,6 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { formatCoordinate } from '../../utils/helpers';
+import { useGeolocation } from '../../hooks/useGeolocation';
 import {
   IconMapPin,
   IconCurrentLocation,
@@ -43,8 +44,15 @@ export default function StudentLocationUpdatePage() {
   const [loading, setLoading] = useState(false);
   const [loadingSchools, setLoadingSchools] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [gettingLocation, setGettingLocation] = useState(false);
   const [locationAccuracy, setLocationAccuracy] = useState(null);
+  const {
+    status: gpsStatus,
+    bestSample,
+    errorMessage: gpsError,
+    start: startSampling,
+    reset: resetSampling,
+  } = useGeolocation({ sampleWindowMs: 5000, maxSamples: 5 });
+  const gettingLocation = gpsStatus === 'sampling';
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
   const [formData, setFormData] = useState({
@@ -71,7 +79,9 @@ export default function StudentLocationUpdatePage() {
       setFormData({ proposed_latitude: '', proposed_longitude: '' });
       setFormErrors({});
       setLocationAccuracy(null);
+      resetSampling();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSchool]);
 
   const loadSchools = async () => {
@@ -104,30 +114,25 @@ export default function StudentLocationUpdatePage() {
   const getGoogleMapsUrl = (lat, lng) => `https://www.google.com/maps?q=${lat},${lng}`;
 
   const getCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      setError('Geolocation is not supported by your browser');
-      return;
-    }
-    setGettingLocation(true);
     setError('');
     setLocationAccuracy(null);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setFormData((prev) => ({
-          ...prev,
-          proposed_latitude: formatCoordinate(position.coords.latitude, 8),
-          proposed_longitude: formatCoordinate(position.coords.longitude, 8),
-        }));
-        setLocationAccuracy(Math.round(position.coords.accuracy));
-        setGettingLocation(false);
-      },
-      () => {
-        setError('Unable to get your location. Please enter coordinates manually.');
-        setGettingLocation(false);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
+    startSampling();
   };
+
+  // Sync the hook's best sample into the form once sampling finishes
+  useEffect(() => {
+    if (gpsStatus === 'ready' && bestSample) {
+      setFormData((prev) => ({
+        ...prev,
+        proposed_latitude: formatCoordinate(bestSample.latitude, 8),
+        proposed_longitude: formatCoordinate(bestSample.longitude, 8),
+      }));
+      setLocationAccuracy(Math.round(bestSample.accuracy_meters || 0));
+    } else if (gpsStatus === 'error' || gpsStatus === 'unsupported') {
+      setError(gpsError || 'Unable to get your location. Please enter coordinates manually.');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gpsStatus, bestSample]);
 
   const validateForm = () => {
     const errors = {};

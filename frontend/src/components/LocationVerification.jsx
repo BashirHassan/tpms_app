@@ -1,8 +1,9 @@
 /**
  * Location Verification Component
  *
- * Captures supervisor GPS location and verifies against school geofence.
- * Includes device fingerprinting for anti-cheating.
+ * Captures supervisor GPS location (multi-sampled for a few seconds to improve
+ * fix quality) and verifies against school geofence. Includes device
+ * fingerprinting for anti-cheating.
  *
  * Usage:
  * <LocationVerification
@@ -12,10 +13,11 @@
  * />
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useToast } from '../context/ToastContext';
 import { locationApi } from '../api';
-import { formatDistance } from '../utils/helpers';
+import { formatDistance, MAX_SUPERVISOR_LOCATION_ACCURACY_M } from '../utils/helpers';
+import { useGeolocation } from '../hooks/useGeolocation';
 import {
   IconMapPin,
   IconCheck,
@@ -23,8 +25,11 @@ import {
   IconCurrentLocation,
   IconRefresh,
   IconMapPinOff,
+  IconClockHour4,
 } from '@tabler/icons-react';
 import { Button } from './ui/Button';
+
+const MAX_SAMPLES = 8;
 
 /**
  * Generate unique device ID (stored in localStorage)
@@ -61,62 +66,18 @@ export function LocationVerification({
   className = '',
 }) {
   const { toast } = useToast();
-  const [status, setStatus] = useState('idle'); // idle, locating, submitting, success, error
-  const [location, setLocation] = useState(null);
-  const [, setError] = useState(null);
+  const {
+    status: gpsStatus,
+    bestSample,
+    samplesCollected,
+    errorMessage: gpsError,
+    start: startSampling,
+  } = useGeolocation({ maxSamples: MAX_SAMPLES });
+  const [submitStatus, setSubmitStatus] = useState('idle'); // idle, submitting, success, error
   const [verificationResult, setVerificationResult] = useState(null);
 
-  /**
-   * Get current GPS location
-   */
-  const getLocation = useCallback(() => {
-    if (!navigator.geolocation) {
-      const msg = 'Geolocation is not supported by your browser';
-      setError(msg);
-      setStatus('error');
-      onError?.(msg);
-      return;
-    }
-
-    setStatus('locating');
-    setError(null);
-    setVerificationResult(null);
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy_meters: position.coords.accuracy,
-          altitude_meters: position.coords.altitude,
-          timestamp: new Date().toISOString(),
-        });
-        setStatus('ready');
-      },
-      (geoError) => {
-        let message = 'Failed to get location';
-        switch (geoError.code) {
-          case geoError.PERMISSION_DENIED:
-            message = 'Location permission denied. Please allow location access in your browser settings.';
-            break;
-          case geoError.POSITION_UNAVAILABLE:
-            message = 'Location unavailable. Please check your GPS/location settings.';
-            break;
-          case geoError.TIMEOUT:
-            message = 'Location request timed out. Please try again.';
-            break;
-        }
-        setError(message);
-        setStatus('error');
-        onError?.(message);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 30000,
-        maximumAge: 0, // Don't use cached position
-      }
-    );
-  }, [onError]);
+  const location = bestSample;
+  const accuracyTooLow = location && location.accuracy_meters > MAX_SUPERVISOR_LOCATION_ACCURACY_M;
 
   /**
    * Submit location for verification
@@ -127,8 +88,8 @@ export function LocationVerification({
       return;
     }
 
-    setStatus('submitting');
-    setError(null);
+    setSubmitStatus('submitting');
+    setVerificationResult(null);
 
     try {
       const deviceInfo = generateDeviceInfo();
@@ -146,35 +107,33 @@ export function LocationVerification({
       const result = response.data.data;
       setVerificationResult(result);
 
-      if (response.data.success) {
-        setStatus('success');
+      if (result?.reason_code === 'PENDING_REVIEW') {
+        setSubmitStatus('pending');
+        toast.info('Location recorded, flagged for admin review.');
+      } else {
+        setSubmitStatus('success');
         toast.success('Location verified successfully!');
         onVerified?.(result);
-      } else {
-        // Outside geofence - show in UI, don't toast (avoid duplicates)
-        setStatus('error');
-        setError(response.data.message);
       }
     } catch (err) {
-      setStatus('error');
+      setSubmitStatus('error');
       const result = err.response?.data?.data;
       if (result) {
         setVerificationResult(result);
       }
       const message = err.response?.data?.message || 'Failed to verify location';
-      setError(message);
-      // Only call onError for real API failures, not geofence failures
+      // Only call onError for real API failures, not geofence/accuracy rejections
+      // (those have a result payload the UI renders a dedicated card for).
       if (!result) {
         onError?.(message);
       }
     }
   };
 
-  // Auto-get location on mount if not already verified
-  // Only run once on mount to prevent clearing user's error state
+  // Auto-start GPS sampling on mount if not already verified
   useEffect(() => {
-    if (posting && !posting.location_verified && posting.has_coordinates && status === 'idle') {
-      getLocation();
+    if (posting && !posting.location_verified && posting.has_coordinates && gpsStatus === 'idle') {
+      startSampling();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty deps = mount only
@@ -250,6 +209,23 @@ export function LocationVerification({
           </div>
         )}
 
+        {/* GPS sampling progress */}
+        {gpsStatus === 'sampling' && (
+          <div className="rounded-lg bg-blue-50 p-3">
+            <p className="text-sm font-medium text-blue-800">
+              Sampling GPS… {samplesCollected}/{MAX_SAMPLES} fixes
+              {location ? `, best so far ±${Math.round(location.accuracy_meters || 0)}m` : ''}
+            </p>
+          </div>
+        )}
+
+        {/* GPS acquisition error (permission denied, unavailable, etc.) */}
+        {gpsStatus === 'error' && gpsError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+            <p className="text-sm text-red-700">{gpsError}</p>
+          </div>
+        )}
+
         {/* Current location display */}
         {location && (
           <div className="rounded-lg bg-blue-50 p-3">
@@ -257,14 +233,17 @@ export function LocationVerification({
             <p className="font-mono text-xs text-blue-700">
               {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
             </p>
-            <div className="mt-1 flex flex-wrap gap-3 text-xs text-blue-600">
-              <span>Accuracy: ±{Math.round(location.accuracy_meters || 0)}m</span>
+            <div className="mt-1 flex flex-wrap gap-3 text-xs">
+              <span className={accuracyTooLow ? 'font-medium text-red-600' : 'text-blue-600'}>
+                Accuracy: ±{Math.round(location.accuracy_meters || 0)}m
+                {accuracyTooLow ? ` (needs ≤${MAX_SUPERVISOR_LOCATION_ACCURACY_M}m)` : ''}
+              </span>
             </div>
           </div>
         )}
 
-        {/* Outside geofence result - Enhanced error display */}
-        {verificationResult && !verificationResult.is_within_geofence && (
+        {/* Rejected: outside geofence */}
+        {verificationResult?.reason_code === 'OUTSIDE_GEOFENCE' && (
           <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4 shadow-sm">
             <div className="flex items-start gap-3">
               <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100">
@@ -277,7 +256,7 @@ export function LocationVerification({
                 </p>
               </div>
             </div>
-            
+
             <div className="mt-4 grid grid-cols-2 gap-3">
               <div className="rounded-lg bg-white/60 p-3 text-center">
                 <p className="text-xs font-medium uppercase text-red-600">Your Distance</p>
@@ -293,10 +272,46 @@ export function LocationVerification({
               </div>
             </div>
 
-            <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 p-3">
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
               <p className="text-sm text-amber-800">
                 <strong>💡 Tip:</strong> Please move closer to the school and tap &quot;Refresh Location&quot; to try again.
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Rejected: GPS accuracy too imprecise */}
+        {verificationResult?.reason_code === 'LOW_ACCURACY' && (
+          <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100">
+                <IconMapPinOff className="h-6 w-6 text-red-600" />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-lg font-semibold text-red-800">GPS Accuracy Too Low</h4>
+                <p className="mt-1 text-sm text-red-700">
+                  Your GPS fix isn&apos;t precise enough to verify your location. Move to an open area,
+                  away from tall buildings, and try again.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Pending: flagged for admin review */}
+        {verificationResult?.reason_code === 'PENDING_REVIEW' && (
+          <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-amber-100">
+                <IconClockHour4 className="h-6 w-6 text-amber-600" />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-lg font-semibold text-amber-800">Flagged for Review</h4>
+                <p className="mt-1 text-sm text-amber-700">
+                  Your location was recorded but flagged for review by an administrator before it can be
+                  used to unlock result upload. You&apos;ll be notified once it&apos;s reviewed.
+                </p>
+              </div>
             </div>
           </div>
         )}
@@ -306,24 +321,24 @@ export function LocationVerification({
           <div className="flex gap-2">
             <Button
               variant="outline"
-              onClick={getLocation}
-              loading={status === 'locating'}
-              disabled={status === 'submitting'}
+              onClick={startSampling}
+              loading={gpsStatus === 'sampling'}
+              disabled={submitStatus === 'submitting'}
               className="flex-1 gap-2"
             >
               <IconRefresh className="h-4 w-4" />
-              {status === 'locating' ? 'Getting Location...' : 'Refresh Location'}
+              {gpsStatus === 'sampling' ? 'Getting Location...' : 'Refresh Location'}
             </Button>
 
             <Button
               variant="primary"
               onClick={submitLocation}
-              loading={status === 'submitting'}
-              disabled={!location || status === 'locating'}
+              loading={submitStatus === 'submitting'}
+              disabled={!location || accuracyTooLow || gpsStatus === 'sampling'}
               className="flex-1 gap-2"
             >
               <IconCurrentLocation className="h-4 w-4" />
-              {status === 'submitting' ? 'Verifying...' : 'Verify Location'}
+              {submitStatus === 'submitting' ? 'Verifying...' : 'Verify Location'}
             </Button>
           </div>
         )}

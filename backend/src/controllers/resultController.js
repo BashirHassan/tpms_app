@@ -11,6 +11,7 @@ const fs = require('fs');
 const XLSX = require('xlsx');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const { isFeatureEnabled } = require('../middleware/featureToggle');
 
 // Validation schemas
 const schemas = {
@@ -1380,16 +1381,10 @@ const submitBulkResults = async (req, res, next) => {
     const isAdmin = ['super_admin', 'head_of_teaching_practice'].includes(userRole);
 
     // Check if location tracking is enabled for this institution
-    const [featureToggle] = await query(
-      `SELECT ift.is_enabled 
-       FROM feature_toggles ft
-       LEFT JOIN institution_feature_toggles ift 
-         ON ft.id = ift.feature_toggle_id AND ift.institution_id = ?
-       WHERE ft.feature_key = 'supervisor_location_tracking'`,
-      [parseInt(institutionId)]
+    const locationTrackingEnabled = await isFeatureEnabled(
+      'supervisor_location_tracking',
+      parseInt(institutionId)
     );
-
-    const locationTrackingEnabled = featureToggle?.is_enabled === 1;
 
     // Only enforce location verification for supervisors, not admins
     if (locationTrackingEnabled && !isAdmin) {
@@ -1416,7 +1411,15 @@ const submitBulkResults = async (req, res, next) => {
           [parseInt(institutionId), supervisorId, schoolId, groupNumber, visitNumber]
         );
 
-        if (posting && !posting.location_verified) {
+        // No matching posting row means location verification can't be confirmed for
+        // this visit - block rather than silently letting it through.
+        if (!posting) {
+          throw new ValidationError(
+            `No active posting found for School (Group ${groupNumber}, Visit ${visitNumber}). Location verification cannot be confirmed.`
+          );
+        }
+
+        if (!posting.location_verified) {
           throw new ValidationError(
             `You must verify your location at "${posting.school_name}" (Group ${groupNumber}, Visit ${visitNumber}) before uploading results. Please record your location first.`
           );

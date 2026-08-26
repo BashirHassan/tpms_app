@@ -11,7 +11,15 @@ const controller = require('../controllers/locationTrackingController');
 const { authenticate } = require('../middleware/auth');
 const { requireInstitutionAccess, isSupervisor, isHeadOfTP } = require('../middleware/rbac');
 const { requireFeature } = require('../middleware/featureToggle');
+const { createRateLimiter } = require('../middleware/rateLimiter');
 const validate = require('../middleware/validate');
+
+const locationVerifyRateLimiter = createRateLimiter({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  maxRequests: 15,
+  keyGenerator: (req) => `location-verify:${req.user?.id || req.ip}`,
+  message: 'Too many location verification attempts. Please wait a few minutes and try again.',
+});
 
 // =====================================================
 // Supervisor endpoints (require location tracking feature)
@@ -27,6 +35,7 @@ router.post(
   requireInstitutionAccess(),
   isSupervisor,
   requireFeature('supervisor_location_tracking'),
+  locationVerifyRateLimiter,
   validate(controller.schemas.verifyLocation),
   controller.verifyLocation
 );
@@ -83,6 +92,19 @@ router.get(
   requireInstitutionAccess(),
   isHeadOfTP,
   controller.getLocationStats
+);
+
+/**
+ * PATCH /:institutionId/location/admin/logs/:logId/override
+ * Approve or reject a pending/rejected location log
+ */
+router.patch(
+  '/:institutionId/location/admin/logs/:logId/override',
+  authenticate,
+  requireInstitutionAccess(),
+  isHeadOfTP,
+  validate(controller.schemas.overrideLocation),
+  controller.overrideLocationValidation
 );
 
 module.exports = router;
