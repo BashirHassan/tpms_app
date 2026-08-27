@@ -53,6 +53,9 @@ export { createAutoPostingApi } from './autoPosting';
 // Location tracking API (supervisor geofencing)
 export { locationApi } from './location';
 
+// Biometric API (supervisor check-in fingerprint gate)
+export { biometricApi } from './biometric';
+
 /**
  * Legacy exports for backward compatibility
  * These use getCurrentInstitutionId() to automatically get institution context

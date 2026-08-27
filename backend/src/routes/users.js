@@ -5,6 +5,7 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
+const biometricLoginController = require('../controllers/biometricLoginController');
 const { authenticate, requireValidSession } = require('../middleware/auth');
 const { requireInstitutionAccess, isHeadOfTP, staffOnly } = require('../middleware/rbac');
 const validate = require('../middleware/validate');
@@ -76,6 +77,16 @@ router.post(
   requireInstitutionAccess(),
   isHeadOfTP,
   authController.hardResetPassword
+);
+
+// POST /api/:institutionId/users/:id/clear-biometric-login - Clear a staff member's
+// biometric login credential (lost/compromised device incident response)
+router.post(
+  '/:institutionId/users/:id/clear-biometric-login',
+  authenticate,
+  requireInstitutionAccess(),
+  isHeadOfTP,
+  biometricLoginController.adminClearBiometricLogin
 );
 
 module.exports = router;

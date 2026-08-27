@@ -29,6 +29,7 @@ import {
   IconClipboardList,
   IconRoute,
   IconMapPin,
+  IconFingerprint,
   IconCalendar,
   IconCreditCard,
   IconFileCheck,
@@ -107,6 +108,7 @@ const navigationGroups = [
       { name: 'Result Upload', href: '/admin/result-upload', icon: IconSignature, roles: ROLE_GROUPS.SUPERVISOR_PLUS },
       { name: 'Manage Results', href: '/admin/results', icon: IconClipboardList, roles: ROLE_GROUPS.ADMIN },
       { name: 'Location Logs', href: '/admin/location-logs', icon: IconMapPin, roles: ROLE_GROUPS.ADMIN, feature: 'supervisor_location_tracking' },
+      { name: 'Biometric Devices', href: '/admin/biometric-devices', icon: IconFingerprint, roles: ROLE_GROUPS.ADMIN, feature: 'supervisor_biometric_verification' },
       { name: 'Monitoring', href: '/admin/monitoring', icon: IconClipboardCheck, roles: ROLE_GROUPS.FIELD_MONITOR_PLUS },
     ],
   },
@@ -233,7 +235,7 @@ function AdminLayout() {
       >
         {/* Header with branding */}
         <div className="flex items-center justify-between h-16 px-6 border-b shrink-0">
-          <Link to="/admin" className="flex items-center gap-2">
+          <Link to="/admin" className="flex min-w-0 flex-1 items-center gap-2">
             {branding.logo_url ? (
               <img
                 src={branding.logo_url}
@@ -388,7 +390,7 @@ function AdminLayout() {
                 rel="noopener noreferrer"
                 className="font-medium text-primary-600 hover:underline"
               >
-                Si Solutions
+                SI Solutions
               </a>
             </p>
           </div>

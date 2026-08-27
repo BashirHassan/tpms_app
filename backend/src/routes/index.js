@@ -80,6 +80,7 @@ const userRoutes = require('./users');
 const dashboardRoutes = require('./dashboard');
 const deanAllocationRoutes = require('./deanAllocations');
 const locationTrackingRoutes = require('./locationTracking');
+const biometricRoutes = require('./biometric');
 const autoPostingRoutes = require('./autoPosting');
 
 // =============================================================================
@@ -124,6 +125,7 @@ router.get('/', (req, res) => {
       schoolUpdateRequests: '/api/:institutionId/school-update-requests',
       documentTemplates: '/api/:institutionId/document-templates',
       locationTracking: '/api/:institutionId/location/* (supervisor geofencing)',
+      biometric: '/api/:institutionId/biometric/* (supervisor check-in fingerprint gate)',
     },
   });
 });
@@ -238,6 +240,9 @@ router.use('/', deanAllocationRoutes);
 
 // Location tracking (supervisor geofencing)
 router.use('/', locationTrackingRoutes);
+
+// Biometric verification (supervisor location check-in fingerprint gate)
+router.use('/', biometricRoutes);
 
 // Dashboard (global and institution-scoped)
 router.use('/', dashboardRoutes);

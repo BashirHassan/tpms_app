@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useInstitutionApi } from '../../hooks/useInstitutionApi';
+import { useBiometricLogin } from '../../hooks/useBiometricLogin';
 import { authApi } from '../../api/auth';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -20,13 +21,21 @@ import {
   IconFileText,
   IconShieldCheck,
   IconStairs,
-  IconSchool
+  IconSchool,
+  IconFingerprint,
+  IconDeviceMobile
 } from '@tabler/icons-react';
 
 function ProfilePage() {
   const { user, institution, refreshProfile, hasFeature } = useAuth();
   const { toast } = useToast();
   const { get } = useInstitutionApi();
+  const {
+    status: biometricStatus,
+    errorMessage: biometricError,
+    enroll: enrollBiometric,
+    disable: disableBiometric,
+  } = useBiometricLogin();
   const canEditProfile = user?.role === 'super_admin' || hasFeature('edit_profile');
 
   const [profileData, setProfileData] = useState({
@@ -158,6 +167,26 @@ function ProfilePage() {
       toast.error(err.response?.data?.message || 'Failed to change password');
     } finally {
       setPasswordLoading(false);
+    }
+  };
+
+  // On failure, the hook's own `biometricError` state (rendered inline in
+  // the card below) reflects why - reading it here would be stale, since
+  // it updates on the next render, not within this same closure.
+  const handleEnableBiometric = async () => {
+    const deviceLabel = navigator.userAgentData?.platform || navigator.platform || 'My device';
+    const success = await enrollBiometric(user.email, deviceLabel);
+    if (success) {
+      toast.success('Fingerprint login enabled on this device.');
+      await refreshProfile();
+    }
+  };
+
+  const handleDisableBiometric = async () => {
+    const success = await disableBiometric();
+    if (success) {
+      toast.success('Fingerprint login disabled.');
+      await refreshProfile();
     }
   };
 
@@ -408,6 +437,59 @@ function ProfilePage() {
                 </Button>
               </div>
             </form>
+          </CardContent>
+        </Card>
+
+        {/* Biometric Login */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-lg bg-primary-100 text-primary-600">
+                <IconFingerprint className="w-5 h-5" />
+              </div>
+              <div>
+                <CardTitle className="text-lg">Biometric Login</CardTitle>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  An additional way to log in on this device - your email and password always
+                  keep working too
+                </p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {biometricError && <p className="mb-3 text-sm text-red-600">{biometricError}</p>}
+
+            {user?.biometric_login_enabled ? (
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-green-50 border border-green-200 p-3">
+                <div className="flex items-center gap-2">
+                  <IconDeviceMobile className="w-4 h-4 text-green-600" />
+                  <div>
+                    <p className="text-sm font-medium text-green-800">Enabled</p>
+                    <p className="text-xs text-green-700">
+                      {user.biometric_login_device_label || 'Enrolled device'}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleDisableBiometric}
+                  loading={biometricStatus === 'authenticating'}
+                >
+                  Disable
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="secondary"
+                className="w-full sm:w-auto gap-2"
+                onClick={handleEnableBiometric}
+                loading={biometricStatus === 'enrolling'}
+              >
+                <IconFingerprint className="h-4 w-4" />
+                Enable on This Device
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>

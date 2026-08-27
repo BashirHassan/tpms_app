@@ -18,8 +18,10 @@ class User {
    */
   static async findById(id) {
     const [rows] = await pool.query(
-      `SELECT u.id, u.institution_id, u.name, u.email, u.phone, 
-              u.role, u.rank_id, u.faculty_id, u.file_number, u.is_dean, u.status, 
+      `SELECT u.id, u.institution_id, u.name, u.email, u.phone,
+              u.role, u.rank_id, u.faculty_id, u.file_number, u.is_dean, u.status,
+              u.biometric_exempt,
+              u.biometric_login_credential_id, u.biometric_login_transports, u.biometric_login_device_label,
               u.last_login, u.created_at, u.updated_at,
               r.name as rank_name, r.code as rank_code,
               f.name as faculty_name, f.code as faculty_code,

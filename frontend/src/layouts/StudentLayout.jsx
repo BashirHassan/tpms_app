@@ -150,7 +150,7 @@ function StudentLayout() {
       >
         {/* Sidebar header */}
         <div className="flex items-center justify-between h-16 px-6 border-b shrink-0">
-          <Link to="/student" className="flex items-center gap-2" onClick={closeMenus}>
+          <Link to="/student" className="flex min-w-0 flex-1 items-center gap-2" onClick={closeMenus}>
             {branding.logo_url ? (
               <img
                 src={branding.logo_url}
@@ -246,7 +246,7 @@ function StudentLayout() {
                 rel="noopener noreferrer"
                 className="font-medium text-primary-600 hover:underline"
               >
-                Si Solutions
+                SI Solutions
               </a>
             </p>
           </div>

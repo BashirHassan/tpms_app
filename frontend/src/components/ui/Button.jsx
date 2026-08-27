@@ -8,7 +8,7 @@ import { cva } from 'class-variance-authority';
 import { cn } from '../../utils/helpers';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
+  'inline-flex items-center justify-center rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       variant: {
@@ -23,7 +23,7 @@ const buttonVariants = cva(
         link: 'text-primary-600 underline-offset-4 hover:underline',
       },
       size: {
-        default: 'h-[2.4rem] px-4 py-2',
+        default: 'h-12 px-4 py-2',
         sm: 'h-8 px-3 text-xs',
         lg: 'h-12 px-6 text-base',
         icon: 'h-10 w-10',

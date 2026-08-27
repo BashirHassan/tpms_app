@@ -498,6 +498,7 @@ const staffLogin = async (req, res, next) => {
           name: user.name,
           email: user.email,
           role: user.role,
+          biometric_exempt: user.biometric_exempt === 1,
           // Institution comes from subdomain for super_admin, otherwise from user record
           institution: subdomainInstitution
             ? {
@@ -759,6 +760,9 @@ const getProfile = async (req, res, next) => {
         faculty: staffUser.faculty_name,
         file_number: staffUser.file_number,
         is_dean: staffUser.is_dean === 1,
+        biometric_exempt: staffUser.biometric_exempt === 1,
+        biometric_login_enabled: !!staffUser.biometric_login_credential_id,
+        biometric_login_device_label: staffUser.biometric_login_device_label || null,
         institution: staffUser.institution_id
           ? {
               id: staffUser.institution_public_id,
@@ -2237,6 +2241,8 @@ module.exports = {
   hashPassword,
   BULK_BCRYPT_ROUNDS,
   verifyPassword,
+  createSession,
+  logAuthEvent,
   // SSO token store getter for partner SSO
   getSsoTokenStore: () => ssoTokenStore,
 };

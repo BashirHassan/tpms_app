@@ -12,6 +12,7 @@
     "seed:students": "node scripts/seed-students-acceptance.js"
   },
   "dependencies": {
+    "@simplewebauthn/server": "^13.3.3",
     "bcrypt": "^5.1.1",
     "cloudinary": "^2.8.0",
     "cors": "^2.8.5",

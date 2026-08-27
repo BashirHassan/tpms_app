@@ -152,6 +152,54 @@ export function AuthProvider({ children }) {
     initAuth();
   }, []);
 
+  // Shared tail for every login method (password, PIN, or biometric) - once
+  // a token/sessionId has been minted server-side, the rest of "become
+  // logged in" is identical regardless of how identity was proven.
+  const applyLoginResult = useCallback(async ({ token, sessionId }) => {
+    // Store auth data in tab-scoped storage
+    storeAuthState({ token, sessionId });
+
+    // Fetch full profile data with subdomain context
+    const profileResponse = await authApi.getProfile();
+    const profileData = profileResponse.data.data || profileResponse.data;
+
+    // Store user in tab-scoped storage
+    storeUser(profileData);
+
+    setUserState(profileData);
+    setInstitution(profileData.institution); // From subdomain resolution
+    setIsGlobalContext(profileData.isGlobalContext || false);
+    setSubdomain(profileData.subdomain || null);
+
+    // Apply institution branding colors
+    if (profileData.institution?.primary_color) {
+      applyBrandingColors(
+        profileData.institution.primary_color,
+        profileData.institution.secondary_color
+      );
+    }
+
+    // Load enabled features if we have an institution context
+    if (profileData.institution?.id) {
+      try {
+        // Use institution ID directly from profile (don't rely on cached values)
+        const institutionFeaturesApi = createFeaturesApi(profileData.institution.id);
+        const featuresResponse = await institutionFeaturesApi.getEnabled();
+        const featuresData = featuresResponse.data.data || featuresResponse.data || [];
+        // Extract just the feature keys for quick lookup
+        setFeatures(featuresData.map(f => f.feature_key));
+      } catch (featuresErr) {
+        console.warn('Could not load features');
+        setFeatures([]);
+      }
+    } else {
+      // Global context = no features needed
+      setFeatures([]);
+    }
+
+    return profileData;
+  }, []);
+
   // Staff login
   const login = useCallback(async (email, password) => {
     setError(null);
@@ -163,56 +211,30 @@ export function AuthProvider({ children }) {
 
       const response = await authApi.login({ email, password });
       const loginData = response.data.data || response.data;
-      const { token, sessionId } = loginData;
 
-      // Store auth data in tab-scoped storage
-      storeAuthState({ token, sessionId });
-
-      // Fetch full profile data with subdomain context
-      const profileResponse = await authApi.getProfile();
-      const profileData = profileResponse.data.data || profileResponse.data;
-
-      // Store user in tab-scoped storage
-      storeUser(profileData);
-
-      setUserState(profileData);
-      setInstitution(profileData.institution); // From subdomain resolution
-      setIsGlobalContext(profileData.isGlobalContext || false);
-      setSubdomain(profileData.subdomain || null);
-
-      // Apply institution branding colors
-      if (profileData.institution?.primary_color) {
-        applyBrandingColors(
-          profileData.institution.primary_color,
-          profileData.institution.secondary_color
-        );
-      }
-
-      // Load enabled features if we have an institution context
-      if (profileData.institution?.id) {
-        try {
-          // Use institution ID directly from profile (don't rely on cached values)
-          const institutionFeaturesApi = createFeaturesApi(profileData.institution.id);
-          const featuresResponse = await institutionFeaturesApi.getEnabled();
-          const featuresData = featuresResponse.data.data || featuresResponse.data || [];
-          // Extract just the feature keys for quick lookup
-          setFeatures(featuresData.map(f => f.feature_key));
-        } catch (featuresErr) {
-          console.warn('Could not load features');
-          setFeatures([]);
-        }
-      } else {
-        // Global context = no features needed
-        setFeatures([]);
-      }
-
-      return profileData;
+      return await applyLoginResult(loginData);
     } catch (err) {
       const message = err.response?.data?.message || 'Login failed';
       setError(message);
       throw new Error(message);
     }
-  }, []);
+  }, [applyLoginResult]);
+
+  // Staff login via enrolled fingerprint - an ADDITIONAL option alongside
+  // login(), never a replacement; the caller (LoginPage) already ran the
+  // WebAuthn ceremony and just hands us the resulting token/sessionId.
+  const loginWithBiometric = useCallback(async ({ token, sessionId }) => {
+    setError(null);
+
+    try {
+      prepareForLogin();
+      return await applyLoginResult({ token, sessionId });
+    } catch (err) {
+      const message = err.response?.data?.message || 'Login failed';
+      setError(message);
+      throw new Error(message);
+    }
+  }, [applyLoginResult]);
 
   // Student login
   const studentLogin = useCallback(async (registrationNumber, pin) => {
@@ -224,52 +246,14 @@ export function AuthProvider({ children }) {
 
       const response = await authApi.studentLogin({ registrationNumber, pin });
       const loginData = response.data.data || response.data;
-      const { token, sessionId } = loginData;
 
-      // Store auth data in tab-scoped storage
-      storeAuthState({ token, sessionId });
-
-      // Fetch full profile data with subdomain context
-      const profileResponse = await authApi.getProfile();
-      const profileData = profileResponse.data.data || profileResponse.data;
-
-      // Store user in tab-scoped storage
-      storeUser(profileData);
-
-      setUserState(profileData);
-      setInstitution(profileData.institution);
-
-      // Apply institution branding colors
-      if (profileData.institution?.primary_color) {
-        applyBrandingColors(
-          profileData.institution.primary_color,
-          profileData.institution.secondary_color
-        );
-      }
-
-      // Load enabled features
-      if (profileData.institution?.id) {
-        try {
-          // Use institution ID directly from profile
-          const institutionFeaturesApi = createFeaturesApi(profileData.institution.id);
-          const featuresResponse = await institutionFeaturesApi.getEnabled();
-          const featuresData = featuresResponse.data.data || featuresResponse.data || [];
-          setFeatures(featuresData.map(f => f.feature_key));
-        } catch (featuresErr) {
-          console.warn('Could not load features');
-          setFeatures([]);
-        }
-      } else {
-        setFeatures([]);
-      }
-
-      return profileData;
+      return await applyLoginResult(loginData);
     } catch (err) {
       const message = err.response?.data?.message || 'Login failed';
       setError(message);
       throw new Error(message);
     }
-  }, []);
+  }, [applyLoginResult]);
 
   // Logout - clears ONLY this tab's session, not other tabs
   const logout = useCallback(async () => {
@@ -355,6 +339,7 @@ export function AuthProvider({ children }) {
       isGlobalContext, // On admin.* subdomain with no institution
       subdomain,
       login,
+      loginWithBiometric,
       studentLogin,
       logout,
       hasRole,
@@ -373,6 +358,7 @@ export function AuthProvider({ children }) {
       isGlobalContext,
       subdomain,
       login,
+      loginWithBiometric,
       studentLogin,
       logout,
       hasRole,

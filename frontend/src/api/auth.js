@@ -48,8 +48,24 @@ export const authApi = {
   logout: () => 
     apiClient.post('/auth/logout'),
   
-  refreshToken: () => 
+  refreshToken: () =>
     apiClient.post('/auth/refresh-token'),
+
+  // Biometric login - additional option alongside email+password, staff only
+  getBiometricEnrollmentOptions: () =>
+    apiClient.post('/auth/biometric/enroll-options'),
+
+  verifyBiometricEnrollment: (data) =>
+    apiClient.post('/auth/biometric/enroll-verify', data),
+
+  disableBiometricLogin: () =>
+    apiClient.delete('/auth/biometric/disable'),
+
+  getBiometricLoginOptions: (email) =>
+    apiClient.post('/auth/biometric/login-options', { email }),
+
+  verifyBiometricLogin: (email, response) =>
+    apiClient.post('/auth/biometric/login-verify', { email, response }),
 };
 
 export default authApi;

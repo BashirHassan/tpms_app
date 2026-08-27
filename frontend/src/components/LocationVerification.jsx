@@ -15,9 +15,12 @@
 
 import { useEffect, useState } from 'react';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
 import { locationApi } from '../api';
 import { formatDistance, MAX_SUPERVISOR_LOCATION_ACCURACY_M } from '../utils/helpers';
 import { useGeolocation } from '../hooks/useGeolocation';
+import { useBiometricAuth } from '../hooks/useBiometricAuth';
+import { useInstitutionSelection } from '../context/InstitutionSelectionContext';
 import {
   IconMapPin,
   IconCheck,
@@ -26,6 +29,7 @@ import {
   IconRefresh,
   IconMapPinOff,
   IconClockHour4,
+  IconFingerprint,
 } from '@tabler/icons-react';
 import { Button } from './ui/Button';
 
@@ -66,6 +70,11 @@ export function LocationVerification({
   className = '',
 }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const { isFeatureEnabled } = useInstitutionSelection();
+  // An exempt supervisor (no WebAuthn-capable device, granted by a Head of TP+
+  // admin) falls back to the pre-existing geofence + device-fingerprint checks only.
+  const biometricRequired = isFeatureEnabled('supervisor_biometric_verification') && !user?.biometric_exempt;
   const {
     status: gpsStatus,
     bestSample,
@@ -73,11 +82,38 @@ export function LocationVerification({
     errorMessage: gpsError,
     start: startSampling,
   } = useGeolocation({ maxSamples: MAX_SAMPLES });
+  const {
+    status: biometricStatus,
+    errorMessage: biometricError,
+    hasEnrolledDevice,
+    checkSupport,
+    checkEnrollment,
+    enroll,
+    authenticate: authenticateBiometric,
+  } = useBiometricAuth();
   const [submitStatus, setSubmitStatus] = useState('idle'); // idle, submitting, success, error
   const [verificationResult, setVerificationResult] = useState(null);
+  const [deviceSupported, setDeviceSupported] = useState(null); // null = unknown yet
 
   const location = bestSample;
   const accuracyTooLow = location && location.accuracy_meters > MAX_SUPERVISOR_LOCATION_ACCURACY_M;
+
+  // Check enrollment + device capability once, only when the institution requires
+  // biometric check-in and the supervisor isn't exempt
+  useEffect(() => {
+    if (biometricRequired && !posting?.location_verified) {
+      checkEnrollment();
+      checkSupport().then(setDeviceSupported);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [biometricRequired]);
+
+  const handleEnroll = async () => {
+    const success = await enroll(navigator.userAgentData?.platform || navigator.platform || 'My device');
+    if (success) {
+      toast.success('Fingerprint enrolled. You can now verify your location.');
+    }
+  };
 
   /**
    * Submit location for verification
@@ -91,6 +127,16 @@ export function LocationVerification({
     setSubmitStatus('submitting');
     setVerificationResult(null);
 
+    let biometricToken = null;
+    if (biometricRequired) {
+      biometricToken = await authenticateBiometric();
+      if (!biometricToken) {
+        setSubmitStatus('idle');
+        toast.error('Fingerprint confirmation is required to verify your location.');
+        return;
+      }
+    }
+
     try {
       const deviceInfo = generateDeviceInfo();
 
@@ -99,6 +145,7 @@ export function LocationVerification({
         latitude: location.latitude,
         longitude: location.longitude,
         accuracy_meters: location.accuracy_meters,
+        biometric_token: biometricToken,
         altitude_meters: location.altitude_meters,
         timestamp_client: location.timestamp,
         device_info: deviceInfo,
@@ -209,6 +256,56 @@ export function LocationVerification({
           </div>
         )}
 
+        {/* Device can't do WebAuthn at all (no fingerprint/face sensor, unsupported
+            browser, or no phone) - tell the supervisor what to actually do instead
+            of letting them hit a raw error after tapping "Enroll Now" */}
+        {biometricRequired && deviceSupported === false && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <div className="flex items-start gap-3">
+              <IconAlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+              <div>
+                <p className="font-medium text-amber-800">Fingerprint Verification Not Available</p>
+                <p className="mt-1 text-sm text-amber-700">
+                  This device doesn&apos;t support fingerprint or face verification, so you can&apos;t
+                  complete this institution&apos;s check-in requirement here. Contact your Head of TP+
+                  to be exempted from this requirement, or use a device with a fingerprint/face sensor.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Biometric enrollment gate - required before any check-in when the institution
+            has 'supervisor_biometric_verification' enabled */}
+        {biometricRequired && deviceSupported === true && hasEnrolledDevice === false && (
+          <div className="rounded-lg border border-primary-200 bg-primary-50 p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary-100">
+                <IconFingerprint className="h-5 w-5 text-primary-600" />
+              </div>
+              <div className="flex-1">
+                <p className="font-medium text-gray-900">Enroll Your Fingerprint</p>
+                <p className="mt-1 text-sm text-gray-600">
+                  This institution requires a fingerprint or face confirmation at each check-in, so
+                  only you can verify your location - not someone else using your phone. This is a
+                  one-time setup on this device.
+                </p>
+                {biometricError && <p className="mt-2 text-sm text-red-600">{biometricError}</p>}
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="mt-3 gap-2"
+                  onClick={handleEnroll}
+                  loading={biometricStatus === 'enrolling'}
+                >
+                  <IconFingerprint className="h-4 w-4" />
+                  Enroll Now
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* GPS sampling progress */}
         {gpsStatus === 'sampling' && (
           <div className="rounded-lg bg-blue-50 p-3">
@@ -298,6 +395,23 @@ export function LocationVerification({
           </div>
         )}
 
+        {/* Rejected: biometric confirmation missing or invalid */}
+        {verificationResult?.reason_code === 'BIOMETRIC_REQUIRED' && (
+          <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100">
+                <IconFingerprint className="h-6 w-6 text-red-600" />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-lg font-semibold text-red-800">Fingerprint Confirmation Needed</h4>
+                <p className="mt-1 text-sm text-red-700">
+                  Please confirm with your fingerprint when prompted, then try again.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Pending: flagged for admin review */}
         {verificationResult?.reason_code === 'PENDING_REVIEW' && (
           <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4 shadow-sm">
@@ -333,12 +447,27 @@ export function LocationVerification({
             <Button
               variant="primary"
               onClick={submitLocation}
-              loading={submitStatus === 'submitting'}
-              disabled={!location || accuracyTooLow || gpsStatus === 'sampling'}
+              loading={submitStatus === 'submitting' || biometricStatus === 'authenticating'}
+              disabled={
+                !location ||
+                accuracyTooLow ||
+                gpsStatus === 'sampling' ||
+                (biometricRequired && hasEnrolledDevice !== true)
+              }
               className="flex-1 gap-2"
             >
-              <IconCurrentLocation className="h-4 w-4" />
-              {submitStatus === 'submitting' ? 'Verifying...' : 'Verify Location'}
+              {biometricRequired ? (
+                <IconFingerprint className="h-4 w-4" />
+              ) : (
+                <IconCurrentLocation className="h-4 w-4" />
+              )}
+              {biometricStatus === 'authenticating'
+                ? 'Confirm Fingerprint...'
+                : submitStatus === 'submitting'
+                  ? 'Verifying...'
+                  : biometricRequired
+                    ? 'Confirm Fingerprint & Verify'
+                    : 'Verify Location'}
             </Button>
           </div>
         )}

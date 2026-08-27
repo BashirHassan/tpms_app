@@ -5,16 +5,17 @@
 
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { useInstitution } from '../../context/InstitutionContext';
 import { useToast } from '../../context/ToastContext';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import authApi from '../../api/auth';
-import { 
-  IconSchool, 
-  IconAlertCircle, 
-  IconLock, 
-  IconArrowLeft, 
+import {
+  IconSchool,
+  IconAlertCircle,
+  IconLock,
+  IconArrowLeft,
   IconCheck,
   IconX,
   IconEye,
@@ -28,6 +29,25 @@ const PASSWORD_RULES = [
   { label: 'One uppercase letter', test: (p) => /[A-Z]/.test(p) },
   { label: 'One number', test: (p) => /[0-9]/.test(p) },
 ];
+
+function AuthShellHeader({ branding }) {
+  return (
+    <div className="mb-8 text-center">
+      {branding.logo_url ? (
+        <img
+          src={branding.logo_url}
+          alt={branding.name}
+          className="mx-auto mb-4 h-20 w-20 rounded-2xl bg-white object-contain p-2 shadow-md ring-1 ring-gray-100"
+        />
+      ) : (
+        <div className="mx-auto mb-4 inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-primary-600 shadow-md">
+          <IconSchool className="h-10 w-10 text-white" />
+        </div>
+      )}
+      <h1 className="text-2xl font-bold text-gray-900">{branding.name}</h1>
+    </div>
+  );
+}
 
 function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -102,7 +122,7 @@ function ResetPasswordPage() {
     } catch (err) {
       const errorMessage = err.response?.data?.message || err.message || 'Password reset failed';
       setError(errorMessage);
-      
+
       // If token is invalid/expired, suggest requesting new one
       if (errorMessage.toLowerCase().includes('invalid') || errorMessage.toLowerCase().includes('expired')) {
         setError('Your reset link has expired. Please request a new one.');
@@ -115,86 +135,73 @@ function ResetPasswordPage() {
   // Success state
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <div className="w-full max-w-md">
-          {/* Institution Logo/Branding */}
-          <div className="text-center mb-8">
-            {branding.logo_url ? (
-              <img
-                src={branding.logo_url}
-                alt={branding.name}
-                className="w-20 h-20 mx-auto mb-4 object-contain rounded-2xl"
-              />
-            ) : (
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary-600 mb-4">
-                <IconSchool className="w-10 h-10 text-white" />
-              </div>
-            )}
-            <h1 className="text-2xl font-bold text-gray-900">{branding.name}</h1>
-          </div>
+      <div className="relative min-h-screen overflow-hidden bg-gray-50 flex items-center justify-center px-4 py-12">
+        <div className="pointer-events-none absolute -top-32 -left-32 h-96 w-96 rounded-full bg-primary-100/60 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-secondary-100/60 blur-3xl" />
+
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="relative w-full max-w-md"
+        >
+          <AuthShellHeader branding={branding} />
 
           {/* Success Card */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="rounded-2xl border border-gray-100 bg-white p-6 sm:p-8 shadow-xl shadow-gray-200/60">
             <div className="text-center">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 mb-4">
-                <IconCheck className="w-8 h-8 text-green-600" />
+              <div className="mx-auto mb-4 inline-flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
+                <IconCheck className="h-8 w-8 text-green-600" />
               </div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-2">Password Reset Successful!</h2>
-              <p className="text-gray-500 mb-6">
+              <h2 className="mb-2 text-xl font-bold text-gray-900">Password Reset Successful!</h2>
+              <p className="mb-6 text-gray-500">
                 Your password has been changed successfully. You can now log in with your new password.
               </p>
               <Link to="/login">
-                <Button className="w-full">
+                <Button className="w-full text-base font-semibold shadow-sm shadow-primary-600/20">
                   Continue to Login
                 </Button>
               </Link>
             </div>
           </div>
-        </div>
+        </motion.div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md">
-        {/* Institution Logo/Branding */}
-        <div className="text-center mb-8">
-          {branding.logo_url ? (
-            <img
-              src={branding.logo_url}
-              alt={branding.name}
-              className="w-20 h-20 mx-auto mb-4 object-contain rounded-2xl"
-            />
-          ) : (
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary-600 mb-4">
-              <IconSchool className="w-10 h-10 text-white" />
-            </div>
-          )}
-          <h1 className="text-2xl font-bold text-gray-900">{branding.name}</h1>
-          <p className="text-gray-500 mt-1">Teaching Practice Management System</p>
-        </div>
+    <div className="relative min-h-screen overflow-hidden bg-gray-50 flex items-center justify-center px-4 py-12">
+      <div className="pointer-events-none absolute -top-32 -left-32 h-96 w-96 rounded-full bg-primary-100/60 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-secondary-100/60 blur-3xl" />
+
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="relative w-full max-w-md"
+      >
+        <AuthShellHeader branding={branding} />
 
         {/* Reset Password Form */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary-100 mb-3">
-              <IconLock className="w-6 h-6 text-primary-600" />
+        <div className="rounded-2xl border border-gray-100 bg-white p-6 sm:p-8 shadow-xl shadow-gray-200/60">
+          <div className="mb-6 text-center">
+            <div className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary-100">
+              <IconLock className="h-6 w-6 text-primary-600" />
             </div>
-            <h2 className="text-lg font-semibold text-gray-900">Create New Password</h2>
-            <p className="text-sm text-gray-500 mt-1">
+            <h2 className="text-xl font-bold text-gray-900">Create New Password</h2>
+            <p className="mt-1 text-sm text-gray-500">
               Enter a strong password for your account.
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="flex items-start gap-2 p-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
-                <IconAlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <IconAlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <div>
                   <span>{error}</span>
                   {error.includes('expired') && (
-                    <Link to="/forgot-password" className="block mt-1 text-red-600 hover:underline font-medium">
+                    <Link to="/forgot-password" className="mt-1 block font-medium text-red-600 hover:underline">
                       Request new reset link →
                     </Link>
                   )}
@@ -205,21 +212,28 @@ function ResetPasswordPage() {
             <div className="relative">
               <Input
                 type={showPassword ? 'text' : 'password'}
-                label="New Password"
+                label={
+                  <span className="flex items-center gap-1.5">
+                    <IconLock className="h-3.5 w-3.5 text-gray-400" />
+                    New Password
+                  </span>
+                }
                 placeholder="Enter your new password"
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
                   setError('');
                 }}
+                className="text-base"
                 required
+                disablePasswordToggle
               />
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+                className="absolute right-2 top-9 text-gray-400 hover:text-gray-600"
               >
                 {showPassword ? <IconEyeOff className="w-5 h-5" /> : <IconEye className="w-5 h-5" />}
               </Button>
@@ -227,8 +241,8 @@ function ResetPasswordPage() {
 
             {/* Password strength indicator */}
             {password && (
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <p className="text-xs font-medium text-gray-500 mb-2">Password requirements:</p>
+              <div className="rounded-xl bg-gray-50 p-3">
+                <p className="mb-2 text-xs font-medium text-gray-500">Password requirements:</p>
                 <div className="space-y-1">
                   {passwordStrength.map((rule, index) => (
                     <div key={index} className="flex items-center gap-2 text-xs">
@@ -248,14 +262,21 @@ function ResetPasswordPage() {
 
             <Input
               type={showPassword ? 'text' : 'password'}
-              label="Confirm Password"
+              label={
+                <span className="flex items-center gap-1.5">
+                  <IconLock className="h-3.5 w-3.5 text-gray-400" />
+                  Confirm Password
+                </span>
+              }
               placeholder="Confirm your new password"
               value={confirmPassword}
               onChange={(e) => {
                 setConfirmPassword(e.target.value);
                 setError('');
               }}
+              className="text-base"
               required
+              disablePasswordToggle
             />
 
             {/* Match indicator */}
@@ -275,9 +296,9 @@ function ResetPasswordPage() {
               </div>
             )}
 
-            <Button 
-              type="submit" 
-              className="w-full" 
+            <Button
+              type="submit"
+              className="w-full text-base font-semibold shadow-sm shadow-primary-600/20 transition-transform hover:-translate-y-0.5"
               loading={loading}
               disabled={!allRulesPassed || !passwordsMatch}
             >
@@ -286,18 +307,29 @@ function ResetPasswordPage() {
           </form>
 
           <div className="mt-6 text-center">
-            <Link to="/login" className="text-sm text-gray-500 hover:text-gray-700">
-              <IconArrowLeft className="w-4 h-4 inline mr-1" />
+            <Link
+              to="/login"
+              className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+            >
+              <IconArrowLeft className="h-4 w-4" />
               Back to Login
             </Link>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="mt-8 text-center text-sm text-gray-400">
-          <p>Powered by DigitalTP</p>
-        </div>
-      </div>
+        <p className="mt-6 text-center text-xs text-gray-400">
+          Powered by{' '}
+          <a
+            href="https://sitsng.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-primary-600 hover:underline"
+          >
+            SI Solutions
+          </a>
+        </p>
+      </motion.div>
     </div>
   );
 }

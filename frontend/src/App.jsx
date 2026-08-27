@@ -78,6 +78,7 @@ const DocumentTemplatesPage = lazy(() => import('./pages/admin/DocumentTemplates
 const DeanPostingAllocationPage = lazy(() => import('./pages/admin/DeanPostingAllocationPage'));
 const DeansPostingsPage = lazy(() => import('./pages/admin/DeansPostingsPage'));
 const AdminLocationLogsPage = lazy(() => import('./pages/admin/AdminLocationLogsPage'));
+const AdminBiometricDevicesPage = lazy(() => import('./pages/admin/AdminBiometricDevicesPage'));
 
 // Supervisor Pages
 const SupervisorResultUploadPage = lazy(() => import('./pages/supervisor/SupervisorResultUploadPage'));
@@ -332,15 +333,25 @@ function AppRoutes() {
               />
               
               {/* Admin Location Logs */}
-              <Route 
-                path="location-logs" 
+              <Route
+                path="location-logs"
                 element={
                   <HeadOfTPRoute>
                     <AdminLocationLogsPage />
                   </HeadOfTPRoute>
-                } 
+                }
               />
-              
+
+              {/* Admin Biometric Devices */}
+              <Route
+                path="biometric-devices"
+                element={
+                  <HeadOfTPRoute>
+                    <AdminBiometricDevicesPage />
+                  </HeadOfTPRoute>
+                }
+              />
+
               {/* Admin-only pages - HeadOfTP and SuperAdmin */}
               <Route 
                 path="users" 

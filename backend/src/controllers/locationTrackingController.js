@@ -15,8 +15,11 @@
 
 const { z } = require('zod');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
+const config = require('../config');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const { isFeatureEnabled } = require('../middleware/featureToggle');
 
 // Tunable thresholds. Not yet institution-configurable - revisit after real-world usage data.
 const MAX_ACCEPTABLE_ACCURACY_M = 100;
@@ -40,6 +43,7 @@ const schemas = {
           browser: z.string().optional(),
         })
         .optional(),
+      biometric_token: z.string().nullish(),
     }),
   }),
   overrideLocation: z.object({
@@ -109,6 +113,7 @@ const verifyLocation = async (req, res, next) => {
       altitude_meters,
       timestamp_client,
       device_info,
+      biometric_token,
     } = req.body;
 
     // 1. Verify posting belongs to this supervisor and get school coordinates
@@ -215,7 +220,39 @@ const verifyLocation = async (req, res, next) => {
       }
     }
 
-    // 5c. Time drift between client-reported and server timestamp
+    // 5c. Biometric (WebAuthn platform authenticator) assertion - opt-in per institution.
+    // A device fingerprint alone can't distinguish the supervisor from a colleague holding
+    // the supervisor's own already-logged-in phone; a fresh, per-check-in fingerprint/face
+    // assertion (see biometricController.verifyAuthentication) can. Hard-fail, not a soft
+    // flag, when the institution requires it - the whole point is a proxy submitter must
+    // not be able to get even a "pending review" pass. Supervisors without a WebAuthn-capable
+    // device are exempted individually by a Head of TP+ admin (users.biometric_exempt) rather
+    // than weakening the check for everyone.
+    let biometricVerified = false;
+    let biometricCredentialId = null;
+    const biometricRequired =
+      !req.user.biometric_exempt &&
+      (await isFeatureEnabled('supervisor_biometric_verification', institutionId));
+
+    if (biometricRequired) {
+      if (!biometric_token) {
+        flagReasons.push('biometric_missing');
+      } else {
+        try {
+          const decoded = jwt.verify(biometric_token, config.jwt.secret);
+          if (decoded.purpose !== 'biometric_checkin' || decoded.supervisorId !== supervisorId) {
+            flagReasons.push('biometric_invalid');
+          } else {
+            biometricVerified = true;
+            biometricCredentialId = decoded.credentialId;
+          }
+        } catch {
+          flagReasons.push('biometric_invalid');
+        }
+      }
+    }
+
+    // 5d. Time drift between client-reported and server timestamp
     let timeDriftSeconds = null;
     if (timestamp_client) {
       try {
@@ -230,12 +267,13 @@ const verifyLocation = async (req, res, next) => {
       }
     }
 
-    // 5d. Hard-fail reasons
+    // 5e. Hard-fail reasons
     if (!isWithinGeofence) flagReasons.push('outside_geofence');
     if (isLowAccuracy) flagReasons.push('low_accuracy');
+    const biometricFailed = biometricRequired && !biometricVerified;
 
     // 6. Determine final validation status
-    const hasHardFail = !isWithinGeofence || isLowAccuracy;
+    const hasHardFail = !isWithinGeofence || isLowAccuracy || biometricFailed;
     const validationStatus = hasHardFail ? 'rejected' : flagReasons.length > 0 ? 'pending' : 'validated';
 
     let validationMessage = `Distance from school: ${Math.round(distanceFromSchool)}m`;
@@ -247,10 +285,12 @@ const verifyLocation = async (req, res, next) => {
     let reasonCode = 'VALIDATED';
     let responseMessage = 'Location verified successfully.';
     if (validationStatus === 'rejected') {
-      reasonCode = !isWithinGeofence ? 'OUTSIDE_GEOFENCE' : 'LOW_ACCURACY';
+      reasonCode = !isWithinGeofence ? 'OUTSIDE_GEOFENCE' : isLowAccuracy ? 'LOW_ACCURACY' : 'BIOMETRIC_REQUIRED';
       responseMessage = !isWithinGeofence
         ? `You are not within the school's geofence area. Please move closer to the school and try again.`
-        : `Your GPS accuracy (±${Math.round(accuracy_meters)}m) is too imprecise to verify. Move to an open area and try again.`;
+        : isLowAccuracy
+          ? `Your GPS accuracy (±${Math.round(accuracy_meters)}m) is too imprecise to verify. Move to an open area and try again.`
+          : 'Please confirm with your fingerprint before verifying location.';
     } else if (validationStatus === 'pending') {
       reasonCode = 'PENDING_REVIEW';
       responseMessage = 'Location recorded but flagged for review. An administrator will verify this shortly.';
@@ -268,9 +308,10 @@ const verifyLocation = async (req, res, next) => {
           latitude, longitude, accuracy_meters, altitude_meters,
           distance_from_school_m, geofence_radius_m, is_within_geofence,
           validation_message, validation_status, flag_reasons,
+          biometric_verified, biometric_credential_id,
           device_id, device_info, ip_address, user_agent,
           session_token_hash, jwt_session_id, timestamp_client, time_drift_seconds
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           parseInt(institutionId),
           posting_id,
@@ -288,6 +329,8 @@ const verifyLocation = async (req, res, next) => {
           validationMessage,
           validationStatus,
           flagReasons.length > 0 ? JSON.stringify(flagReasons) : null,
+          biometricVerified ? 1 : 0,
+          biometricCredentialId,
           deviceHash,
           device_info ? JSON.stringify(device_info) : null,
           req.ip || req.connection?.remoteAddress || null,
@@ -331,6 +374,8 @@ const verifyLocation = async (req, res, next) => {
         validation_status: validationStatus,
         flag_reasons: flagReasons,
         reason_code: reasonCode,
+        biometric_required: biometricRequired,
+        biometric_verified: biometricVerified,
         hint:
           validationStatus === 'rejected' && !isWithinGeofence
             ? `You need to be within ${geofenceRadius}m of the school. Current distance: ${Math.round(distanceFromSchool)}m`
