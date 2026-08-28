@@ -267,8 +267,8 @@ export function LocationVerification({
                 <p className="font-medium text-amber-800">Fingerprint Verification Not Available</p>
                 <p className="mt-1 text-sm text-amber-700">
                   This device doesn&apos;t support fingerprint or face verification, so you can&apos;t
-                  complete this institution&apos;s check-in requirement here. Contact your Head of TP+
-                  to be exempted from this requirement, or use a device with a fingerprint/face sensor.
+                  complete this institution&apos;s check-in requirement here. Use a device with a 
+                  fingerprint/face sensor or contact your Head of TP
                 </p>
               </div>
             </div>
