@@ -113,7 +113,7 @@ const getRegistrationOptions = async (req, res, next) => {
       userName: req.user.email || req.user.name || `user-${userId}`,
       excludeCredentials: existingCredentials.map((c) => ({
         credential_id: c.credential_id,
-        transports: c.transports ? JSON.parse(c.transports) : undefined,
+        transports: c.transports || undefined,
       })),
     });
 
@@ -203,7 +203,7 @@ const getAuthenticationOptions = async (req, res, next) => {
     const options = await webauthnService.buildAuthenticationOptions(req, {
       allowCredentials: credentials.map((c) => ({
         credential_id: c.credential_id,
-        transports: c.transports ? JSON.parse(c.transports) : undefined,
+        transports: c.transports || undefined,
       })),
     });
 
@@ -246,7 +246,7 @@ const verifyAuthentication = async (req, res, next) => {
         credential_id: credential.credential_id,
         public_key: credential.public_key,
         counter: credential.counter,
-        transports: credential.transports ? JSON.parse(credential.transports) : undefined,
+        transports: credential.transports || undefined,
       },
     });
 

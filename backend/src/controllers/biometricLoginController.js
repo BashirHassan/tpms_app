@@ -123,9 +123,7 @@ const getEnrollmentOptions = async (req, res, next) => {
     if (req.user.biometric_login_credential_id) {
       excludeCredentials.push({
         credential_id: req.user.biometric_login_credential_id,
-        transports: req.user.biometric_login_transports
-          ? JSON.parse(req.user.biometric_login_transports)
-          : undefined,
+        transports: req.user.biometric_login_transports || undefined,
       });
     }
 
@@ -240,9 +238,7 @@ const getLoginOptions = async (req, res, next) => {
       allowCredentials: [
         {
           credential_id: user.biometric_login_credential_id,
-          transports: user.biometric_login_transports
-            ? JSON.parse(user.biometric_login_transports)
-            : undefined,
+          transports: user.biometric_login_transports || undefined,
         },
       ],
     });
@@ -285,9 +281,7 @@ const verifyLogin = async (req, res, next) => {
         credential_id: user.biometric_login_credential_id,
         public_key: user.biometric_login_public_key,
         counter: user.biometric_login_counter,
-        transports: user.biometric_login_transports
-          ? JSON.parse(user.biometric_login_transports)
-          : undefined,
+        transports: user.biometric_login_transports || undefined,
       },
     });
 
