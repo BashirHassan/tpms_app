@@ -764,42 +764,33 @@ const previewAutoPosting = async (req, res, next) => {
 
     // Get data
     const supervisors = await getEligibleSupervisors(institutionId, session_id, priority_enabled, faculty_id, filters);
-    let slots = await getAvailableSlots(institutionId, session_id, filters);
+    const slots = await getAvailableSlots(institutionId, session_id, filters);
     const schoolHistory = await getSupervisorSchoolHistory(institutionId, session_id);
     const deanAllocation = await getDeanAllocation(institutionId, session_id, req.user);
 
-    // Explicit visit numbers narrow the slot pool exactly (including non-contiguous
-    // selections like [1,3]); the engine's own numberOfPostings argument still keeps
-    // its "up to N" contiguous semantics, so we pass the max as a harmless bound -
-    // the array it filters is already restricted to only the selected visits.
-    let effectiveNumberOfPostings = number_of_postings;
-    if (filters.visitNumbers.length > 0) {
-      slots = slots.filter((s) => filters.visitNumbers.includes(s.visit_number));
-      effectiveNumberOfPostings = Math.max(...filters.visitNumbers);
-    }
-
     // Log for debugging
-    console.log(`[Auto-Post Preview] visits_to_include=${effectiveNumberOfPostings}, total_slots=${slots.length}, supervisors=${supervisors.length}`);
+    console.log(`[Auto-Post Preview] visits_to_include=${number_of_postings}, total_slots=${slots.length}, supervisors=${supervisors.length}`);
 
-    // Run algorithm (dry run)
+    // Run algorithm (dry run). An explicit visit selection (including non-contiguous
+    // sets like [1,3]) is handled natively by the engine, which supersedes the
+    // "visits 1 through N" shorthand when given.
     const result = runAutoPostingAlgorithm(
       supervisors,
       slots,
-      effectiveNumberOfPostings,
+      number_of_postings,
       posting_type,
       priority_enabled,
       {
         avoidRepeatSchools: avoid_repeat_schools,
         schoolHistory,
         maxAssignments: deanAllocation ? deanAllocation.remaining : Infinity,
+        visitNumbers: filters.visitNumbers,
       }
     );
 
-    // Calculate filtered slots count for display (slots for selected visits only)
-    const filteredSlotsCount =
-      filters.visitNumbers.length > 0
-        ? slots.length // already filtered to exactly the selected visits
-        : slots.filter(s => s.visit_number <= number_of_postings).length;
+    // Slots the run actually considered - the engine decides visit eligibility, so this
+    // is read back from it rather than recomputed here where the two could drift apart
+    const filteredSlotsCount = result.statistics.filtered_slots_count;
 
     res.json({
       success: true,
@@ -808,7 +799,7 @@ const previewAutoPosting = async (req, res, next) => {
         // A number for a plain 1..N run, or the exact array when specific visits were chosen -
         // callers that need to display this should handle both shapes (see describeVisits on
         // the frontend)
-        visits_included: filters.visitNumbers.length > 0 ? filters.visitNumbers : number_of_postings,
+        visits_included: result.statistics.visits_included,
         total_supervisors: supervisors.length,
         total_available_slots: filteredSlotsCount, // Show only slots for selected visits
         total_all_slots: slots.length, // Total including all visits
@@ -862,7 +853,7 @@ const executeAutoPosting = async (req, res, next) => {
 
     // Get data
     const supervisors = await getEligibleSupervisors(institutionId, session_id, priority_enabled, faculty_id, filters);
-    let slots = await getAvailableSlots(institutionId, session_id, filters);
+    const slots = await getAvailableSlots(institutionId, session_id, filters);
     const schoolHistory = await getSupervisorSchoolHistory(institutionId, session_id);
     const deanAllocation = await getDeanAllocation(institutionId, session_id, req.user);
     const maxPostingsPerSupervisor = await getMaxPostingsPerSupervisor(institutionId, session_id);
@@ -873,25 +864,20 @@ const executeAutoPosting = async (req, res, next) => {
       );
     }
 
-    // Explicit visit numbers narrow the slot pool exactly (including non-contiguous
-    // selections like [1,3]); see previewAutoPosting for the full rationale.
-    let effectiveNumberOfPostings = number_of_postings;
-    if (filters.visitNumbers.length > 0) {
-      slots = slots.filter((s) => filters.visitNumbers.includes(s.visit_number));
-      effectiveNumberOfPostings = Math.max(...filters.visitNumbers);
-    }
-
-    // Run algorithm
+    // Run algorithm. An explicit visit selection (including non-contiguous sets like
+    // [1,3]) is handled natively by the engine, which supersedes the "visits 1
+    // through N" shorthand when given.
     const result = runAutoPostingAlgorithm(
       supervisors,
       slots,
-      effectiveNumberOfPostings,
+      number_of_postings,
       posting_type,
       priority_enabled,
       {
         avoidRepeatSchools: avoid_repeat_schools,
         schoolHistory,
         maxAssignments: deanAllocation ? deanAllocation.remaining : Infinity,
+        visitNumbers: filters.visitNumbers,
       }
     );
 

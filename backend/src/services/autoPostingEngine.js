@@ -14,7 +14,7 @@
  *   HARD  supervisor capacity a supervisor never exceeds remaining_slots
  *   HARD  dean ceiling      total assignments capped when a dean allocation applies
  *   HARD  eligible inputs   only supplied supervisors/slots are ever used
- *   HARD  valid visits      only slot.visit_number <= numberOfPostings is eligible
+ *   HARD  valid visits      only a selected visit_number is eligible
  *   STRONG priority         when enabled, senior tiers systematically receive the
  *                           harder/farther geographical work; inversions minimized
  *   STRONG LGA/route cohesion a supervisor's slots for one visit stay in one area
@@ -120,6 +120,32 @@ function clusterKeyFor(slot, postingType) {
   return null;
 }
 
+/**
+ * Human-readable label for the visits a run covers.
+ * An array means an explicit selection ('Visit 2', 'Visits 1, 3'); a number keeps
+ * the "visits 1 through N" shorthand.
+ */
+function describeVisits(visitsIncluded) {
+  if (Array.isArray(visitsIncluded)) {
+    return visitsIncluded.length === 1
+      ? `Visit ${visitsIncluded[0]}`
+      : `Visits ${visitsIncluded.join(', ')}`;
+  }
+  return visitsIncluded > 1 ? `Visit 1 through ${visitsIncluded}` : 'Visit 1';
+}
+
+/**
+ * Normalizes a visit-eligibility test to a predicate function. Existing callers
+ * (and tests) pass a plain number meaning "<= this"; the engine's own internals
+ * pass a resolved predicate directly once an explicit visitNumbers selection is
+ * in play, so both forms are accepted everywhere a visit filter is expected.
+ */
+function toVisitFilter(visitFilterOrNumber) {
+  return typeof visitFilterOrNumber === 'function'
+    ? visitFilterOrNumber
+    : (v) => v <= visitFilterOrNumber;
+}
+
 // ============================================================================
 // SEEDED SHUFFLE (deterministic-but-random tie-breaking)
 //
@@ -189,7 +215,8 @@ function buildShuffledRank(ids, seed) {
  * Unknown geography/priority is defaulted but explicitly flagged so it never
  * silently masquerades as "genuinely nearby" or "genuinely senior".
  */
-function normalizeInput(supervisors, slots, numberOfPostings, options) {
+function normalizeInput(supervisors, slots, visitFilterOrNumber, options) {
+  const visitFilter = toVisitFilter(visitFilterOrNumber);
   const warnings = [];
 
   const normSupervisors = supervisors.map((s) => ({
@@ -220,7 +247,7 @@ function normalizeInput(supervisors, slots, numberOfPostings, options) {
 
   let unknownDistanceCount = 0;
   const normSlots = dedupedSlots
-    .filter((s) => s.visit_number <= numberOfPostings)
+    .filter((s) => visitFilter(s.visit_number))
     .map((s) => {
       const distanceKnown = s.distance_km != null && Number.isFinite(Number(s.distance_km));
       if (!distanceKnown) unknownDistanceCount++;
@@ -901,7 +928,7 @@ function scoreCandidate(assignments, ctx) {
     assignments,
     supervisors,
     ctx.slots,
-    ctx.numberOfPostings,
+    ctx.visitFilter,
     ctx.maxAssignments
   ).violations;
 
@@ -1748,8 +1775,12 @@ function equalizeWorkload(assignments, supervisorModel, tiers, postingType, avoi
  * (normalized) supervisors/slots so this never trusts the optimizer's own
  * bookkeeping - spec requirement: "do not trust the algorithm's own bookkeeping
  * to prove correctness."
+ *
+ * @param {Function|number} visitFilterOrNumber - either a (visit_number) => boolean
+ *   predicate, or a plain number meaning "<= this" (legacy numberOfPostings form)
  */
-function validateSolution(assignments, supervisors, slots, numberOfPostings, maxAssignments) {
+function validateSolution(assignments, supervisors, slots, visitFilterOrNumber, maxAssignments) {
+  const visitFilter = toVisitFilter(visitFilterOrNumber);
   const violations = [];
 
   const slotIndex = new Set(slots.map((s) => `${s.school_id}-${s.group_number}-${s.visit_number}`));
@@ -1778,8 +1809,8 @@ function validateSolution(assignments, supervisors, slots, numberOfPostings, max
       violations.push({ type: 'invalid_supervisor_reference', message: `Assignment references unsupplied supervisor ${a.supervisor_id}`, assignment: a });
     }
 
-    if (a.visit_number > numberOfPostings) {
-      violations.push({ type: 'visit_out_of_range', message: `visit_number ${a.visit_number} exceeds ${numberOfPostings}`, assignment: a });
+    if (!visitFilter(a.visit_number)) {
+      violations.push({ type: 'visit_out_of_range', message: `visit_number ${a.visit_number} is not part of this run's visit selection`, assignment: a });
     }
 
     perSupervisor.set(a.supervisor_id, (perSupervisor.get(a.supervisor_id) || 0) + 1);
@@ -1803,7 +1834,8 @@ function validateSolution(assignments, supervisors, slots, numberOfPostings, max
  * Deterministically drop the minimum set of offending assignments to restore
  * feasibility, then re-validate once as a backstop.
  */
-function repairSolution(assignments, supervisors, slots, numberOfPostings, maxAssignments) {
+function repairSolution(assignments, supervisors, slots, visitFilterOrNumber, maxAssignments) {
+  const visitFilter = toVisitFilter(visitFilterOrNumber);
   let working = [...assignments];
 
   // Duplicates: keep the first occurrence, drop later ones
@@ -1819,7 +1851,7 @@ function repairSolution(assignments, supervisors, slots, numberOfPostings, maxAs
   const slotIndex = new Set(slots.map((s) => `${s.school_id}-${s.group_number}-${s.visit_number}`));
   const supervisorIds = new Set(supervisors instanceof Map ? [...supervisors.keys()] : supervisors.map((s) => s.id));
   working = working.filter(
-    (a) => slotIndex.has(assignmentSlotKey(a)) && supervisorIds.has(a.supervisor_id) && a.visit_number <= numberOfPostings
+    (a) => slotIndex.has(assignmentSlotKey(a)) && supervisorIds.has(a.supervisor_id) && visitFilter(a.visit_number)
   );
 
   // Over-capacity: drop the supervisor's most-recently-added assignments first
@@ -1844,7 +1876,7 @@ function repairSolution(assignments, supervisors, slots, numberOfPostings, maxAs
     working = working.slice(0, maxAssignments);
   }
 
-  const revalidated = validateSolution(working, supervisors, slots, numberOfPostings, maxAssignments);
+  const revalidated = validateSolution(working, supervisors, slots, visitFilter, maxAssignments);
   if (!revalidated.valid) {
     throw new Error(
       `autoPostingEngine: solution still invalid after repair - ${JSON.stringify(revalidated.violations.slice(0, 3))}`
@@ -1858,7 +1890,7 @@ function repairSolution(assignments, supervisors, slots, numberOfPostings, maxAs
 // PHASE 11 - STATISTICS + WARNINGS
 // ============================================================================
 
-function calculateStatistics(assignments, supervisorModel, slots, numberOfPostings, tiers, priorityEnabled, postingType, extras) {
+function calculateStatistics(assignments, supervisorModel, slots, visitsIncluded, tiers, priorityEnabled, postingType, extras) {
   const {
     quotaSkipped = 0,
     unplacedUnitsCount = 0,
@@ -1949,7 +1981,7 @@ function calculateStatistics(assignments, supervisorModel, slots, numberOfPostin
     supervisors_full: supervisorsWithPostings,
     supervisors_partial: 0,
     supervisors_none: totalSupervisors - supervisorsWithPostings,
-    visits_included: numberOfPostings,
+    visits_included: visitsIncluded,
     filtered_slots_count: slots.length,
 
     avg_postings_per_supervisor: counts.length ? Math.round(counts.reduce((a, b) => a + b, 0) / counts.length) : 0,
@@ -2116,7 +2148,7 @@ function finishResult(assignments, warnings, statistics) {
   return { assignments, warnings, statistics };
 }
 
-function emptyResult(warnings, numberOfPostings, slotsCount = 0) {
+function emptyResult(warnings, visitsIncluded, slotsCount = 0) {
   const statistics = {
     total_assignments: 0,
     total_schools: 0,
@@ -2125,7 +2157,7 @@ function emptyResult(warnings, numberOfPostings, slotsCount = 0) {
     supervisors_full: 0,
     supervisors_partial: 0,
     supervisors_none: 0,
-    visits_included: numberOfPostings,
+    visits_included: visitsIncluded,
     filtered_slots_count: slotsCount,
     avg_postings_per_supervisor: 0,
     min_postings: 0,
@@ -2167,13 +2199,17 @@ function emptyResult(warnings, numberOfPostings, slotsCount = 0) {
  *
  * @param {Array} supervisors - Eligible supervisors with remaining_slots and priority_number
  * @param {Array} slots - Available slots (school+group+visit combinations)
- * @param {number} numberOfPostings - Highest visit number to include (1 = Visit 1 only)
+ * @param {number} numberOfPostings - Highest visit number to include (1 = Visit 1 only);
+ *   superseded by options.visitNumbers when that is given
  * @param {string} postingType - 'random' | 'route_based' | 'lga_based'
  * @param {boolean} priorityEnabled - Pair higher ranks with harder/farther geographical work
  * @param {Object} [options]
  * @param {boolean} [options.avoidRepeatSchools=true]
  * @param {Map}     [options.schoolHistory] - Map<supervisor_id, Set<school_id>> already covered
  * @param {number}  [options.maxAssignments] - Hard ceiling (dean allocation)
+ * @param {number[]} [options.visitNumbers] - Exact visits to fill. When set it replaces the
+ *   "visits 1 through numberOfPostings" shorthand, so a run can target Visit 2 alone, or a
+ *   non-contiguous set, without disturbing the others.
  * @param {Object}  [options.limits] - { maxPasses, maxComparisons, maxMoveDCount }
  * @returns {{assignments: Array, warnings: Array, statistics: Object}}
  */
@@ -2182,41 +2218,47 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
     avoidRepeatSchools = true,
     schoolHistory = new Map(),
     maxAssignments = Infinity,
+    visitNumbers = [],
     limits = {},
   } = options;
 
+  // An explicit visit selection wins over the "visits 1 through N" shorthand, so a
+  // run can fill Visit 2 alone, or a non-contiguous set, without disturbing others.
+  const selectedVisits =
+    Array.isArray(visitNumbers) && visitNumbers.length > 0
+      ? [...new Set(visitNumbers.map(Number))].sort((a, b) => a - b)
+      : null;
+  const visitsIncluded = selectedVisits ?? numberOfPostings;
+  const visitFilter = selectedVisits ? (v) => selectedVisits.includes(v) : (v) => v <= numberOfPostings;
+
   if (supervisors.length === 0) {
-    return emptyResult(['No eligible supervisors available'], numberOfPostings, 0);
+    return emptyResult(['No eligible supervisors available'], visitsIncluded, 0);
   }
   if (slots.length === 0) {
-    return emptyResult(['No available slots to assign'], numberOfPostings, 0);
+    return emptyResult(['No available slots to assign'], visitsIncluded, 0);
   }
 
-  const preFilterEligible = slots.filter((s) => s.visit_number <= numberOfPostings);
+  const preFilterEligible = slots.filter((s) => visitFilter(s.visit_number));
   if (preFilterEligible.length === 0) {
-    return emptyResult(
-      [`No available slots for Visit 1${numberOfPostings > 1 ? ` through ${numberOfPostings}` : ''}`],
-      numberOfPostings,
-      0
-    );
+    return emptyResult([`No available slots for ${describeVisits(visitsIncluded)}`], visitsIncluded, 0);
   }
   if (maxAssignments <= 0) {
     return emptyResult(
       ['No postings could be created - the posting allocation for this session is exhausted'],
-      numberOfPostings,
+      visitsIncluded,
       preFilterEligible.length
     );
   }
 
   // ---- Phase 1: normalize ----
-  const normalized = normalizeInput(supervisors, slots, numberOfPostings, options);
+  const normalized = normalizeInput(supervisors, slots, visitFilter, options);
   const eligibleSlots = normalized.slots;
   const upstreamWarnings = normalized.warnings;
 
   if (eligibleSlots.length === 0) {
     return emptyResult(
-      [...upstreamWarnings, `No available slots for Visit 1${numberOfPostings > 1 ? ` through ${numberOfPostings}` : ''}`],
-      numberOfPostings,
+      [...upstreamWarnings, `No available slots for ${describeVisits(visitsIncluded)}`],
+      visitsIncluded,
       0
     );
   }
@@ -2249,7 +2291,7 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
 
   const scoringCtx = {
     slots: eligibleSlots,
-    numberOfPostings,
+    visitFilter,
     maxAssignments: Number.isFinite(maxAssignments) ? maxAssignments : eligibleSlots.length,
     postingType,
     eligibleSlotCount: eligibleSlots.length,
@@ -2339,7 +2381,7 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
     finalAssignments,
     baseSupervisorModel.byId,
     eligibleSlots,
-    numberOfPostings,
+    visitFilter,
     scoringCtx.maxAssignments
   );
   if (!validation.valid) {
@@ -2347,7 +2389,7 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
       finalAssignments,
       baseSupervisorModel.byId,
       eligibleSlots,
-      numberOfPostings,
+      visitFilter,
       scoringCtx.maxAssignments
     );
   }
@@ -2392,7 +2434,7 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
     finalAssignments,
     baseSupervisorModel,
     eligibleSlots,
-    numberOfPostings,
+    visitsIncluded,
     winner.tiers,
     priorityEnabled,
     postingType,
@@ -2412,6 +2454,7 @@ module.exports = {
   runAutoPostingAlgorithm,
   // Small math/geography helpers
   clusterKeyFor,
+  describeVisits,
   standardDeviation,
   correlation,
   calculateGeographyDifficulty,

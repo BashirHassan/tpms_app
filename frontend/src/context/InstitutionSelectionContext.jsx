@@ -14,7 +14,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { createFeaturesApi } from '../api/features';
 import { setCurrentInstitutionId } from '../api/client';
-import { applyBrandingColors, removeBrandingColors } from '../utils/colorGenerator';
 
 /**
  * @typedef {'NOT_SELECTED' | 'SELECTED' | 'LOADING'} InstitutionStatus
@@ -101,7 +100,6 @@ export function InstitutionSelectionProvider({ children, user }) {
       setInstitution(null);
       setStatus('NOT_SELECTED');
       setCurrentInstitutionId(null);
-      removeBrandingColors();
       return null;
     }
 
@@ -111,10 +109,9 @@ export function InstitutionSelectionProvider({ children, user }) {
     // Update cached institution ID for API calls
     setCurrentInstitutionId(institutionData.id);
 
-    // Apply institution branding
-    if (institutionData.primary_color) {
-      applyBrandingColors(institutionData.primary_color, institutionData.secondary_color);
-    }
+    // Note: branding CSS variables are owned by InstitutionContext (subdomain-driven,
+    // stays mounted across login/logout) - don't touch them here, or logout leaves
+    // pages on the Tailwind config's hardcoded fallback color until a refresh.
 
     // Load features for this institution (non-blocking)
     loadFeatures(institutionData.id);
@@ -130,7 +127,6 @@ export function InstitutionSelectionProvider({ children, user }) {
     setStatus('NOT_SELECTED');
     setFeatureToggles([]);
     setCurrentInstitutionId(null);
-    removeBrandingColors();
   }, []);
 
   /**

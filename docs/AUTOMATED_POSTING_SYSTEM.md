@@ -12,13 +12,44 @@ This document outlines the implementation of an **automated posting system** tha
 
 ### Key Features
 
-1. **Number of Postings** - How many primary postings each supervisor receives
+1. **Number of Postings** - How many primary postings each supervisor receives, or an exact set of visits via `visit_numbers`
 2. **Posting Type** - Random, Route-based, or LGA-based distribution
-3. **Priority System** - Higher-ranked supervisors get priority and longest distances
-4. **Round-Robin Allocation** - Fair distribution with visits exhausted in order:
-   - All Visit 1 slots are filled across all schools before any Visit 2
-   - Schools are distributed serially within each visit round
-   - Supervisors are assigned round-robin (each gets 1 posting before any gets 2)
+3. **Priority System** - Higher-ranked supervisors systematically receive the harder/farther geographical work
+4. **Deterministic, lexicographically-optimized allocation** - not round-robin: the engine builds several candidate solutions and refines the best one with bounded local search (see "The Allocation Engine" below)
+5. **Scoped Runs** - Narrow a run to some supervisors and some places, so a posting round can be worked in pieces instead of one institution-wide batch
+
+### Scoped Runs
+
+A posting round rarely arrives all at once: acceptances come in state by state, and one
+faculty's supervisors are ready before the rest. A run can therefore be narrowed on any
+combination of:
+
+| Scope | Effect |
+|-------|--------|
+| **Supervisors** | Only the named supervisors are considered |
+| **Faculty** | Narrows the supervisor pool |
+| **States** | Only schools in those states |
+| **LGAs** | Only those LGAs, each identified together with its state |
+| **Routes** | Only schools on those routes |
+| **Visits** | Exact visits to fill (e.g. Visit 2 alone, or a non-contiguous set like [1, 3]), overriding "visits 1 through N" |
+
+**Every list is optional, and an empty list means "no narrowing"** - a run with nothing
+selected behaves exactly as it did before scoping existed. `GET /auto-posting/options`
+reports every picker's counts from the currently eligible, unscoped pool, so the wizard
+never offers an area with nothing left to fill.
+
+Two properties matter:
+
+- **LGAs are matched as `(state, lga)` pairs**, never as a bare list of names. Several
+  Nigerian states share LGA names, so `ms.lga IN (...)` alone would drag in schools from
+  a state the admin never selected.
+- **A selection that resolves to nothing is an error, not a widening.** Silently ignoring
+  an unresolvable `supervisor_ids` would post the whole institution when the admin asked
+  for three people, so `resolveAutoPostFilters()` throws `ValidationError` instead, naming
+  the offending id(s).
+
+The full scope is persisted into `auto_posting_batches.criteria`, so a disputed or
+rolled-back batch can be read back without guessing what it covered.
 
 ### Posting Type Behavior
 
@@ -32,58 +63,39 @@ This document outlines the implementation of an **automated posting system** tha
 
 ### The Allocation Engine
 
-The allocation strategy lives in `backend/src/services/autoPostingEngine.js` as pure functions - no database access - so it can be reasoned about and unit tested in isolation. The controller only fetches data, applies the dean allocation, and persists the result.
+The allocation strategy lives in `backend/src/services/autoPostingEngine.js` as pure functions - no database access - so it can be reasoned about and unit tested in isolation. The controller only fetches data, applies the dean allocation, and persists the result. This is the same staged pipeline used by the sibling MedeePay-pattern institution, ported onto this project's school/route/LGA data model.
 
-**Constraint hierarchy.** Capacity, slot uniqueness, the dean ceiling, and - when priority is on - the priority tier a slot's distance falls in are *hard*, never violated. Everything else is a weighted penalty, so the engine always returns the best achievable answer rather than refusing to fill a slot:
+**Constraint hierarchy - lexicographic, not a weighted sum.** Earlier revisions of this engine scored a solution with a weighted cost sum (see history below). The current engine instead compares candidate solutions field-by-field, in this fixed priority order, and the *first* field that differs decides the winner - a tiny travel improvement can never buy back a broken priority ordering or a worse repeat count:
 
-| Weight | Constraint | Meaning |
-| --- | --- | --- |
-| 2000 | `repeat` | Supervisor already covers this school |
-| 300 | `affinity` | Trip outside the supervisor's area for that visit |
-| 200 | `load` | Per posting ahead of the least loaded peer |
-| 1 | `travel` | Distance ahead of the lightest peer (disabled when priority is on) |
+1. **HARD** unassigned slot count
+2. **HARD** hard-constraint violations (slot uniqueness, supervisor capacity, dean ceiling, eligible inputs, valid visits)
+3. **STRONG** priority inversions - count, then severity (a senior tier averaging a *shorter* journey than a junior tier)
+4. **STRONG** cross-LGA/route assignments, then LGA/route fragmentation
+5. **SOFT** repeat-school count
+6. **SOFT** workload imbalance (stddev of per-supervisor posting counts)
+7. **SOFT** travel imbalance (stddev of per-supervisor distance, only compared within an equivalent priority/area group)
 
-There is deliberately no `priority` weight. An earlier design paired rank with distance via a weighted cost term, tuned against the other weights above with a self-correcting feedback loop that boosted it when a reported correlation statistic fell short. In practice it kept losing close comparisons - especially once several supervisors shared a route/LGA - in ways that were hard to fully bound, and real production runs could still come out with a junior rank averaging *more* distance than the most senior one. Priority is now a **hard, deterministic partition** computed once per visit, before the weighted terms below ever run: rank the distinct priority tiers present, rank the distance (whole route/LGA aggregate for `route_based`/`lga_based`, individual slot for `random`), and divide the distance ranking into bands sized by each tier's *share of total supervisor capacity* (not an equal split - an 8-supervisor senior tier and a 28-supervisor mid tier get proportionally different shares). The most senior band owns the longest distances by construction, so there is nothing left to tune. See `computePriorityTiers` / `assignUnitsToTiers` / `spilloverOrder` in `autoPostingEngine.js`.
+**Multiple deterministic candidates.** Rather than one greedy pass, the engine builds five differently-ordered initial solutions (hardest-difficulty-first, largest-demand-first, hardest-to-fit-first, highest-priority-tier-first, visit-balanced) and keeps whichever scores best on the hierarchy above. Priority tiers (grouped by `ranks.priority_number`) get first claim on the geographically hardest work, in proportion to their share of total capacity - so a small senior tier isn't skipped just because a unit doesn't fit it whole; it's given as much as it can take, with the genuine leftover spilling to the next most-senior tier before ever reaching a junior one.
 
-**Cluster planning.** For `route_based` / `lga_based`, the engine first decides which area each supervisor works on each visit, and - when priority is on - which priority tier owns each area. Within a tier, that tier's own areas get seats in proportion to their size (farthest area first, when a tier's capacity can't cover every area it owns), supervisors are seated to minimise the school repeats it would force, and a pairwise pass swaps areas between supervisors of the *same* tier while the total falls. An area a tier genuinely can't seat (fewer members than areas it owns) spills to a neighbouring tier - a more senior one first, since that can never invert the intended rank ordering, falling to a junior tier only as a last resort.
+**Constrained local improvement.** The winning candidate is then refined by four named, hierarchy-validated moves - reassign one slot within a unit (Move A), swap two supervisors' full allocations within a unit (Move B), exchange whole-unit ownership between two same-tier supervisors (Move C), and a bounded cross-tier exchange that only ever shrinks an existing priority inversion (Move D). Every move is accepted only when it is not lexicographically worse than what it replaces, and A-C never cross a priority tier boundary.
 
-Without this stage the greedy always finds an idle supervisor cheapest, because their load term is zero, and the areas scatter. That is precisely how the earlier round-robin implementation behaved despite this document promising otherwise.
+**Dedicated equalization passes.** Two further passes run after local search: `equalizeTravel` narrows the spread of cumulative distance per supervisor by peeling a busy supervisor's costliest assignment onto the least-loaded compatible peer without ever creating a new out-of-area trip; `equalizeWorkload` narrows the posting-count spread to at most 3, preferring a same-tier donor/receiver pair and falling back to a short cross-tier top-up only when necessary.
 
-**Load is measured within the planned area, and within the eligible priority tier.** The plan settles balance *between* areas; charging a supervisor for getting ahead of someone working a different area (or a different priority tier) would push them out of their own, leaking a route's last few schools - or, worse, letting a poorer-matched supervisor from another tier absorb it instead.
+**Authoritative validation.** A final pass re-derives every hard constraint from the assignments alone - never trusting the optimizer's own running counters - and deterministically repairs (drops the minimum offending assignments) if anything still fails.
 
-**Assignment happens in two rounds.** A slot's eligible candidates are hard-restricted to the priority tier that owns its distance bucket, with spillover to a neighbouring tier allowed only when that tier is genuinely out of capacity. Naively allowing spillover in the same pass slots are otherwise processed in can let an early-processed area's overflow consume capacity that a later area's rightful tier still needs - most visible across combined multi-visit runs, where a supervisor's total capacity is shared across every visit's own area. Round 1 gives every area first claim on its own tier's capacity, in full, before anyone may draw on a neighbouring tier at all; round 2 then handles only what's left, with spillover allowed.
-
-**Local search.** A bounded pass then swaps the supervisors of two assignments whenever the total cost strictly falls, never across a priority tier boundary (that would undo the deterministic bucket assignment). Because a swap only exchanges who goes where, posting counts and capacity are untouched by construction, so the hard constraints survive optimisation automatically. Only penalised assignments are considered as swap candidates, and each swap is evaluated with an exact local delta rather than a global rebuild.
-
-### Measured Effect
-
-200 supervisors, 400 schools, 12 routes, 3 visits (1200 slots):
-
-| Metric | Round-robin | Engine |
-| --- | --- | --- |
-| School repeats | 800 | **0** |
-| Out-of-area trips (route_based) | 600 | **0** |
-| Posting count spread | 0 | 0–2 |
-| Travel spread (route_based) | 690 km | **345 km** |
-| Mean journey, most senior rank | - | 75.3 km |
-| Mean journey, most junior rank | - | 42.4 km |
-| Runtime | ~20 ms | ~275 ms |
-
-Posting counts stay level across rank bands (174 vs 168) while mean journey length falls monotonically with seniority - fair workload, distance allocated by rank.
+**Visit selection.** `visit_numbers` (an exact, possibly non-contiguous set of visits, e.g. `[1, 3]`) is understood natively by the engine via `options.visitNumbers`, and supersedes the `number_of_postings` "visits 1 through N" shorthand when given. `statistics.visits_included` mirrors back whichever form was used (a number for the shorthand, the array for an explicit selection) so the dialog can render either.
 
 ### Reported Statistics
 
-Both preview and execute return, alongside the counts:
+Both preview and execute return, alongside the legacy counts kept for the dialog (`affinity_breaks`, `repeat_school_assignments` / `repeat_school_details`, `load { min, max, stddev }`, `travel_km { min, max, mean }`, `distance_by_rank`, `local_search { swaps_applied, passes, cost_before, cost_after }`, `quota_skipped`, `data_quality`), a richer set of fields from the engine:
 
-- `affinity_breaks` - trips outside the supervisor's area for that visit
-- `repeat_school_assignments` / `repeat_school_details`
-- `load` - `{ min, max, stddev }` postings per supervisor
-- `travel_km` - `{ min, max, mean }` per supervisor
-- `distance_by_rank` - mean journey per rank band, the readable proof seniority is honoured
-- `priority_correlation` - pure reporting/QA metric (negated Pearson correlation between rank and distance); since priority is now a deterministic bucket assignment rather than a tuned weight, this proves the bucketing worked instead of driving anything
-- `local_search` - `{ swaps_applied, passes, cost_before, cost_after }`
-- `quota_skipped` - slots dropped because a dean's allocation did not cover them
-- `data_quality` - supervisors with no rank, schools with no distance
+- `workload` / `travel` - full distribution (`min`, `max`, `mean`, `median`, `standard_deviation`)
+- `repeats` - `{ count, rate, unavoidable_count }`
+- `geography` - `{ cross_lga_assignments, cross_route_assignments, fragmented_assignments, unplaced_units }`
+- `priority` - `{ enabled, inversion_count, inversion_severity, tier_overlap, monotonicity_score, tiers }`
+- `optimization` - `{ strategy, candidate_solutions, improvement_passes, moves_applied: { A, B, C, D }, travel_equalization_moves, budget_exhausted }`
+
+`local_search.cost_before` / `cost_after` remain for display continuity - they are a diagnostic scalarization of the objective vector (huge, strictly descending coefficients per field, so it can never mask a regression in a higher-priority field) and are never what the engine itself decides on.
 
 ### Dean Posting Allocation
 
@@ -95,15 +107,17 @@ A supervisor is posted to a given school **at most once per session** - across a
 
 How it is enforced in `runAutoPostingAlgorithm`:
 
-1. **History is seeded from the database.** `getSupervisorSchoolHistory()` builds `Map<supervisor_id, Set<institution_school_id>>` from every non-cancelled posting in the session - manual postings, earlier auto-posting batches, and merged/dependent postings all count.
-2. **Pass 1 (preferred).** For each slot, the round-robin scan skips any supervisor who already covers that school and takes the next one who has capacity and does not.
-3. **Pass 2 (last resort).** If *no* supervisor is free of that school, the slot goes to the least loaded supervisor with capacity, so unavoidable repeats are spread out rather than piled on one person. The assignment is flagged `repeat_school: true`.
-4. **Repair pass.** Greedy first-fit can create a repeat that a straight swap would remove. Two assignments exchange *only* their supervisor (each slot keeps its own school/group/visit, so posting counts and capacity are untouched) whenever each supervisor is entirely free of the other's school - which guarantees the total repeat count strictly decreases.
-5. **Reporting.** `statistics.repeat_school_assignments` and `statistics.repeat_school_details` are returned by both preview and execute, and surfaced in the Auto-Post dialog alongside a warning.
+1. **History is seeded from the database.** `getSupervisorSchoolHistory()` builds `Map<supervisor_id, Set<institution_school_id>>` from every non-cancelled posting in the session - manual postings, earlier auto-posting batches, and merged/dependent postings all count. An existing posting therefore counts as the first visit to that school.
+2. **Repeats are a soft objective term, not blocked.** `repeatCount` sits above workload and travel balance in the lexicographic hierarchy, so the engine exhausts every alternative supervisor with capacity before it accepts a solution with a higher repeat count. The slot is still filled rather than dropped.
+3. **Slot assignment avoids them up front.** Within a unit, whichever seated supervisor has the lowest repeat cost for a given school is preferred when the slots are handed out.
+4. **Local search removes the leftovers.** Any assignment still flagged as a repeat is a candidate for Move A/B/C; a reassignment or swap is applied whenever it is not lexicographically worse.
+5. **Reporting.** `statistics.repeat_school_assignments` and `statistics.repeat_school_details` are returned by both preview and execute, and surfaced in the Auto-Post dialog alongside a warning. Only genuinely unavoidable repeats survive - where no other supervisor had capacity.
 
-The round-robin pointer advances past the supervisor that was **chosen**, not on every failed attempt, so supervisors skipped by the school filter keep their place in the queue and distribution stays balanced.
+**Flag:** `avoid_repeat_schools` (boolean, default `true`) on both `/auto-posting/preview` and `/auto-posting/execute`, exposed as the **Avoid Repeating Schools** switch in the dialog. Setting it to `false` passes `avoidRepeatSchools: false` to the engine, so repeats stop being penalised in the objective *and* stop being reported.
 
-**Flag:** `avoid_repeat_schools` (boolean, default `true`) on both `/auto-posting/preview` and `/auto-posting/execute`, exposed as the **Avoid Repeating Schools** switch in the dialog. Set it to `false` to restore the legacy unconstrained round-robin.
+### Access Control
+
+Auto-posting creates postings in bulk across a whole institution, so all five endpoints (`options`, `preview`, `execute`, `history`, `rollback`) are restricted to **`super_admin`**. Heads of TP and deans post manually through the multiposting page instead; the Auto-Post button is hidden for them to match.
 
 ---
 
