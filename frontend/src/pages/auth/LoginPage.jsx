@@ -133,7 +133,7 @@ function LoginPage() {
             <img
               src={branding.logo_url}
               alt={branding.name}
-              className="mx-auto mb-4 h-20 w-20 rounded-2xl bg-white object-contain p-2 shadow-md ring-1 ring-gray-100"
+              className="mx-auto mb-2 h-20 w-20 rounded-2xl object-contain ring-gray-100"
             />
           ) : (
             <div className="mx-auto mb-4 inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-primary-600 shadow-md">
@@ -141,7 +141,7 @@ function LoginPage() {
             </div>
           )}
           <h1 className="text-2xl font-bold text-gray-900">{branding.name}</h1>
-          <p className="mt-1 text-gray-500">{branding.tagline || 'Teaching Practice Management System'}</p>
+          <p className="text-gray-500">{branding.tagline || 'Teaching Practice Management System'}</p>
         </div>
 
         {/* Login Form */}
@@ -202,9 +202,14 @@ function LoginPage() {
             <Input
               type="password"
               label={
-                <span className="flex items-center gap-1.5">
-                  <IconLock className="h-3.5 w-3.5 text-gray-400" />
-                  Password
+                <span className="flex w-full items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <IconLock className="h-3.5 w-3.5 text-gray-400" />
+                    Password
+                  </span>
+                  <Link to="/forgot-password" className="text-xs font-medium text-primary-600 hover:text-primary-700 hover:underline">
+                    Forgot password?
+                  </Link>
                 </span>
               }
               placeholder="Enter your password"
@@ -214,14 +219,7 @@ function LoginPage() {
                 setError('');
               }}
               className="text-base"
-              required
             />
-
-            <div className="flex items-center justify-end">
-              <Link to="/forgot-password" className="text-sm font-medium text-primary-600 hover:text-primary-700 hover:underline">
-                Forgot password?
-              </Link>
-            </div>
 
             <Button
               type="submit"
@@ -243,7 +241,7 @@ function LoginPage() {
         </div>
 
         {/* Footer */}
-        <p className="mt-6 text-center text-xs text-gray-400">
+        <p className="mt-4 text-center text-xs text-gray-400">
           Powered by{' '}
           <a
             href="https://sitsng.com"
