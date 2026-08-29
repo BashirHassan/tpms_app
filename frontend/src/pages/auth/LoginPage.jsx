@@ -136,7 +136,7 @@ function LoginPage() {
               className="mx-auto mb-2 h-20 w-20 rounded-2xl object-contain ring-gray-100"
             />
           ) : (
-            <div className="mx-auto mb-4 inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-primary-600 shadow-md">
+            <div className="mx-auto mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-600 shadow-md">
               <IconSchool className="h-10 w-10 text-white" />
             </div>
           )}
@@ -219,6 +219,7 @@ function LoginPage() {
                 setError('');
               }}
               className="text-base"
+              required
             />
 
             <Button

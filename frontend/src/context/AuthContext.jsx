@@ -18,6 +18,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { authApi } from '../api/auth';
 import { createFeaturesApi } from '../api/features';
+import { clearCachedInstitutionId } from '../api/client';
 import { applyBrandingColors } from '../utils/colorGenerator';
 import {
   getToken,
@@ -83,7 +84,8 @@ export function AuthProvider({ children }) {
         try {
           // Clear any existing auth state before SSO exchange
           prepareForLogin();
-          
+          clearCachedInstitutionId();
+
           const exchangeResponse = await authApi.exchangeSsoToken(ssoToken);
           const exchangeData = exchangeResponse.data.data || exchangeResponse.data;
           token = exchangeData.token;
@@ -208,6 +210,7 @@ export function AuthProvider({ children }) {
       // 🔒 SECURITY: Clear existing auth state before new login
       // This prevents session pollution from previous logins in this tab
       prepareForLogin();
+      clearCachedInstitutionId();
 
       const response = await authApi.login({ email, password });
       const loginData = response.data.data || response.data;
@@ -228,6 +231,7 @@ export function AuthProvider({ children }) {
 
     try {
       prepareForLogin();
+      clearCachedInstitutionId();
       return await applyLoginResult({ token, sessionId });
     } catch (err) {
       const message = err.response?.data?.message || 'Login failed';
@@ -243,6 +247,7 @@ export function AuthProvider({ children }) {
     try {
       // 🔒 SECURITY: Clear existing auth state before new login
       prepareForLogin();
+      clearCachedInstitutionId();
 
       const response = await authApi.studentLogin({ registrationNumber, pin });
       const loginData = response.data.data || response.data;
@@ -264,6 +269,8 @@ export function AuthProvider({ children }) {
     } finally {
       // Clear tab-scoped storage regardless of server response
       clearAuthState();
+      // Prevent a stale institution leaking into the next account logged into this tab
+      clearCachedInstitutionId();
       setUserState(null);
       setInstitution(null);
       setIsGlobalContext(false);

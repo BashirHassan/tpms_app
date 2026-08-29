@@ -102,7 +102,7 @@ function StudentLoginPage() {
             <img
               src={branding.logo_url}
               alt={branding.name}
-              className="mx-auto mb-4 h-20 w-20 rounded-2xl bg-white object-contain p-2 shadow-md ring-1 ring-gray-100"
+              className="mx-auto mb-2 h-20 w-20 rounded-2xl object-contain ring-gray-100"
             />
           ) : (
             <div className="mx-auto mb-4 inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-primary-600 shadow-md">

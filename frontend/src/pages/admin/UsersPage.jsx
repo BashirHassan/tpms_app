@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { usersApi } from '../../api/users';
+import { createUsersApi } from '../../api/users';
 import { ranksApi } from '../../api/ranks';
 import { facultiesApi } from '../../api/academic';
 import { useAuth } from '../../context/AuthContext';
@@ -60,6 +60,12 @@ function UsersPage() {
   const { institutionId } = useInstitutionSelection();
   const canEdit = hasRole(['super_admin', 'head_of_teaching_practice']);
   const isSuperAdmin = currentUser?.role === 'super_admin';
+
+  // Bound to the currently active institution (not the legacy singleton cache)
+  const usersApi = useMemo(
+    () => (institutionId ? createUsersApi(institutionId) : null),
+    [institutionId]
+  );
   
   // Build role options - include super_admin only if current user is super_admin
   const roleOptions = isSuperAdmin 
@@ -121,6 +127,7 @@ function UsersPage() {
 
   // Fetch users with pagination
   const fetchUsers = useCallback(async () => {
+    if (!usersApi) return;
     try {
       setLoading(true);
       const response = await usersApi.getAll({
@@ -140,12 +147,13 @@ function UsersPage() {
     } finally {
       setLoading(false);
     }
-  }, [filterParams, pagination.page, pagination.limit, toast]);
+  }, [usersApi, filterParams, pagination.page, pagination.limit, toast]);
 
   // Export every matching user, not just the loaded page
   const handleExportAll = useMemo(
     () => createExportAllHandler(
       async (page, limit) => {
+        if (!usersApi) return { rows: [], total: 0 };
         const response = await usersApi.getAll({ ...filterParams, page, limit });
         return {
           rows: response.data?.data || [],
@@ -154,7 +162,7 @@ function UsersPage() {
       },
       { onError: () => toast.error('Could not load all pages - exported the current page instead') }
     ),
-    [filterParams, toast]
+    [usersApi, filterParams, toast]
   );
 
   // Fetch ranks for dropdown
@@ -259,6 +267,10 @@ function UsersPage() {
   const handleSave = async () => {
     if (!validateForm()) {
       toast.error('Please fix the form errors');
+      return;
+    }
+    if (!usersApi) {
+      toast.error('No institution selected. Please select an institution first.');
       return;
     }
 
