@@ -16,6 +16,7 @@ import {
   platformAuthenticatorIsAvailable,
 } from '@simplewebauthn/browser';
 import { biometricApi } from '../api';
+import { getOrCreateDeviceId } from '../utils/deviceId';
 
 function mapWebAuthnError(err) {
   if (err?.name === 'NotAllowedError') {
@@ -68,10 +69,12 @@ export function useBiometricAuth() {
       const optionsJSON = optionsResponse.data.data;
 
       const registrationResponse = await startRegistration({ optionsJSON });
+      const deviceId = await getOrCreateDeviceId();
 
       await biometricApi.verifyRegistration({
         response: registrationResponse,
         device_label: deviceLabel,
+        device_id: deviceId,
       });
 
       setHasEnrolledDevice(true);

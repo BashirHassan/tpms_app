@@ -71,17 +71,9 @@ export const locationApi = {
     return client.get(`/${institutionId}/location/admin/stats`, { params });
   },
 
-  /**
-   * Approve or reject a pending/rejected location log
-   * @param {number} logId - The location log ID
-   * @param {Object} data
-   * @param {boolean} data.approve - true to approve (marks posting verified), false to reject
-   * @param {string} data.reason - Reason for the decision (min 10 chars)
-   */
-  overrideLocationValidation: (logId, data) => {
-    const institutionId = getCurrentInstitutionId();
-    return client.patch(`/${institutionId}/location/admin/logs/${logId}/override`, data);
-  },
+  // Intentionally no override endpoint - a flagged/rejected check-in has no admin
+  // approve/reject path. Head of TP has read-only visibility via the two endpoints
+  // above; the supervisor must correct the issue themselves and retry.
 };
 
 export default locationApi;

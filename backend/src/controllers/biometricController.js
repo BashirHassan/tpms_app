@@ -32,6 +32,7 @@ const schemas = {
     body: z.object({
       response: z.record(z.string(), z.any()),
       device_label: z.string().max(255).nullish(),
+      device_id: z.string().max(64).nullish(),
     }),
   }),
   verifyAuthentication: z.object({
@@ -132,11 +133,34 @@ const verifyRegistration = async (req, res, next) => {
   try {
     const { institutionId } = req.params;
     const userId = req.user.id;
-    const { response, device_label } = req.body;
+    const { response, device_label, device_id } = req.body;
 
     const expectedChallenge = await consumeChallenge(userId, 'registration');
     if (!expectedChallenge) {
       throw new ValidationError('Registration challenge expired or not found. Please try again.');
+    }
+
+    // A device id already actively enrolled to a different supervisor means this
+    // physical device would become the "fingerprint" for more than one account -
+    // exactly the mechanism a proxy check-in would rely on. Block it; an admin
+    // must revoke the conflicting credential first (adminRevokeCredential) if the
+    // device has genuinely changed hands.
+    if (device_id) {
+      const [conflict] = await query(
+        `SELECT sbc.user_id, u.name as supervisor_name
+         FROM supervisor_biometric_credentials sbc
+         JOIN users u ON sbc.user_id = u.id
+         WHERE sbc.device_id = ? AND sbc.institution_id = ?
+           AND sbc.revoked_at IS NULL AND sbc.user_id != ?
+         LIMIT 1`,
+        [device_id, parseInt(institutionId), userId]
+      );
+
+      if (conflict) {
+        throw new ValidationError(
+          `This device is already enrolled as ${conflict.supervisor_name}'s biometric device. Ask a Head of TP admin to revoke that enrollment first if this device has changed hands.`
+        );
+      }
     }
 
     const verification = await webauthnService.verifyRegistration(req, {
@@ -152,8 +176,8 @@ const verifyRegistration = async (req, res, next) => {
 
     const result = await query(
       `INSERT INTO supervisor_biometric_credentials
-        (institution_id, user_id, credential_id, public_key, counter, device_label, transports)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (institution_id, user_id, credential_id, public_key, counter, device_label, device_id, transports)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         parseInt(institutionId),
         userId,
@@ -161,6 +185,7 @@ const verifyRegistration = async (req, res, next) => {
         Buffer.from(credential.publicKey).toString('base64'),
         credential.counter,
         device_label || null,
+        device_id || null,
         credential.transports ? JSON.stringify(credential.transports) : null,
       ]
     );

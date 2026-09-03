@@ -163,9 +163,8 @@ const schemas = {
       distance_km: z.number().min(0).optional(),
       student_capacity: z.number().int().min(0).optional(),
       route_id: z.number().int().positive().optional().nullable(),
-      geofence_radius_m: z.number().int().min(50).max(5000).optional(),
       notes: z.string().optional().nullable(),
-      
+
       // Optional: Link to existing master school
       master_school_id: z.number().int().positive().optional(),
     }),
@@ -179,7 +178,6 @@ const schemas = {
       distance_km: z.number().min(0).optional(),
       student_capacity: z.number().int().min(0).optional(),
       route_id: z.number().int().positive().optional().nullable(),
-      geofence_radius_m: z.number().int().min(50).max(5000).optional(),
       status: z.enum(['active', 'inactive']).optional(),
       notes: z.string().optional().nullable(),
     }),
@@ -196,7 +194,6 @@ const schemas = {
       location_category: z.enum(['inside', 'outside']).optional(),
       distance_km: z.number().min(0).optional(),
       student_capacity: z.number().int().min(0).optional(),
-      geofence_radius_m: z.number().int().min(50).max(5000).optional(),
       notes: z.string().optional().nullable(),
     }),
   }),
@@ -251,14 +248,13 @@ const getAll = async (req, res, next) => {
         ms.address,
         isv.distance_km, 
         isv.student_capacity, 
-        ms.principal_name, 
+        ms.principal_name,
         ms.principal_phone,
-        isv.geofence_radius_m, 
-        isv.status, 
-        isv.notes, 
-        isv.created_at, 
+        isv.status,
+        isv.notes,
+        isv.created_at,
         isv.updated_at,
-        r.name as route_name, 
+        r.name as route_name,
         r.code as route_code,
         ST_X(ms.location) as latitude, 
         ST_Y(ms.location) as longitude,
@@ -367,7 +363,7 @@ const getById = async (req, res, next) => {
         ms.state, ms.lga, ms.ward, ms.address,
         isv.distance_km, isv.student_capacity, 
         ms.principal_name, ms.principal_phone,
-        isv.geofence_radius_m, isv.status, isv.notes, 
+        isv.status, isv.notes,
         isv.created_at, isv.updated_at,
         r.name as route_name, r.code as route_code,
         ST_X(ms.location) as latitude, ST_Y(ms.location) as longitude,
@@ -406,7 +402,7 @@ const create = async (req, res, next) => {
       principal_name, principal_phone, latitude, longitude,
       // Institution-specific data
       location_category, distance_km, student_capacity,
-      route_id, geofence_radius_m, notes,
+      route_id, notes,
       // Optional: link to existing master school
       master_school_id
     } = req.body;
@@ -484,8 +480,8 @@ const create = async (req, res, next) => {
       const [linkResult] = await conn.execute(
         `INSERT INTO institution_schools (
           institution_id, master_school_id, route_id,
-          location_category, distance_km, student_capacity, geofence_radius_m, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          location_category, distance_km, student_capacity, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           parseInt(institutionId),
           masterSchoolId,
@@ -493,7 +489,6 @@ const create = async (req, res, next) => {
           location_category || 'outside',
           distance_km || 0,
           student_capacity || 0,
-          geofence_radius_m || 100,
           notes || null
         ]
       );
@@ -509,7 +504,7 @@ const create = async (req, res, next) => {
         ms.state, ms.lga, ms.ward, ms.address,
         isv.distance_km, isv.student_capacity, 
         ms.principal_name, ms.principal_phone,
-        isv.geofence_radius_m, isv.status, isv.notes, 
+        isv.status, isv.notes,
         isv.created_at, isv.updated_at,
         ST_X(ms.location) as latitude, ST_Y(ms.location) as longitude,
         ms.id as master_school_id, ms.is_verified
@@ -538,7 +533,7 @@ const linkSchool = async (req, res, next) => {
     const { institutionId } = req.params;
     const {
       master_school_id, route_id, location_category,
-      distance_km, student_capacity, geofence_radius_m, notes
+      distance_km, student_capacity, notes
     } = req.body;
 
     // Check if master school exists
@@ -567,8 +562,8 @@ const linkSchool = async (req, res, next) => {
     const result = await query(
       `INSERT INTO institution_schools (
         institution_id, master_school_id, route_id,
-        location_category, distance_km, student_capacity, geofence_radius_m, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        location_category, distance_km, student_capacity, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         parseInt(institutionId),
         parseInt(master_school_id),
@@ -576,7 +571,6 @@ const linkSchool = async (req, res, next) => {
         location_category || 'outside',
         distance_km || 0,
         student_capacity || 0,
-        geofence_radius_m || 100,
         notes || null
       ]
     );
@@ -590,7 +584,7 @@ const linkSchool = async (req, res, next) => {
         ms.state, ms.lga, ms.ward, ms.address,
         isv.distance_km, isv.student_capacity, 
         ms.principal_name, ms.principal_phone,
-        isv.geofence_radius_m, isv.status, isv.notes, 
+        isv.status, isv.notes,
         isv.created_at, isv.updated_at,
         ST_X(ms.location) as latitude, ST_Y(ms.location) as longitude,
         ms.id as master_school_id, ms.is_verified
@@ -694,7 +688,6 @@ const update = async (req, res, next) => {
       'location_category': 'location_category',
       'distance_km': 'distance_km',
       'student_capacity': 'student_capacity',
-      'geofence_radius_m': 'geofence_radius_m',
       'status': 'status',
       'notes': 'notes'
     };
@@ -728,7 +721,7 @@ const update = async (req, res, next) => {
         ms.state, ms.lga, ms.ward, ms.address,
         isv.distance_km, isv.student_capacity, 
         ms.principal_name, ms.principal_phone,
-        isv.geofence_radius_m, isv.status, isv.notes,
+        isv.status, isv.notes,
         r.name as route_name,
         ST_X(ms.location) as latitude, ST_Y(ms.location) as longitude,
         ms.id as master_school_id

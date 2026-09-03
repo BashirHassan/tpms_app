@@ -5,10 +5,19 @@
  * Supervisors must verify their GPS location at a school before uploading results.
  *
  * Key Rules:
- * 1. Location must be within school's geofence radius (with an accuracy buffer) to validate
- * 2. Every attempt is logged - validated, pending (soft-fail, needs admin review), or rejected (hard-fail)
- * 3. Device/session reuse across supervisors, and JWT-session/device mismatches, route to 'pending' instead of silently passing
- * 4. Admins bypass location restrictions for result management
+ * 1. Geofence radius and GPS accuracy threshold are session-level settings
+ *    (academic_sessions.geofence_radius_m / supervisor_gps_accuracy_m), not
+ *    per-school - centralized rather than customizable per school.
+ * 2. Every attempt is logged - validated or rejected. There is no 'pending'/admin-
+ *    review path: a supervisor whose check-in fails any check must genuinely
+ *    correct the issue and retry. Nobody, including a Head of TP, can approve or
+ *    vouch for a questionable check-in on a supervisor's behalf.
+ * 3. Device/session reuse across supervisors, and JWT-session/device mismatches,
+ *    hard-reject for the same reason - there is no soft/reviewable outcome.
+ * 4. A coordinate-genuineness signal (identical GPS samples across a capture)
+ *    also hard-rejects. Still a web app trusting navigator.geolocation, not a
+ *    native app with OS-level mock-location attestation.
+ * 5. Admins bypass location restrictions for result management.
  *
  * MedeePay Pattern: Direct SQL with institutionId from route params.
  */
@@ -18,11 +27,9 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 const { query, transaction } = require('../db/database');
-const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const { NotFoundError, ValidationError } = require('../utils/errors');
 const { isFeatureEnabled } = require('../middleware/featureToggle');
 
-// Tunable thresholds. Not yet institution-configurable - revisit after real-world usage data.
-const MAX_ACCEPTABLE_ACCURACY_M = 100;
 const MAX_TIME_DRIFT_SECONDS = 120;
 
 // Validation schemas
@@ -44,16 +51,17 @@ const schemas = {
         })
         .optional(),
       biometric_token: z.string().nullish(),
-    }),
-  }),
-  overrideLocation: z.object({
-    body: z.object({
-      approve: z.boolean(),
-      reason: z.string().min(10, 'Reason must be at least 10 characters'),
-    }),
-    params: z.object({
-      institutionId: z.string(),
-      logId: z.string(),
+      gps_samples: z
+        .array(
+          z.object({
+            latitude: z.number(),
+            longitude: z.number(),
+            accuracy_meters: z.number().nullish(),
+            timestamp: z.string().nullish(),
+          })
+        )
+        .max(20)
+        .optional(),
     }),
   }),
 };
@@ -98,6 +106,21 @@ function generateDeviceHash(req, deviceInfo) {
 }
 
 /**
+ * Flag GPS captures where every sample is bit-for-bit identical. Real GPS
+ * chips jitter slightly between readings even when stationary; several
+ * mock-location tools return the exact same coordinate every time. A minimum
+ * sample count is required so a single throttled duplicate-reading burst some
+ * browsers produce doesn't false-positive.
+ * @param {Array<{latitude: number, longitude: number}>} samples
+ * @returns {boolean}
+ */
+function detectZeroJitter(samples) {
+  if (!Array.isArray(samples) || samples.length < 4) return false;
+  const first = samples[0];
+  return samples.every((s) => s.latitude === first.latitude && s.longitude === first.longitude);
+}
+
+/**
  * Verify supervisor location for a posting
  * POST /:institutionId/location/verify
  */
@@ -114,18 +137,23 @@ const verifyLocation = async (req, res, next) => {
       timestamp_client,
       device_info,
       biometric_token,
+      gps_samples,
     } = req.body;
 
-    // 1. Verify posting belongs to this supervisor and get school coordinates
+    // 1. Verify posting belongs to this supervisor and get school coordinates.
+    // geofence_radius_m/supervisor_gps_accuracy_m are session-level settings
+    // (centralized off the old per-school institution_schools.geofence_radius_m).
     const [posting] = await query(
-      `SELECT sp.*, 
+      `SELECT sp.*,
               ms.name as school_name,
               ST_X(ms.location) as school_longitude,
               ST_Y(ms.location) as school_latitude,
-              isv.geofence_radius_m
+              sess.geofence_radius_m,
+              sess.supervisor_gps_accuracy_m
        FROM supervisor_postings sp
        JOIN institution_schools isv ON sp.institution_school_id = isv.id
        JOIN master_schools ms ON isv.master_school_id = ms.id
+       JOIN academic_sessions sess ON sp.session_id = sess.id
        WHERE sp.id = ? AND sp.institution_id = ? AND sp.supervisor_id = ?`,
       [posting_id, parseInt(institutionId), supervisorId]
     );
@@ -155,10 +183,11 @@ const verifyLocation = async (req, res, next) => {
       posting.school_longitude
     );
 
-    const geofenceRadius = posting.geofence_radius_m || 100;
+    const geofenceRadius = posting.geofence_radius_m;
+    const maxAccuracy = posting.supervisor_gps_accuracy_m;
     const effectiveDistance = Math.max(0, distanceFromSchool - (accuracy_meters || 0));
     const isWithinGeofence = effectiveDistance <= geofenceRadius;
-    const isLowAccuracy = (accuracy_meters || 0) > MAX_ACCEPTABLE_ACCURACY_M;
+    const isLowAccuracy = (accuracy_meters || 0) > maxAccuracy;
 
     // 4. Check for an existing finalized (validated/overridden) verification for this posting
     const [existingVerified] = await query(
@@ -183,7 +212,10 @@ const verifyLocation = async (req, res, next) => {
     const flagReasons = [];
     const deviceHash = generateDeviceHash(req, device_info);
 
-    // 5a. Same device fingerprint used by a different supervisor in the same academic session
+    // 5a. Same device fingerprint used by a different supervisor in the same academic
+    // session. Hard-fail, not a soft flag - there is no admin review path to fall back
+    // on, and a shared device is exactly the "manipulate the record for another person"
+    // scenario this whole feature exists to prevent. Use your own device and retry.
     const deviceUsedByOthers = await query(
       `SELECT DISTINCT sll.supervisor_id, u.name as supervisor_name
        FROM supervision_location_logs sll
@@ -195,13 +227,17 @@ const verifyLocation = async (req, res, next) => {
       [deviceHash, supervisorId, posting.session_id]
     );
 
-    if (deviceUsedByOthers.length > 0) {
+    const sharedDevice = deviceUsedByOthers.length > 0;
+    if (sharedDevice) {
       flagReasons.push('shared_device');
     }
 
     // 5b. Device fingerprint bound to this JWT session (req.sessionId) doesn't match -
     // catches the token being used for the verify call from a different device/browser
-    // than it was issued to. Skip gracefully for legacy tokens without a sessionId.
+    // than it was issued to. Hard-fail for the same reason as 5a. Skip gracefully for
+    // legacy tokens without a sessionId. First use of a session binds the fingerprint
+    // (TOFU) rather than failing - a legitimate fresh login on a new device.
+    let sessionDeviceMismatch = false;
     if (req.sessionId) {
       const [userSession] = await query(
         `SELECT device_fingerprint FROM user_sessions WHERE session_id = ?`,
@@ -215,6 +251,7 @@ const verifyLocation = async (req, res, next) => {
             [deviceHash, req.sessionId]
           );
         } else if (userSession.device_fingerprint !== deviceHash) {
+          sessionDeviceMismatch = true;
           flagReasons.push('session_device_mismatch');
         }
       }
@@ -252,7 +289,9 @@ const verifyLocation = async (req, res, next) => {
       }
     }
 
-    // 5d. Time drift between client-reported and server timestamp
+    // 5d. Time drift between client-reported and server timestamp. Informational only,
+    // not a hard-fail - clock skew is a device-configuration/environmental signal, not
+    // an identity/spoofing one, so it's recorded for audit but doesn't block validation.
     let timeDriftSeconds = null;
     if (timestamp_client) {
       try {
@@ -267,17 +306,34 @@ const verifyLocation = async (req, res, next) => {
       }
     }
 
-    // 5e. Hard-fail reasons
+    // 5e. Genuine-coordinate signal. Still a web app trusting navigator.geolocation,
+    // not a native app with OS-level mock-location attestation - this catches common/
+    // careless spoofing tools, not a sophisticated attacker replaying pre-recorded
+    // jittered coordinates. Hard-fail, consistent with there being no more admin
+    // review path to fall back on for a suspicious reading.
+    const suspiciousZeroJitter = detectZeroJitter(gps_samples);
+    if (suspiciousZeroJitter) flagReasons.push('suspicious_zero_jitter');
+
+    // 5f. Hard-fail reasons
     if (!isWithinGeofence) flagReasons.push('outside_geofence');
     if (isLowAccuracy) flagReasons.push('low_accuracy');
     const biometricFailed = biometricRequired && !biometricVerified;
 
-    // 6. Determine final validation status
-    const hasHardFail = !isWithinGeofence || isLowAccuracy || biometricFailed;
-    const validationStatus = hasHardFail ? 'rejected' : flagReasons.length > 0 ? 'pending' : 'validated';
+    // 6. Determine final validation status. Binary - validated or rejected - because
+    // nothing can resolve a "pending" status anymore (no admin override). A rejected
+    // check-in requires the supervisor to genuinely correct the underlying issue and
+    // retry; there is no in-between state to leave for later review.
+    const hasHardFail =
+      !isWithinGeofence ||
+      isLowAccuracy ||
+      biometricFailed ||
+      sharedDevice ||
+      sessionDeviceMismatch ||
+      suspiciousZeroJitter;
+    const validationStatus = hasHardFail ? 'rejected' : 'validated';
 
     let validationMessage = `Distance from school: ${Math.round(distanceFromSchool)}m`;
-    if (deviceUsedByOthers.length > 0) {
+    if (sharedDevice) {
       const otherNames = deviceUsedByOthers.map((s) => s.supervisor_name).join(', ');
       validationMessage += ` (Note: Device also used by ${otherNames} this session)`;
     }
@@ -285,20 +341,29 @@ const verifyLocation = async (req, res, next) => {
     let reasonCode = 'VALIDATED';
     let responseMessage = 'Location verified successfully.';
     if (validationStatus === 'rejected') {
-      reasonCode = !isWithinGeofence ? 'OUTSIDE_GEOFENCE' : isLowAccuracy ? 'LOW_ACCURACY' : 'BIOMETRIC_REQUIRED';
-      responseMessage = !isWithinGeofence
-        ? `You are not within the school's geofence area. Please move closer to the school and try again.`
-        : isLowAccuracy
-          ? `Your GPS accuracy (±${Math.round(accuracy_meters)}m) is too imprecise to verify. Move to an open area and try again.`
-          : 'Please confirm with your fingerprint before verifying location.';
-    } else if (validationStatus === 'pending') {
-      reasonCode = 'PENDING_REVIEW';
-      responseMessage = 'Location recorded but flagged for review. An administrator will verify this shortly.';
+      if (!isWithinGeofence) {
+        reasonCode = 'OUTSIDE_GEOFENCE';
+        responseMessage = `You are not within the school's geofence area. Please move closer to the school and try again.`;
+      } else if (isLowAccuracy) {
+        reasonCode = 'LOW_ACCURACY';
+        responseMessage = `Your GPS accuracy (±${Math.round(accuracy_meters)}m) is too imprecise to verify. Move to an open area and try again.`;
+      } else if (biometricFailed) {
+        reasonCode = 'BIOMETRIC_REQUIRED';
+        responseMessage = 'Please confirm with your fingerprint before verifying location.';
+      } else if (sharedDevice || sessionDeviceMismatch) {
+        reasonCode = 'SHARED_DEVICE';
+        responseMessage =
+          'This device is already associated with another supervisor, or with a different login session, this session. Please use your own device, or log in fresh on this device, and try again.';
+      } else {
+        reasonCode = 'SUSPICIOUS_LOCATION';
+        responseMessage =
+          "Your location reading looks artificial - make sure you're using your device's real GPS, not a location-spoofing app or emulator, and try again outdoors.";
+      }
     }
 
-    // 7. Always log the attempt - validated, pending, or rejected. Only 'validated'
-    // marks the posting as verified; 'pending'/'rejected' leave it unverified until
-    // a retry succeeds or an admin overrides.
+    // 7. Always log the attempt - validated or rejected. Only 'validated' marks the
+    // posting as verified; 'rejected' leaves it unverified until a retry succeeds -
+    // there is no admin override path.
     let locationLogId = null;
     await transaction(async (conn) => {
       const [logResult] = await conn.execute(
@@ -309,9 +374,9 @@ const verifyLocation = async (req, res, next) => {
           distance_from_school_m, geofence_radius_m, is_within_geofence,
           validation_message, validation_status, flag_reasons,
           biometric_verified, biometric_credential_id,
-          device_id, device_info, ip_address, user_agent,
+          device_id, device_info, gps_samples, ip_address, user_agent,
           session_token_hash, jwt_session_id, timestamp_client, time_drift_seconds
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           parseInt(institutionId),
           posting_id,
@@ -333,6 +398,7 @@ const verifyLocation = async (req, res, next) => {
           biometricCredentialId,
           deviceHash,
           device_info ? JSON.stringify(device_info) : null,
+          gps_samples && gps_samples.length > 0 ? JSON.stringify(gps_samples) : null,
           req.ip || req.connection?.remoteAddress || null,
           req.headers['user-agent'] || null,
           crypto
@@ -369,8 +435,9 @@ const verifyLocation = async (req, res, next) => {
         is_within_geofence: isWithinGeofence,
         distance_from_school_m: Math.round(distanceFromSchool),
         geofence_radius_m: geofenceRadius,
+        supervisor_gps_accuracy_m: maxAccuracy,
         school_name: posting.school_name,
-        device_shared: deviceUsedByOthers.length > 0,
+        device_shared: sharedDevice,
         validation_status: validationStatus,
         flag_reasons: flagReasons,
         reason_code: reasonCode,
@@ -381,64 +448,6 @@ const verifyLocation = async (req, res, next) => {
             ? `You need to be within ${geofenceRadius}m of the school. Current distance: ${Math.round(distanceFromSchool)}m`
             : undefined,
       },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Admin: Approve or reject a pending/rejected location log
- * PATCH /:institutionId/location/admin/logs/:logId/override
- */
-const overrideLocationValidation = async (req, res, next) => {
-  try {
-    const { institutionId, logId } = req.params;
-    const { approve, reason } = req.body;
-    const adminId = req.user.id;
-
-    const [log] = await query(
-      `SELECT * FROM supervision_location_logs WHERE id = ? AND institution_id = ?`,
-      [parseInt(logId), parseInt(institutionId)]
-    );
-
-    if (!log) {
-      throw new NotFoundError('Location log not found');
-    }
-
-    if (!['pending', 'rejected'].includes(log.validation_status)) {
-      throw new ConflictError(
-        `Cannot override a log with status '${log.validation_status}'. Only pending or rejected logs can be reviewed.`
-      );
-    }
-
-    await transaction(async (conn) => {
-      await conn.execute(
-        `UPDATE supervision_location_logs
-         SET validation_status = 'overridden',
-             overridden_by = ?,
-             overridden_at = NOW(),
-             override_reason = ?
-         WHERE id = ?`,
-        [adminId, reason, log.id]
-      );
-
-      if (approve) {
-        await conn.execute(
-          `UPDATE supervisor_postings
-           SET location_verified = 1,
-               location_verified_at = NOW(),
-               location_log_id = ?
-           WHERE id = ? AND location_verified = 0`,
-          [log.id, log.supervisor_posting_id]
-        );
-      }
-    });
-
-    res.json({
-      success: true,
-      message: approve ? 'Location verification approved.' : 'Location verification rejected.',
-      data: { log_id: log.id, approved: approve },
     });
   } catch (error) {
     next(error);
@@ -477,12 +486,14 @@ const getMyPostingsLocationStatus = async (req, res, next) => {
          ST_Y(ms.location) as school_latitude,
          ST_X(ms.location) as school_longitude,
          isv.distance_km,
-         isv.geofence_radius_m,
+         sess.geofence_radius_m,
+         sess.supervisor_gps_accuracy_m,
          CASE WHEN ms.location IS NULL THEN 0 ELSE 1 END as has_coordinates
        FROM supervisor_postings sp
        JOIN institution_schools isv ON sp.institution_school_id = isv.id
        JOIN master_schools ms ON isv.master_school_id = ms.id
-       WHERE sp.institution_id = ? 
+       JOIN academic_sessions sess ON sp.session_id = sess.id
+       WHERE sp.institution_id = ?
          AND sp.supervisor_id = ?
          AND sp.status = 'active'
          ${sessionFilter}
@@ -696,7 +707,6 @@ const getLocationStats = async (req, res, next) => {
 module.exports = {
   schemas,
   verifyLocation,
-  overrideLocationValidation,
   getMyPostingsLocationStatus,
   checkLocationVerification,
   getLocationLogs,

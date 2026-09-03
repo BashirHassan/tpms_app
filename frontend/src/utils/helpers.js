@@ -278,11 +278,3 @@ export function getMapViewUrl(lat, lng) {
 export function getDirectionsUrl(lat, lng) {
   return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
 }
-
-/**
- * Max acceptable GPS accuracy (meters) for supervisor location verification.
- * Must be kept in sync with MAX_ACCEPTABLE_ACCURACY_M in
- * backend/src/controllers/locationTrackingController.js - there is no shared
- * config source between frontend and backend for this yet.
- */
-export const MAX_SUPERVISOR_LOCATION_ACCURACY_M = 100;

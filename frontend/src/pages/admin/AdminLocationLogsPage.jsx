@@ -7,7 +7,6 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { locationApi, sessionsApi, usersApi } from '../../api';
-import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -26,16 +25,16 @@ import {
   IconClock,
   IconUser,
   IconSchool,
-  IconLoader2,
   IconShieldCheck,
 } from '@tabler/icons-react';
 import { formatDate } from '../../utils/helpers';
 import { createExportAllHandler } from '../../utils/exportAll';
 
+// Read-only audit view - a flagged/rejected location log has no admin approve/
+// reject action. The supervisor must correct the underlying issue and retry;
+// nobody can vouch for a questionable check-in on their behalf.
 function AdminLocationLogsPage() {
-  const { hasRole } = useAuth();
   const { toast } = useToast();
-  const canOverride = hasRole(['super_admin', 'head_of_teaching_practice']);
 
   // State
   const [loading, setLoading] = useState(true);
@@ -56,11 +55,6 @@ function AdminLocationLogsPage() {
   // Detail dialog
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [selectedLog, setSelectedLog] = useState(null);
-
-  // Override dialog
-  const [overrideDialogOpen, setOverrideDialogOpen] = useState(false);
-  const [overrideReason, setOverrideReason] = useState('');
-  const [overriding, setOverriding] = useState(false);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -163,34 +157,6 @@ function AdminLocationLogsPage() {
     setDetailDialogOpen(true);
   };
 
-  const handleOpenOverride = (log) => {
-    setSelectedLog(log);
-    setOverrideReason('');
-    setOverrideDialogOpen(true);
-  };
-
-  const handleOverride = async (approve) => {
-    if (!selectedLog || !overrideReason || overrideReason.length < 10) {
-      toast.error('Please provide a reason (at least 10 characters)');
-      return;
-    }
-
-    setOverriding(true);
-    try {
-      await locationApi.overrideLocationValidation(selectedLog.id, {
-        approve,
-        reason: overrideReason,
-      });
-      toast.success(approve ? 'Location verification approved' : 'Location verification rejected');
-      setOverrideDialogOpen(false);
-      fetchLogs();
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to override validation');
-    } finally {
-      setOverriding(false);
-    }
-  };
-
   // Column definitions
   const columns = useMemo(
     () => [
@@ -289,21 +255,11 @@ function AdminLocationLogsPage() {
             <Button size="sm" variant="ghost" onClick={() => handleViewDetails(row)} title="View Details">
               <IconEye className="h-4 w-4" />
             </Button>
-            {canOverride && ['pending', 'rejected'].includes(row.validation_status) && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => handleOpenOverride(row)}
-                title="Override"
-              >
-                <IconShieldCheck className="h-4 w-4 text-primary-600" />
-              </Button>
-            )}
           </div>
         ),
       },
     ],
-    [pagination.page, pagination.limit, canOverride]
+    [pagination.page, pagination.limit]
   );
 
   // Session options
@@ -567,10 +523,10 @@ function AdminLocationLogsPage() {
               </div>
             )}
 
-            {/* Override Info */}
+            {/* Override Info - historical only; no new logs can be overridden */}
             {selectedLog.overridden_by && (
               <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
-                <p className="text-sm font-medium text-blue-800">Override Information</p>
+                <p className="text-sm font-medium text-blue-800">Override Information (historical)</p>
                 <p className="mt-1 text-sm text-blue-700">
                   Overridden at: {formatDate(selectedLog.overridden_at, 'datetime')}
                 </p>
@@ -581,72 +537,6 @@ function AdminLocationLogsPage() {
             <div className="flex justify-end pt-2">
               <Button variant="outline" onClick={() => setDetailDialogOpen(false)}>
                 Close
-              </Button>
-            </div>
-          </div>
-        )}
-      </Dialog>
-
-      {/* Override Dialog */}
-      <Dialog
-        open={overrideDialogOpen}
-        onClose={() => setOverrideDialogOpen(false)}
-        title="Override Location Validation"
-        size="md"
-      >
-        {selectedLog && (
-          <div className="space-y-4">
-            <div className="rounded-lg bg-gray-50 p-3">
-              <p className="font-medium text-gray-900">{selectedLog.supervisor_name}</p>
-              <p className="text-sm text-gray-500">{selectedLog.school_name}</p>
-            </div>
-
-            {['pending', 'rejected'].includes(selectedLog.validation_status) && selectedLog.validation_message && (
-              <div className="rounded-lg bg-red-50 border border-red-200 p-3">
-                <div className="flex items-start gap-2">
-                  <IconAlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-sm text-red-800">{selectedLog.validation_message}</p>
-                </div>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Override Reason <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                value={overrideReason}
-                onChange={(e) => setOverrideReason(e.target.value)}
-                rows={3}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:ring-primary-500"
-                placeholder="Provide a reason for this override (min 10 characters)..."
-              />
-              <p className="mt-1 text-xs text-gray-500">{overrideReason.length}/10 characters minimum</p>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <Button
-                variant="outline"
-                onClick={() => setOverrideDialogOpen(false)}
-                disabled={overriding}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="danger"
-                onClick={() => handleOverride(false)}
-                disabled={overriding || overrideReason.length < 10}
-              >
-                {overriding ? <IconLoader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Reject
-              </Button>
-              <Button
-                variant="primary"
-                onClick={() => handleOverride(true)}
-                disabled={overriding || overrideReason.length < 10}
-              >
-                {overriding ? <IconLoader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Approve
               </Button>
             </div>
           </div>

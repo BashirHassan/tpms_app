@@ -707,8 +707,40 @@ const createReport = async (req, res, next) => {
     const assignment = assignments[0];
 
     // Verify user is the assigned monitor or has admin role
-    if (assignment.monitor_id !== req.user.id && req.user.role !== 'head_of_teaching_practice' && req.user.role !== 'super_admin') {
+    const isCoordinator = req.user.role === 'head_of_teaching_practice' || req.user.role === 'super_admin';
+    if (assignment.monitor_id !== req.user.id && !isCoordinator) {
       throw new ValidationError('You are not authorized to create reports for this assignment');
+    }
+
+    // Verify every scored student is actually enrolled where this caller is allowed
+    // to score them - a plain monitor/supervisor is confined to this assignment's own
+    // school+session; a Head of TP/super_admin coordinates results institution-wide, so
+    // they may score any student enrolled anywhere in the institution for this session.
+    // Without this check a client-supplied student_id was trusted as-is, letting a
+    // monitor write/overwrite scores for students outside their assignment.
+    if (student_scores && student_scores.length > 0) {
+      const studentIds = student_scores.map((s) => s.student_id);
+      const schoolFilter = isCoordinator ? '' : ' AND sa.institution_school_id = ?';
+      const params = [assignment.session_id];
+      if (!isCoordinator) params.push(assignment.institution_school_id);
+      params.push(parseInt(institutionId), studentIds);
+
+      const eligibleStudents = await query(
+        `SELECT s.id
+         FROM students s
+         INNER JOIN student_acceptances sa ON s.id = sa.student_id
+           AND sa.session_id = ? AND sa.status = 'approved'${schoolFilter}
+         WHERE s.institution_id = ? AND s.id IN (?)`,
+        params
+      );
+
+      const eligibleIds = new Set(eligibleStudents.map((s) => s.id));
+      const ineligible = studentIds.filter((id) => !eligibleIds.has(id));
+      if (ineligible.length > 0) {
+        throw new ValidationError(
+          `Cannot record scores for student(s) not enrolled at this school/session: ${ineligible.join(', ')}`
+        );
+      }
     }
 
     // Check if a report already exists for this assignment

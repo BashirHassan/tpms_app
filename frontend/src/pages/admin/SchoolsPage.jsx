@@ -6,8 +6,11 @@
  * - master_schools: Central registry (editable by super_admin only via Master Schools page)
  * - institution_schools: Institution-specific data (editable by staff)
  * 
- * Staff can only edit: route, capacity, distance, geofence, status, notes
+ * Staff can only edit: route, capacity, distance, status, notes
  * Master data (name, state, lga, principal, GPS) is managed via Master Schools page
+ *
+ * Geofence radius and GPS accuracy threshold for supervisor check-in are
+ * session-level settings (see Sessions page) - not per-school.
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -15,7 +18,7 @@ import { schoolsApi, routesApi } from '../../api';
 import { nigeriaGeoData } from '../../data/nigeria';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { formatCoordinate, formatDistance } from '../../utils/helpers';
+import { formatCoordinate } from '../../utils/helpers';
 import { createExportAllHandler } from '../../utils/exportAll';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -111,7 +114,6 @@ function SchoolsPage() {
     route_id: null,
     distance_km: 0,
     student_capacity: 0,
-    geofence_radius_m: 1000,
   });
   const [linking, setLinking] = useState(false);
 
@@ -321,7 +323,6 @@ function SchoolsPage() {
         route_id: linkFormData.route_id || null,
         distance_km: parseFloat(linkFormData.distance_km) || 0,
         student_capacity: parseInt(linkFormData.student_capacity) || 0,
-        geofence_radius_m: parseInt(linkFormData.geofence_radius_m) || 1000,
       });
       toast.success(`${selectedMasterSchool.name} linked successfully`);
       setShowLinkModal(false);
@@ -332,7 +333,6 @@ function SchoolsPage() {
         route_id: null,
         distance_km: 0,
         student_capacity: 0,
-        geofence_radius_m: 1000,
       });
       fetchSchools();
     } catch (err) {
@@ -370,7 +370,6 @@ function SchoolsPage() {
     principal_phone: '',
     latitude: null,
     longitude: null,
-    geofence_radius_m: 1000,
     status: 'active',
   });
 
@@ -417,7 +416,6 @@ function SchoolsPage() {
           location_category: formData.location_category,
           distance_km: parseFloat(formData.distance_km) || 0,
           student_capacity: parseInt(formData.student_capacity) || 0,
-          geofence_radius_m: parseInt(formData.geofence_radius_m) || 100,
           status: formData.status,
           notes: formData.notes || null,
         };
@@ -449,7 +447,6 @@ function SchoolsPage() {
           route_id: formData.route_id || null,
           latitude: formData.latitude ? parseFloat(formData.latitude) : null,
           longitude: formData.longitude ? parseFloat(formData.longitude) : null,
-          geofence_radius_m: parseInt(formData.geofence_radius_m) || 100,
           status: formData.status || 'active',
           notes: formData.notes || null,
         };
@@ -704,10 +701,10 @@ function SchoolsPage() {
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
               className="flex items-center gap-1 text-green-600 hover:text-green-700"
-              title={`GPS: ${value}, ${row.longitude} • Radius: ${formatDistance(row.geofence_radius_m || 500)}`}
+              title={`GPS: ${value}, ${row.longitude}`}
             >
               <IconMapPin className="w-4 h-4" />
-              <span className="text-xs">{formatDistance(row.geofence_radius_m || 500)}</span>
+              <span className="text-xs">Set</span>
             </a>
           ) : (
             <div className="flex items-center gap-1 text-amber-500" title="GPS coordinates not set">
@@ -1068,33 +1065,6 @@ function SchoolsPage() {
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Geofence Radius (meters)
-                </label>
-                <div className="flex items-center gap-3">
-                  <Input
-                    type="number"
-                    min="50"
-                    max="5000"
-                    step="10"
-                    value={formData.geofence_radius_m || 100}
-                    onChange={(e) => setFormData({ ...formData, geofence_radius_m: e.target.value })}
-                    className="w-32"
-                  />
-                  <input
-                    type="range"
-                    min="50"
-                    max="1000"
-                    step="10"
-                    value={formData.geofence_radius_m || 100}
-                    onChange={(e) => setFormData({ ...formData, geofence_radius_m: e.target.value })}
-                    className="flex-1"
-                  />
-                  <span className="text-sm text-gray-500 w-16">{formatDistance(formData.geofence_radius_m || 100)}</span>
-                </div>
-              </div>
-
-              <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
                 <Input
                   value={formData.notes || ''}
@@ -1360,32 +1330,6 @@ function SchoolsPage() {
               />
             </div>
 
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Geofence Radius (meters)
-              </label>
-              <div className="flex items-center gap-3">
-                <Input
-                  type="number"
-                  min="50"
-                  max="5000"
-                  step="10"
-                  value={formData.geofence_radius_m || 100}
-                  onChange={(e) => setFormData({ ...formData, geofence_radius_m: e.target.value })}
-                  className="w-32"
-                />
-                <input
-                  type="range"
-                  min="50"
-                  max="1000"
-                  step="10"
-                  value={formData.geofence_radius_m || 100}
-                  onChange={(e) => setFormData({ ...formData, geofence_radius_m: e.target.value })}
-                  className="flex-1"
-                />
-                <span className="text-sm text-gray-500 w-16">{formatDistance(formData.geofence_radius_m || 100)}</span>
-              </div>
-            </div>
 
             {formData.latitude && formData.longitude && (
               <div className="sm:col-span-2">
@@ -1524,7 +1468,7 @@ function SchoolsPage() {
             </div>
             {selectedSchool.latitude != null && selectedSchool.longitude != null ? (
               <div className="space-y-2">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+                <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
                     <label className="text-gray-500">Latitude</label>
                     <p className="font-medium font-mono">{selectedSchool.latitude}</p>
@@ -1532,10 +1476,6 @@ function SchoolsPage() {
                   <div>
                     <label className="text-gray-500">Longitude</label>
                     <p className="font-medium font-mono">{selectedSchool.longitude}</p>
-                  </div>
-                  <div>
-                    <label className="text-gray-500">Geofence Radius</label>
-                    <p className="font-medium">{formatDistance(selectedSchool.geofence_radius_m || 500)}</p>
                   </div>
                 </div>
                 <a
@@ -1717,32 +1657,6 @@ function SchoolsPage() {
                     value={linkFormData.student_capacity || 0}
                     onChange={(e) => setLinkFormData({ ...linkFormData, student_capacity: e.target.value })}
                   />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Geofence Radius (meters)
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <Input
-                      type="number"
-                      min="10"
-                      max="5000"
-                      step="10"
-                      value={linkFormData.geofence_radius_m || 1000}
-                      onChange={(e) => setLinkFormData({ ...linkFormData, geofence_radius_m: e.target.value })}
-                      className="w-32"
-                    />
-                    <input
-                      type="range"
-                      min="10"
-                      max="1000"
-                      step="10"
-                      value={linkFormData.geofence_radius_m || 1000}
-                      onChange={(e) => setLinkFormData({ ...linkFormData, geofence_radius_m: e.target.value })}
-                      className="flex-1"
-                    />
-                    <span className="text-sm text-gray-500 w-16">{formatDistance(linkFormData.geofence_radius_m || 1000)}</span>
-                  </div>
                 </div>
               </div>
             </div>

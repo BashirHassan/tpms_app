@@ -136,6 +136,8 @@ function SessionsPage() {
     inside_distance_threshold_km: 10,
     max_supervision_visits: 3,
     max_gps_accuracy_meters: '',
+    geofence_radius_m: 100,
+    supervisor_gps_accuracy_m: 100,
     // Scoring settings
     scoring_type: 'basic',
     // DSA settings
@@ -250,6 +252,8 @@ function SessionsPage() {
         inside_distance_threshold_km: parseFloat(formData.inside_distance_threshold_km) || 10,
         max_supervision_visits: parseInt(formData.max_supervision_visits) || 3,
         max_gps_accuracy_meters: formData.max_gps_accuracy_meters ? parseInt(formData.max_gps_accuracy_meters) : null,
+        geofence_radius_m: parseInt(formData.geofence_radius_m) || 100,
+        supervisor_gps_accuracy_m: parseInt(formData.supervisor_gps_accuracy_m) || 100,
         // Scoring settings
         scoring_type: formData.scoring_type || 'basic',
         // DSA settings - convert to proper booleans
@@ -1024,6 +1028,43 @@ function SessionsPage() {
                       placeholder="e.g. 100"
                     />
                     <p className="text-xs text-gray-500 mt-1">Maximum GPS error radius. Leave blank for no limit.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Supervisor Geofence Radius (m)
+                    </label>
+                    <Input
+                      type="number"
+                      min="50"
+                      max="5000"
+                      step="1"
+                      value={formData.geofence_radius_m ?? 100}
+                      onChange={(e) =>
+                        setFormData({ ...formData, geofence_radius_m: e.target.value })
+                      }
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      How close a supervisor must be to a school to check in. Applies to every school
+                      this session (centralized - not set per school).
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Supervisor GPS Accuracy Threshold (m)
+                    </label>
+                    <Input
+                      type="number"
+                      min="10"
+                      max="1000"
+                      step="1"
+                      value={formData.supervisor_gps_accuracy_m ?? 100}
+                      onChange={(e) =>
+                        setFormData({ ...formData, supervisor_gps_accuracy_m: e.target.value })
+                      }
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Supervisor check-ins with a worse GPS fix than this are rejected outright.
+                    </p>
                   </div>
                   <div className="md:col-span-2">
                     <div className="flex items-center gap-2 my-3">

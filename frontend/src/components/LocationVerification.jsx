@@ -17,10 +17,11 @@ import { useEffect, useState } from 'react';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { locationApi } from '../api';
-import { formatDistance, MAX_SUPERVISOR_LOCATION_ACCURACY_M } from '../utils/helpers';
+import { formatDistance } from '../utils/helpers';
 import { useGeolocation } from '../hooks/useGeolocation';
 import { useBiometricAuth } from '../hooks/useBiometricAuth';
 import { useInstitutionSelection } from '../context/InstitutionSelectionContext';
+import { generateDeviceInfo } from '../utils/deviceId';
 import {
   IconMapPin,
   IconCheck,
@@ -28,39 +29,12 @@ import {
   IconCurrentLocation,
   IconRefresh,
   IconMapPinOff,
-  IconClockHour4,
   IconFingerprint,
+  IconDeviceMobile,
 } from '@tabler/icons-react';
 import { Button } from './ui/Button';
 
 const MAX_SAMPLES = 8;
-
-/**
- * Generate unique device ID (stored in localStorage)
- */
-const getOrCreateDeviceId = () => {
-  const KEY = 'digitaltp_device_id';
-  let deviceId = localStorage.getItem(KEY);
-  if (!deviceId) {
-    deviceId = crypto.randomUUID();
-    localStorage.setItem(KEY, deviceId);
-  }
-  return deviceId;
-};
-
-/**
- * Generate device fingerprint for anti-cheating
- */
-const generateDeviceInfo = () => {
-  return {
-    device_id: getOrCreateDeviceId(),
-    model: navigator.userAgentData?.platform || navigator.platform || 'Unknown',
-    os: navigator.userAgentData?.platform || navigator.platform || 'Unknown',
-    browser: navigator.userAgent.split(' ').pop() || 'Unknown',
-    screen: `${screen.width}x${screen.height}`,
-    language: navigator.language,
-  };
-};
 
 export function LocationVerification({
   posting,
@@ -78,6 +52,7 @@ export function LocationVerification({
   const {
     status: gpsStatus,
     bestSample,
+    samples: gpsSamples,
     samplesCollected,
     errorMessage: gpsError,
     start: startSampling,
@@ -96,7 +71,11 @@ export function LocationVerification({
   const [deviceSupported, setDeviceSupported] = useState(null); // null = unknown yet
 
   const location = bestSample;
-  const accuracyTooLow = location && location.accuracy_meters > MAX_SUPERVISOR_LOCATION_ACCURACY_M;
+  // Sourced from the session's live setting (see getMyPostingsLocationStatus) rather
+  // than a hardcoded constant, so the client-side pre-check can't drift from the
+  // server-side hard-fail threshold.
+  const maxAccuracyM = posting?.supervisor_gps_accuracy_m ?? 100;
+  const accuracyTooLow = location && location.accuracy_meters > maxAccuracyM;
 
   // Check enrollment + device capability once, only when the institution requires
   // biometric check-in and the supervisor isn't exempt
@@ -138,7 +117,7 @@ export function LocationVerification({
     }
 
     try {
-      const deviceInfo = generateDeviceInfo();
+      const deviceInfo = await generateDeviceInfo();
 
       const response = await locationApi.verifyLocation({
         posting_id: posting.posting_id,
@@ -149,19 +128,14 @@ export function LocationVerification({
         altitude_meters: location.altitude_meters,
         timestamp_client: location.timestamp,
         device_info: deviceInfo,
+        gps_samples: gpsSamples,
       });
 
       const result = response.data.data;
       setVerificationResult(result);
-
-      if (result?.reason_code === 'PENDING_REVIEW') {
-        setSubmitStatus('pending');
-        toast.info('Location recorded, flagged for admin review.');
-      } else {
-        setSubmitStatus('success');
-        toast.success('Location verified successfully!');
-        onVerified?.(result);
-      }
+      setSubmitStatus('success');
+      toast.success('Location verified successfully!');
+      onVerified?.(result);
     } catch (err) {
       setSubmitStatus('error');
       const result = err.response?.data?.data;
@@ -333,7 +307,7 @@ export function LocationVerification({
             <div className="mt-1 flex flex-wrap gap-3 text-xs">
               <span className={accuracyTooLow ? 'font-medium text-red-600' : 'text-blue-600'}>
                 Accuracy: ±{Math.round(location.accuracy_meters || 0)}m
-                {accuracyTooLow ? ` (needs ≤${MAX_SUPERVISOR_LOCATION_ACCURACY_M}m)` : ''}
+                {accuracyTooLow ? ` (needs ≤${maxAccuracyM}m)` : ''}
               </span>
             </div>
           </div>
@@ -412,18 +386,36 @@ export function LocationVerification({
           </div>
         )}
 
-        {/* Pending: flagged for admin review */}
-        {verificationResult?.reason_code === 'PENDING_REVIEW' && (
-          <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4 shadow-sm">
+        {/* Rejected: shared device or session/device mismatch - no admin review, use your own device */}
+        {verificationResult?.reason_code === 'SHARED_DEVICE' && (
+          <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4 shadow-sm">
             <div className="flex items-start gap-3">
-              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-amber-100">
-                <IconClockHour4 className="h-6 w-6 text-amber-600" />
+              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100">
+                <IconDeviceMobile className="h-6 w-6 text-red-600" />
               </div>
               <div className="flex-1">
-                <h4 className="text-lg font-semibold text-amber-800">Flagged for Review</h4>
-                <p className="mt-1 text-sm text-amber-700">
-                  Your location was recorded but flagged for review by an administrator before it can be
-                  used to unlock result upload. You&apos;ll be notified once it&apos;s reviewed.
+                <h4 className="text-lg font-semibold text-red-800">Device Not Recognized as Yours</h4>
+                <p className="mt-1 text-sm text-red-700">
+                  This device is already associated with another supervisor, or a different login
+                  session. Please use your own device, or log in fresh on this device, then try again.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Rejected: GPS samples look artificial (e.g. a mock-location tool) */}
+        {verificationResult?.reason_code === 'SUSPICIOUS_LOCATION' && (
+          <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100">
+                <IconAlertTriangle className="h-6 w-6 text-red-600" />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-lg font-semibold text-red-800">Location Looks Artificial</h4>
+                <p className="mt-1 text-sm text-red-700">
+                  Make sure you&apos;re using your device&apos;s real GPS, not a location-spoofing app
+                  or emulator, and try again outdoors.
                 </p>
               </div>
             </div>

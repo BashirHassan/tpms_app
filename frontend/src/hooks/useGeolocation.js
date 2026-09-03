@@ -7,6 +7,11 @@
  *
  * A single getCurrentPosition call can return a stale/poor fix; sampling for a
  * few seconds and keeping the best result meaningfully improves fix quality.
+ *
+ * Also returns every raw sample collected (`samples`), not just the best one -
+ * the server uses the full set to check for suspiciously zero variance across
+ * readings (a signal some GPS-spoofing tools give away, since real GPS chips
+ * jitter slightly between readings even when stationary).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -18,6 +23,7 @@ export function useGeolocation({
 } = {}) {
   const [status, setStatus] = useState('idle'); // idle | sampling | ready | error | unsupported
   const [bestSample, setBestSample] = useState(null);
+  const [samples, setSamples] = useState([]);
   const [samplesCollected, setSamplesCollected] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [errorMessage, setErrorMessage] = useState(null);
@@ -27,6 +33,7 @@ export function useGeolocation({
   const startTimeRef = useRef(null);
   const bestSampleRef = useRef(null);
   const samplesRef = useRef(0);
+  const allSamplesRef = useRef([]);
 
   const clearWatch = useCallback(() => {
     if (watchIdRef.current !== null) {
@@ -54,8 +61,10 @@ export function useGeolocation({
     clearWatch();
     bestSampleRef.current = null;
     samplesRef.current = 0;
+    allSamplesRef.current = [];
     startTimeRef.current = null;
     setBestSample(null);
+    setSamples([]);
     setSamplesCollected(0);
     setElapsedMs(0);
     setErrorMessage(null);
@@ -72,7 +81,9 @@ export function useGeolocation({
     clearWatch();
     bestSampleRef.current = null;
     samplesRef.current = 0;
+    allSamplesRef.current = [];
     setBestSample(null);
+    setSamples([]);
     setSamplesCollected(0);
     setErrorMessage(null);
     setStatus('sampling');
@@ -90,6 +101,8 @@ export function useGeolocation({
 
         samplesRef.current += 1;
         setSamplesCollected(samplesRef.current);
+        allSamplesRef.current = [...allSamplesRef.current, sample];
+        setSamples(allSamplesRef.current);
 
         if (!bestSampleRef.current || sample.accuracy_meters < bestSampleRef.current.accuracy_meters) {
           bestSampleRef.current = sample;
@@ -131,7 +144,7 @@ export function useGeolocation({
 
   useEffect(() => () => clearWatch(), [clearWatch]);
 
-  return { status, bestSample, samplesCollected, elapsedMs, errorMessage, start, stop, reset };
+  return { status, bestSample, samples, samplesCollected, elapsedMs, errorMessage, start, stop, reset };
 }
 
 export default useGeolocation;

@@ -94,17 +94,8 @@ router.get(
   controller.getLocationStats
 );
 
-/**
- * PATCH /:institutionId/location/admin/logs/:logId/override
- * Approve or reject a pending/rejected location log
- */
-router.patch(
-  '/:institutionId/location/admin/logs/:logId/override',
-  authenticate,
-  requireInstitutionAccess(),
-  isHeadOfTP,
-  validate(controller.schemas.overrideLocation),
-  controller.overrideLocationValidation
-);
+// Intentionally no approve/reject endpoint here. A flagged/rejected check-in has
+// no admin override path - the supervisor must genuinely correct the issue and
+// retry. Head of TP retains read-only visibility via the two endpoints above.
 
 module.exports = router;
