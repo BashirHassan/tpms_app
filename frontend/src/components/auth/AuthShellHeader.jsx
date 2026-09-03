@@ -20,7 +20,7 @@ function AuthShellHeader({ branding, subtitle }) {
           <IconSchool className="h-10 w-10 text-white" />
         </div>
       )}
-      <h1 className="text-2xl font-bold text-gray-900">{branding.name}</h1>
+      <h1 className="text-xl font-bold text-gray-900">{branding.name}</h1>
       {subtitle ? <p className="text-sm text-gray-500">{subtitle}</p> : null}
     </div>
   );
