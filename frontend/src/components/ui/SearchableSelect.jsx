@@ -285,7 +285,7 @@ const SearchableSelect = React.forwardRef(
             onKeyDown={handleKeyDown}
             disabled={disabled}
             className={cn(
-              'flex items-center justify-between w-full min-h-[3rem] px-3 py-2',
+              'flex items-center justify-between w-full min-h-10 px-3 py-2',
               'rounded-lg border bg-white text-left text-sm',
               'transition-all duration-200 ease-in-out',
               'focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
