@@ -12,8 +12,8 @@ import { useToast } from '../../context/ToastContext';
 import { useBiometricLogin } from '../../hooks/useBiometricLogin';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { AuthShellHeader } from '../../components/auth/AuthShellHeader';
 import {
-  IconSchool,
   IconAlertCircle,
   IconBuilding,
   IconFingerprint,
@@ -127,22 +127,12 @@ function LoginPage() {
         transition={{ duration: 0.4 }}
         className="relative w-full max-w-md"
       >
-        {/* Institution Logo/Branding */}
-        <div className="mb-4 text-center">
-          {branding.logo_url ? (
-            <img
-              src={branding.logo_url}
-              alt={branding.name}
-              className="mx-auto mb-2 h-20 w-20 rounded-2xl object-contain ring-gray-100"
-            />
-          ) : (
-            <div className="mx-auto mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-600 shadow-md">
-              <IconSchool className="h-10 w-10 text-white" />
-            </div>
-          )}
-          <h1 className="text-2xl font-bold text-gray-900">{branding.name}</h1>
-          <p className="text-gray-500">{branding.tagline || 'Teaching Practice Management System'}</p>
-        </div>
+        <AuthShellHeader
+          branding={branding}
+          subtitle={
+            <p className="text-sm text-gray-500">{branding.tagline || 'Teaching Practice Management System'}</p>
+          }
+        />
 
         {/* Login Form */}
         <div className="rounded-2xl border border-gray-100 bg-white p-6 sm:p-8 shadow-xl shadow-gray-200/60">

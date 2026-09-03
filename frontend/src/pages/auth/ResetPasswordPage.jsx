@@ -10,9 +10,9 @@ import { useInstitution } from '../../context/InstitutionContext';
 import { useToast } from '../../context/ToastContext';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { AuthShellHeader } from '../../components/auth/AuthShellHeader';
 import authApi from '../../api/auth';
 import {
-  IconSchool,
   IconAlertCircle,
   IconLock,
   IconArrowLeft,
@@ -29,25 +29,6 @@ const PASSWORD_RULES = [
   { label: 'One uppercase letter', test: (p) => /[A-Z]/.test(p) },
   { label: 'One number', test: (p) => /[0-9]/.test(p) },
 ];
-
-function AuthShellHeader({ branding }) {
-  return (
-    <div className="mb-8 text-center">
-      {branding.logo_url ? (
-        <img
-          src={branding.logo_url}
-          alt={branding.name}
-          className="mx-auto mb-4 h-20 w-20 rounded-2xl bg-white object-contain p-2 shadow-md ring-1 ring-gray-100"
-        />
-      ) : (
-        <div className="mx-auto mb-4 inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-primary-600 shadow-md">
-          <IconSchool className="h-10 w-10 text-white" />
-        </div>
-      )}
-      <h1 className="text-2xl font-bold text-gray-900">{branding.name}</h1>
-    </div>
-  );
-}
 
 function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -145,7 +126,7 @@ function ResetPasswordPage() {
           transition={{ duration: 0.4 }}
           className="relative w-full max-w-md"
         >
-          <AuthShellHeader branding={branding} />
+          <AuthShellHeader branding={branding} size="large" />
 
           {/* Success Card */}
           <div className="rounded-2xl border border-gray-100 bg-white p-6 sm:p-8 shadow-xl shadow-gray-200/60">
