@@ -11,7 +11,7 @@ import { useInstitution } from '../../context/InstitutionContext';
 import { useToast } from '../../context/ToastContext';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { AuthShellHeader } from '../../components/auth/AuthShellHeader';
+import AuthShellHeader from '../../components/auth/AuthShellHeader';
 import { IconAlertCircle, IconBuilding, IconId, IconLock } from '@tabler/icons-react';
 
 function StudentLoginPage() {
@@ -97,7 +97,7 @@ function StudentLoginPage() {
         transition={{ duration: 0.4 }}
         className="relative w-full max-w-md"
       >
-        <AuthShellHeader branding={branding} subtitle={<p className="text-sm text-gray-500">Student Portal</p>} />
+        <AuthShellHeader branding={branding} subtitle="Student Portal" />
 
         {/* Login Form */}
         <div className="rounded-2xl border border-gray-100 bg-white p-6 sm:p-8 shadow-xl shadow-gray-200/60">

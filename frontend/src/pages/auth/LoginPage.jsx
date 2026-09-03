@@ -12,7 +12,7 @@ import { useToast } from '../../context/ToastContext';
 import { useBiometricLogin } from '../../hooks/useBiometricLogin';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { AuthShellHeader } from '../../components/auth/AuthShellHeader';
+import AuthShellHeader from '../../components/auth/AuthShellHeader';
 import {
   IconAlertCircle,
   IconBuilding,
@@ -129,9 +129,7 @@ function LoginPage() {
       >
         <AuthShellHeader
           branding={branding}
-          subtitle={
-            <p className="text-sm text-gray-500">{branding.tagline || 'Teaching Practice Management System'}</p>
-          }
+          subtitle={branding.tagline || 'Teaching Practice Management System'}
         />
 
         {/* Login Form */}

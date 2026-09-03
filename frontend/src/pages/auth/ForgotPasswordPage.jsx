@@ -10,7 +10,7 @@ import { useInstitution } from '../../context/InstitutionContext';
 import { useToast } from '../../context/ToastContext';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { AuthShellHeader } from '../../components/auth/AuthShellHeader';
+import AuthShellHeader from '../../components/auth/AuthShellHeader';
 import authApi from '../../api/auth';
 import { IconAlertCircle, IconMailForward, IconArrowLeft, IconCheck, IconMail } from '@tabler/icons-react';
 
