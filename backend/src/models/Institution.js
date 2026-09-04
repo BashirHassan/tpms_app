@@ -651,8 +651,14 @@ class Institution {
    */
   static async getDistanceToSchool(institutionId, schoolId) {
     const [rows] = await pool.query(
-      `SELECT 
-         ST_Distance_Sphere(i.location, ms.location) / 1000 as distance_km
+      // See getSchoolsWithDistances - the two columns use different conventions
+      // and SRIDs, so both points are rebuilt as SRID-0 POINT(longitude latitude)
+      // before measuring.
+      `SELECT
+         ST_Distance_Sphere(
+           POINT(ST_X(i.location), ST_Y(i.location)),
+           POINT(ST_Y(ms.location), ST_X(ms.location))
+         ) / 1000 as distance_km
        FROM institutions i
        JOIN institution_schools isv ON isv.institution_id = i.id
        JOIN master_schools ms ON isv.master_school_id = ms.id
@@ -675,11 +681,22 @@ class Institution {
    */
   static async getSchoolsWithDistances(institutionId) {
     const [rows] = await pool.query(
-      `SELECT 
+      // The two columns use different conventions, so the points cannot be
+      // compared directly: institutions.location is SRID 4326 holding
+      // POINT(longitude latitude), master_schools.location is SRID 0 holding
+      // POINT(latitude longitude). Passing them straight to ST_Distance_Sphere
+      // raises ER_GIS_DIFFERENT_SRIDS (3033). Rebuild both as SRID-0
+      // POINT(longitude latitude), which is the order ST_Distance_Sphere expects.
+      `SELECT
          isv.id, ms.name, ms.lga, ms.school_type,
-         ST_Y(ms.location) as latitude,
-         ST_X(ms.location) as longitude,
-         ROUND(ST_Distance_Sphere(i.location, ms.location) / 1000, 2) as distance_km
+         ST_X(ms.location) as latitude,
+         ST_Y(ms.location) as longitude,
+         ROUND(
+           ST_Distance_Sphere(
+             POINT(ST_X(i.location), ST_Y(i.location)),
+             POINT(ST_Y(ms.location), ST_X(ms.location))
+           ) / 1000, 2
+         ) as distance_km
        FROM institution_schools isv
        JOIN master_schools ms ON isv.master_school_id = ms.id
        JOIN institutions i ON isv.institution_id = i.id

@@ -146,8 +146,8 @@ const verifyLocation = async (req, res, next) => {
     const [posting] = await query(
       `SELECT sp.*,
               ms.name as school_name,
-              ST_X(ms.location) as school_longitude,
-              ST_Y(ms.location) as school_latitude,
+              ST_X(ms.location) as school_latitude,
+              ST_Y(ms.location) as school_longitude,
               sess.geofence_radius_m,
               sess.supervisor_gps_accuracy_m
        FROM supervisor_postings sp
@@ -483,8 +483,8 @@ const getMyPostingsLocationStatus = async (req, res, next) => {
          sp.location_verified_at,
          ms.name as school_name,
          ms.official_code as school_code,
-         ST_Y(ms.location) as school_latitude,
-         ST_X(ms.location) as school_longitude,
+         ST_X(ms.location) as school_latitude,
+         ST_Y(ms.location) as school_longitude,
          isv.distance_km,
          sess.geofence_radius_m,
          sess.supervisor_gps_accuracy_m,
