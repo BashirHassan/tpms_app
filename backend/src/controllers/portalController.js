@@ -9,6 +9,7 @@
 const { z } = require('zod');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, AuthorizationError } = require('../utils/errors');
+const { buildSchoolLocationStatus } = require('./schoolPortalController');
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -696,6 +697,21 @@ const getPortalStatus = async (req, res, next) => {
             : 'Not yet available'),
     };
 
+    // School GPS location status - drives the dashboard banner and the sidebar
+    // badge. Non-fatal: never let it break the portal status payload.
+    let schoolLocation = null;
+    try {
+      schoolLocation = await buildSchoolLocationStatus({
+        institutionId: parseInt(institutionId),
+        session,
+        studentId,
+        institutionSchoolId: acceptanceRecord?.institution_school_id || null,
+        acceptanceApproved: acceptanceRecord?.status === 'approved',
+      });
+    } catch (locationError) {
+      console.error('[portal] Failed to load school location status:', locationError.message);
+    }
+
     res.json({
       success: true,
       data: {
@@ -721,6 +737,7 @@ const getPortalStatus = async (req, res, next) => {
         },
         acceptance,
         posting_letter,
+        school_location: schoolLocation,
         windows,
         payment,
       },

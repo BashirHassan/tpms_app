@@ -12,6 +12,7 @@ import { formatCurrency, formatDate, formatGreetingName } from '../../utils/help
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { StudentDashboardSkeleton } from '../../components/ui/Skeleton';
+import SchoolLocationBanner from '../../components/student/SchoolLocationBanner';
 import {
   IconSchool,
   IconCreditCard,
@@ -118,7 +119,14 @@ function StudentDashboard() {
     );
   }
 
-  const { session, windows, payment, acceptance, posting_letter } = portalStatus;
+  const {
+    session,
+    windows,
+    payment,
+    acceptance,
+    posting_letter,
+    school_location: schoolLocation,
+  } = portalStatus;
 
   // Per-session institutions don't require student payment
   const isPaymentRequired = payment.required && payment.status !== 'not_required';
@@ -472,6 +480,9 @@ function StudentDashboard() {
       </div>
 
       {/* Session Locked Warning */}
+      {/* School GPS location status */}
+      <SchoolLocationBanner status={schoolLocation} />
+
       {windows.session?.is_locked == 1 && (
         <Card className="bg-amber-50 border-amber-200">
           <CardContent className="p-3 sm:p-4">

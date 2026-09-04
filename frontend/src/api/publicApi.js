@@ -50,42 +50,6 @@ export const publicApi = {
     return apiClient.get(`/public/institutions/${institutionId}/schools${queryString ? `?${queryString}` : ''}`);
   },
   
-  // Get school principal info for update page
-  getSchoolPrincipal: (schoolId) => {
-    const institutionId = getCurrentInstitutionId();
-    if (!institutionId) {
-      return Promise.reject(new Error('Institution not found'));
-    }
-    return apiClient.get(`/public/institutions/${institutionId}/schools/${schoolId}/principal`);
-  },
-  
-  // Get school location info for update page
-  getSchoolLocation: (schoolId) => {
-    const institutionId = getCurrentInstitutionId();
-    if (!institutionId) {
-      return Promise.reject(new Error('Institution not found'));
-    }
-    return apiClient.get(`/public/institutions/${institutionId}/schools/${schoolId}/location`);
-  },
-  
-  // Submit principal update request
-  submitPrincipalUpdate: (data) => {
-    const institutionId = getCurrentInstitutionId();
-    if (!institutionId) {
-      return Promise.reject(new Error('Institution not found'));
-    }
-    return apiClient.post(`/public/institutions/${institutionId}/schools/principal-update`, data);
-  },
-  
-  // Submit location update request
-  submitLocationUpdate: (data) => {
-    const institutionId = getCurrentInstitutionId();
-    if (!institutionId) {
-      return Promise.reject(new Error('Institution not found'));
-    }
-    return apiClient.post(`/public/institutions/${institutionId}/schools/location-update`, data);
-  },
-  
   // Get feature toggles for current institution
   getFeatureToggles: () => {
     const institutionId = getCurrentInstitutionId();
@@ -103,16 +67,6 @@ export const publicApi = {
     }
     return apiClient.get(`/public/institutions/${institutionId}/session`);
   },
-  
-  // Legacy: Public school data by code
-  getSchoolByCode: (code) => 
-    apiClient.get(`/public/schools/${code}`),
-  
-  requestLocationUpdate: (code, data) => 
-    apiClient.post(`/public/schools/${code}/location-update`, data),
-  
-  requestPrincipalUpdate: (code, data) => 
-    apiClient.post(`/public/schools/${code}/principal-update`, data),
   
   // Health check
   healthCheck: () => 

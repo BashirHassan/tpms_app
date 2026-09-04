@@ -25,6 +25,19 @@ export const portalApi = {
   // Student posting info
   getPosting: () => 
     apiClient.get('/portal/posting'),
+
+  // School data corrections (student's own assigned school)
+  getMySchoolPrincipal: () =>
+    apiClient.get('/portal/my-school/principal'),
+
+  submitPrincipalUpdate: (data) =>
+    apiClient.post('/portal/my-school/principal-update', data),
+
+  getMySchoolLocation: () =>
+    apiClient.get('/portal/my-school/location'),
+
+  submitLocationUpdate: (data) =>
+    apiClient.post('/portal/my-school/location-update', data),
   
   // Student results
   getResults: () => 

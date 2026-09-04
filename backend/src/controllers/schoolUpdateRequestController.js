@@ -8,6 +8,51 @@
 const { z } = require('zod');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const { distanceMeters } = require('../utils/geo');
+
+/**
+ * How recently another institution must have moved the shared point for it to be
+ * worth warning about. Migration 061 backfills provenance from historical approved
+ * requests, so without this window every long-settled school would raise a
+ * "another institution moved this" alarm about something that happened years ago.
+ */
+const RECENT_MOVE_DAYS = 120;
+
+/**
+ * Warn an approver when the shared master_schools.location they are about to
+ * overwrite was recently moved by a DIFFERENT institution.
+ *
+ * Only the timestamp, the age and the distance are exposed - never the other
+ * institution's identity - so this stays non-identifying across tenants.
+ */
+function buildLocationProvenance(request, institutionId) {
+  const movedAt = request.location_updated_at || null;
+  const movedBy = request.location_updated_by_institution_id;
+
+  if (!movedAt || movedBy == null) return null;
+
+  const daysAgo = Math.max(0, Math.floor((Date.now() - new Date(movedAt).getTime()) / 86400000));
+  const byOtherInstitution =
+    Number(movedBy) !== Number(institutionId) && daysAgo <= RECENT_MOVE_DAYS;
+
+  if (!byOtherInstitution) {
+    return { moved_at: movedAt, by_other_institution: false, days_ago: daysAgo, distance_m: null };
+  }
+
+  const distance = distanceMeters(
+    request.current_latitude,
+    request.current_longitude,
+    request.proposed_latitude,
+    request.proposed_longitude
+  );
+
+  return {
+    moved_at: movedAt,
+    by_other_institution: true,
+    days_ago: daysAgo,
+    distance_m: distance === null ? null : Math.round(distance),
+  };
+}
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -329,6 +374,8 @@ const getLocationRequests = async (req, res, next) => {
              ms.state, ms.lga, ms.ward,
              ST_X(ms.location) as current_longitude,
              ST_Y(ms.location) as current_latitude,
+             ms.location_updated_at,
+             ms.location_updated_by_institution_id,
              sess.name as session_name,
              u.name as reviewed_by_name
       FROM school_location_update_requests slur
@@ -366,7 +413,12 @@ const getLocationRequests = async (req, res, next) => {
     sql += ' ORDER BY slur.created_at DESC LIMIT ? OFFSET ?';
     params.push(parseInt(limit), offset);
 
-    const requests = await query(sql, params);
+    const requests = (await query(sql, params)).map((row) => {
+      const provenance = buildLocationProvenance(row, institutionId);
+      // Never leak which institution moved the shared point - only when and how far
+      const { location_updated_by_institution_id: _hidden, ...rest } = row;
+      return { ...rest, location_provenance: provenance };
+    });
     const totalPages = Math.ceil(total / parseInt(limit));
 
     res.json({
@@ -398,6 +450,8 @@ const getLocationRequestById = async (req, res, next) => {
               ms.state, ms.lga, ms.ward,
               ST_X(ms.location) as current_longitude,
               ST_Y(ms.location) as current_latitude,
+              ms.location_updated_at,
+              ms.location_updated_by_institution_id,
               sess.name as session_name,
               u.name as reviewed_by_name
        FROM school_location_update_requests slur
@@ -413,7 +467,16 @@ const getLocationRequestById = async (req, res, next) => {
       throw new NotFoundError('Request not found');
     }
 
-    res.json({ success: true, data: request });
+    // Never leak which institution moved the shared point - only when and how far
+    const { location_updated_by_institution_id: _hidden, ...presented } = request;
+
+    res.json({
+      success: true,
+      data: {
+        ...presented,
+        location_provenance: buildLocationProvenance(request, institutionId),
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -451,12 +514,31 @@ const approveLocationRequest = async (req, res, next) => {
       );
       
       if (isv.length > 0) {
-        // Update the master_school with new location
+        // master_schools.location is shared across every institution linked to this
+        // school - stamp who moved it so the next institution to review a request
+        // can be warned before overwriting this correction.
+        const updates = ['location = ST_GeomFromText(?)'];
+        const updateParams = [
+          `POINT(${request.proposed_longitude} ${request.proposed_latitude})`,
+        ];
+
+        if (request.proposed_ward) {
+          updates.push('ward = ?');
+          updateParams.push(request.proposed_ward);
+        }
+        if (request.proposed_address) {
+          updates.push('address = ?');
+          updateParams.push(request.proposed_address);
+        }
+
+        updates.push('location_updated_at = NOW()');
+        updates.push('location_updated_by_institution_id = ?');
+        updateParams.push(parseInt(institutionId));
+        updates.push('updated_at = NOW()');
+
         await conn.execute(
-          `UPDATE master_schools SET location = ST_GeomFromText(?), updated_at = NOW()
-           WHERE id = ?`,
-          [`POINT(${request.proposed_longitude} ${request.proposed_latitude})`, 
-           isv[0].master_school_id]
+          `UPDATE master_schools SET ${updates.join(', ')} WHERE id = ?`,
+          [...updateParams, isv[0].master_school_id]
         );
       }
 

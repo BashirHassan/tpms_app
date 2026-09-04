@@ -166,7 +166,7 @@ router.use('/', userRoutes);
 
 // =============================================================================
 // 4. STUDENT PORTAL ROUTES - MUST come before any /:institutionId/* routes.
-// /portal/schools/for-update would otherwise match /:institutionId/schools/:id
+// /portal/my-school/location would otherwise match /:institutionId/schools/:id
 // with institutionId='portal' and fail institution validation.
 // =============================================================================
 

@@ -682,8 +682,81 @@ export default function SchoolUpdateRequestsPage() {
                       <IconExternalLink className="w-3 h-3 mr-1" />
                       Open in Maps
                     </a>
+                    {/* Requests submitted before GPS accuracy was captured also have
+                        no value here, so absence must not be read as "typed by hand" */}
+                    {selectedRequest.accuracy_meters != null ? (
+                      <p className="text-xs text-primary-700 mt-2">
+                        Captured by GPS · accuracy ±{Math.round(selectedRequest.accuracy_meters)} m
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-2">GPS accuracy not recorded</p>
+                    )}
                   </div>
                 </div>
+
+                {selectedRequest.location_provenance?.by_other_institution && (
+                  <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-4 mt-4">
+                    <p className="text-sm font-semibold text-amber-900">
+                      Another institution moved this point{' '}
+                      {selectedRequest.location_provenance.days_ago === 0
+                        ? 'today'
+                        : `${selectedRequest.location_provenance.days_ago} day${
+                            selectedRequest.location_provenance.days_ago === 1 ? '' : 's'
+                          } ago`}
+                    </p>
+                    <p className="text-sm text-amber-800 mt-1">
+                      These GPS coordinates are shared by every institution posted to this school.
+                      Approving this request overwrites the correction they made
+                      {selectedRequest.location_provenance.distance_m != null &&
+                        `, moving the point ${selectedRequest.location_provenance.distance_m} m`}
+                      . Check the two pins on the map before you approve.
+                    </p>
+                  </div>
+                )}
+
+                {selectedRequest.student_note && (
+                  <div className="mt-4">
+                    <h3 className="text-sm font-medium text-gray-500 mb-2">Student&apos;s Note</h3>
+                    <p className="bg-gray-50 rounded-lg p-4 text-sm text-gray-700 whitespace-pre-wrap">
+                      {selectedRequest.student_note}
+                    </p>
+                  </div>
+                )}
+
+                {(selectedRequest.proposed_ward || selectedRequest.proposed_address) && (
+                  <div className="mt-4">
+                    <h3 className="text-sm font-medium text-gray-500 mb-2">Additional Corrections</h3>
+                    <table className="w-full border border-gray-200 rounded-lg overflow-hidden">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Field</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Current</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Proposed</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {selectedRequest.proposed_ward && (
+                          <tr>
+                            <td className="px-4 py-2 text-sm text-gray-600">Ward</td>
+                            <td className="px-4 py-2 text-sm">{selectedRequest.ward || '-'}</td>
+                            <td className="px-4 py-2 text-sm font-medium text-primary-600">
+                              {selectedRequest.proposed_ward}
+                            </td>
+                          </tr>
+                        )}
+                        {selectedRequest.proposed_address && (
+                          <tr>
+                            <td className="px-4 py-2 text-sm text-gray-600">Address</td>
+                            <td className="px-4 py-2 text-sm">{selectedRequest.school_address || '-'}</td>
+                            <td className="px-4 py-2 text-sm font-medium text-primary-600">
+                              {selectedRequest.proposed_address}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
 

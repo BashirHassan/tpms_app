@@ -205,8 +205,24 @@ function StudentDashboardSkeleton() {
   );
 }
 
+/**
+ * Page header skeleton - title + subtitle, with an optional action button.
+ */
+function SkeletonPageHeader({ withAction = true, className }) {
+  return (
+    <div className={cn('flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3', className)}>
+      <div className="space-y-2">
+        <Skeleton className="h-7 w-48" />
+        <Skeleton className="h-4 w-64" />
+      </div>
+      {withAction && <Skeleton className="h-9 w-28 rounded-lg" />}
+    </div>
+  );
+}
+
 export {
   Skeleton,
+  SkeletonPageHeader,
   SkeletonLine,
   SkeletonCircle,
   SkeletonStatCard,

@@ -8,8 +8,8 @@ const multer = require('multer');
 const portalController = require('../controllers/portalController');
 const acceptanceController = require('../controllers/acceptanceController');
 const paymentController = require('../controllers/paymentController');
-const publicController = require('../controllers/publicController');
 const schoolRegistrationRequestController = require('../controllers/schoolRegistrationRequestController');
+const schoolPortalController = require('../controllers/schoolPortalController');
 const { authenticate } = require('../middleware/auth');
 const { studentOnly, requireInstitutionAccess, staffOnly } = require('../middleware/rbac');
 const { requireFeature } = require('../middleware/featureToggle');
@@ -56,34 +56,23 @@ router.get('/portal/payments/pending', authenticate, studentOnly, paymentControl
 router.post('/portal/payments/initialize', authenticate, studentOnly, paymentController.initializeStudentPayment);
 router.post('/portal/payments/verify', authenticate, studentOnly, paymentController.verifyStudentPayment);
 
-// School update portal routes - student auth; institution comes from JWT
-// Thin adapters: inject institutionId from student JWT into req.params then forward to publicController
-function withStudentInstitution(fn) {
-  return (req, res, next) => {
-    req.params.institutionId = String(req.user.institution_id);
-    fn(req, res, next);
-  };
-}
-
-router.get('/portal/schools/for-update',
+// School data corrections for the student's OWN assigned school, resolved from
+// their approved acceptance - there is no school picker and no public write path.
+// Note: paths use /my-school/ to avoid collision with /:institutionId/schools/* routes
+router.get('/portal/my-school/principal',
   authenticate, studentOnly,
-  withStudentInstitution(publicController.getSchools));
-
-router.get('/portal/schools/:schoolId/principal',
+  schoolPortalController.getMySchoolPrincipal);
+router.post('/portal/my-school/principal-update',
   authenticate, studentOnly,
-  withStudentInstitution(publicController.getSchoolPrincipal));
-
-router.post('/portal/schools/principal-update',
+  validate(schoolPortalController.schemas.portalPrincipalUpdate),
+  schoolPortalController.submitMyPrincipalUpdate);
+router.get('/portal/my-school/location',
   authenticate, studentOnly,
-  withStudentInstitution(publicController.submitPrincipalUpdate));
-
-router.get('/portal/schools/:schoolId/location',
+  schoolPortalController.getMySchoolLocation);
+router.post('/portal/my-school/location-update',
   authenticate, studentOnly,
-  withStudentInstitution(publicController.getSchoolLocation));
-
-router.post('/portal/schools/location-update',
-  authenticate, studentOnly,
-  withStudentInstitution(publicController.submitLocationUpdate));
+  validate(schoolPortalController.schemas.portalLocationUpdate),
+  schoolPortalController.submitMyLocationUpdate);
 
 // Institution-scoped portal endpoints (for admin access to student data)
 // 🔒 SECURITY: These require authentication, institution access check, and staff role

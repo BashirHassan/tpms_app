@@ -48,7 +48,10 @@ deploy_backend() {
     npm install --production
 
     print_status "Running database migrations..."
-    npm run migrate || print_warning "Migration failed or no new migrations"
+    if ! npm run migrate -- --pending; then
+        print_error "Database migration failed! Aborting deployment to prevent schema mismatch."
+        exit 1
+    fi
 
     print_status "Restarting PM2 process..."
     pm2 restart $PM2_APP_NAME || pm2 start $PROJECT_DIR/ecosystem.config.js --env production

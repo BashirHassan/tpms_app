@@ -12,6 +12,7 @@ import { useInstitution } from '../context/InstitutionContext';
 import { Button } from '../components/ui/Button';
 import { cn, getInitials, getRoleName } from '../utils/helpers';
 import { portalApi } from '../api';
+import { LOCATION_STATUS } from '../utils/schoolLocation';
 import {
   IconChevronDown,
   IconClipboardList,
@@ -24,10 +25,58 @@ import {
   IconLogout,
   IconMapPin,
   IconMenu2,
+  IconRosetteDiscountCheckFilled,
   IconSchool,
   IconSignature,
   IconX,
 } from '@tabler/icons-react';
+
+/**
+ * Status pip shown against the "Location Update" nav item so the school location
+ * state is visible from anywhere in the portal.
+ */
+function LocationNavStatus({ status, active }) {
+  if (!status) return null;
+
+  if (status === LOCATION_STATUS.VERIFIED) {
+    return (
+      <IconRosetteDiscountCheckFilled
+        className={cn('w-4 h-4 shrink-0', active ? 'text-white' : 'text-green-600')}
+        title="School location verified"
+        aria-label="School location verified"
+      />
+    );
+  }
+
+  if (status === LOCATION_STATUS.PENDING) {
+    return (
+      <span
+        className={cn(
+          'shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full',
+          active ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'
+        )}
+        title="School location awaiting approval"
+      >
+        Pending
+      </span>
+    );
+  }
+
+  if (status === LOCATION_STATUS.MISSING) {
+    return (
+      <span
+        className={cn(
+          'shrink-0 w-2 h-2 rounded-full',
+          active ? 'bg-white' : 'bg-amber-500 animate-pulse'
+        )}
+        title="School location not recorded"
+        aria-label="School location not recorded"
+      />
+    );
+  }
+
+  return null;
+}
 
 const navigationGroups = [
   {
@@ -55,8 +104,13 @@ const navigationGroups = [
   {
     name: 'Updates',
     items: [
-      { name: 'Principal Update', href: '/student/principal-update', icon: IconEdit },
-      { name: 'Location Update', href: '/student/location-update', icon: IconMapPin },
+      { name: 'Update Principal', href: '/student/principal-update', icon: IconEdit },
+      {
+        name: 'Update Location',
+        href: '/student/location-update',
+        icon: IconMapPin,
+        showsLocationStatus: true,
+      },
     ],
   },
 ];
@@ -76,6 +130,7 @@ function StudentLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [paymentRequired, setPaymentRequired] = useState(true);
+  const [locationStatus, setLocationStatus] = useState(null);
 
   useEffect(() => {
     const checkPaymentRequired = async () => {
@@ -85,6 +140,12 @@ function StudentLayout() {
         if (portal?.payment) {
           setPaymentRequired(portal.payment.required === true);
         }
+        const schoolLocation = portal?.school_location;
+        setLocationStatus(
+          schoolLocation?.feature_enabled && schoolLocation?.acceptance_approved
+            ? schoolLocation.status
+            : null
+        );
       } catch {
         // Keep payment visible if status cannot be loaded.
       }
@@ -204,7 +265,10 @@ function StudentLayout() {
                     onClick={closeMenus}
                   >
                     <item.icon className="w-5 h-5 shrink-0" />
-                    <span className="truncate">{item.name}</span>
+                    <span className="truncate flex-1">{item.name}</span>
+                    {item.showsLocationStatus && (
+                      <LocationNavStatus status={locationStatus} active={active} />
+                    )}
                   </Link>
                 );
               })}

@@ -1,444 +1,318 @@
-/**
- * Student Portal - Principal Update Page
- * Authenticated students can suggest school principal detail updates.
- * Institution is derived from the student's JWT (no public subdomain logic needed).
- */
-
-import { useState, useEffect } from 'react';
-import {
-  IconUser,
-  IconPhone,
-  IconCheck,
-  IconAlertCircle,
-  IconInfoCircle,
-  IconSchool,
-  IconBuilding,
-  IconMapPin,
-  IconSearch,
-  IconX,
-  IconChevronRight,
-  IconUserCircle,
-} from '@tabler/icons-react';
-import apiClient from '../../api/client';
-import { Card, CardContent } from '../../components/ui/Card';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { portalApi } from '../../api/portal';
+import { useToast } from '../../context/ToastContext';
+import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { Skeleton, SkeletonPageHeader } from '../../components/ui/Skeleton';
+import {
+  IconAlertCircle,
+  IconSchool,
+  IconCheck,
+  IconClock,
+  IconInfoCircle,
+  IconUser,
+} from '@tabler/icons-react';
 
-const portalSchoolsApi = {
-  getSchoolsForUpdate: (params) =>
-    apiClient.get('/portal/schools/for-update', { params }),
-  getSchoolPrincipal: (schoolId) =>
-    apiClient.get(`/portal/schools/${schoolId}/principal`),
-  submitPrincipalUpdate: (data) =>
-    apiClient.post('/portal/schools/principal-update', data),
-};
+const NIGERIAN_PHONE = /^(\+?234|0)[789]\d{9}$/;
 
-export default function StudentPrincipalUpdatePage() {
-  const [schools, setSchools] = useState([]);
-  const [selectedSchool, setSelectedSchool] = useState('');
-  const [search, setSearch] = useState('');
-  const [schoolInfo, setSchoolInfo] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [loadingSchools, setLoadingSchools] = useState(false);
+function GateCard({ icon: Icon, color, title, children }) {
+  const colorMap = {
+    amber: 'bg-amber-50 border-amber-200',
+    blue: 'bg-blue-50 border-blue-200',
+  };
+  const iconMap = {
+    amber: 'text-amber-600',
+    blue: 'text-blue-600',
+  };
+  return (
+    <Card className={colorMap[color]}>
+      <CardContent className="p-6 sm:p-10 text-center">
+        <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
+          <Icon className={`w-6 h-6 sm:w-8 sm:h-8 ${iconMap[color]}`} />
+        </div>
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
+        {children}
+      </CardContent>
+    </Card>
+  );
+}
+
+const EMPTY_FORM = { proposed_principal_name: '', proposed_principal_phone: '' };
+
+export default function PrincipalUpdatePage() {
+  const { toast } = useToast();
+  const navigate = useNavigate();
+
+  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
-  const [formData, setFormData] = useState({
-    proposed_principal_name: '',
-    proposed_principal_phone: '',
-  });
-  const [formErrors, setFormErrors] = useState({});
+  const [data, setData] = useState(null);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [errors, setErrors] = useState({});
 
-  useEffect(() => {
-    loadSchools();
-  }, []);
-
-  useEffect(() => {
-    if (selectedSchool) {
-      loadSchoolInfo(selectedSchool);
-      setShowForm(false);
-      setSuccess(false);
-    } else {
-      setSchoolInfo(null);
-      setShowForm(false);
-      setSuccess(false);
-      setError('');
-      setSearch('');
-      setFormData({ proposed_principal_name: '', proposed_principal_phone: '' });
-      setFormErrors({});
-    }
-  }, [selectedSchool]);
-
-  const loadSchools = async () => {
+  const fetchData = useCallback(async () => {
     try {
-      setLoadingSchools(true);
-      const response = await portalSchoolsApi.getSchoolsForUpdate({ exclude_pending_principal: 'true' });
-      setSchools(response.data.data || response.data || []);
+      const res = await portalApi.getMySchoolPrincipal();
+      setData(res.data.data);
     } catch {
-      setError('Failed to load schools');
-    } finally {
-      setLoadingSchools(false);
-    }
-  };
-
-  const loadSchoolInfo = async (schoolId) => {
-    try {
-      setLoading(true);
-      const response = await portalSchoolsApi.getSchoolPrincipal(schoolId);
-      setSchoolInfo(response.data.data || response.data || null);
-    } catch {
-      setError('Failed to load school information');
+      toast.error('Failed to load school data');
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  const validateForm = () => {
-    const errors = {};
-    const phoneRegex = /^(\+?234|0)?[789][01]\d{8}$/;
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-    if (!formData.proposed_principal_name.trim()) {
-      errors.proposed_principal_name = 'Principal name is required';
-    } else if (formData.proposed_principal_name.trim().length < 3) {
-      errors.proposed_principal_name = 'Name must be at least 3 characters';
+  const validate = () => {
+    const errs = {};
+    if (!form.proposed_principal_name || form.proposed_principal_name.trim().length < 3) {
+      errs.proposed_principal_name = 'Principal name must be at least 3 characters';
     }
-
-    if (!formData.proposed_principal_phone.trim()) {
-      errors.proposed_principal_phone = 'Phone number is required';
-    } else if (!phoneRegex.test(formData.proposed_principal_phone.replace(/\s/g, ''))) {
-      errors.proposed_principal_phone = 'Please enter a valid Nigerian phone number';
+    if (!form.proposed_principal_phone || !NIGERIAN_PHONE.test(form.proposed_principal_phone)) {
+      errs.proposed_principal_phone = 'Enter a valid Nigerian phone number (e.g. 08012345678)';
     }
-
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
+    return errs;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    if (!validateForm()) return;
+    const errs = validate();
+    if (Object.keys(errs).length) { setErrors(errs); return; }
 
+    setSubmitting(true);
     try {
-      setSubmitting(true);
-      await portalSchoolsApi.submitPrincipalUpdate({
-        school_id: parseInt(selectedSchool),
-        ...formData,
+      await portalApi.submitPrincipalUpdate({
+        proposed_principal_name: form.proposed_principal_name,
+        proposed_principal_phone: form.proposed_principal_phone,
       });
       setSuccess(true);
-      setShowForm(false);
-      setFormData({ proposed_principal_name: '', proposed_principal_phone: '' });
-      loadSchoolInfo(selectedSchool);
+      setForm(EMPTY_FORM);
+      await fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to submit update request');
+      toast.error(err?.response?.data?.message || 'Failed to submit request');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const selectedSchoolData = schools.find((s) => String(s.id) === String(selectedSchool));
-
-  const filteredSchools = schools.filter((s) => {
-    const q = search.toLowerCase();
+  if (loading) {
     return (
-      s.name?.toLowerCase().includes(q) ||
-      s.school_code?.toLowerCase().includes(q) ||
-      s.ward?.toLowerCase().includes(q) ||
-      s.lga?.toLowerCase().includes(q)
+      <div className="max-w-2xl mx-auto px-1 space-y-6">
+        <SkeletonPageHeader withAction={false} />
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+          <div className="p-6 pb-4"><Skeleton className="h-5 w-40" /></div>
+          <div className="px-4 pb-4 space-y-2">
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-3 w-1/3" />
+          </div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+          <div className="p-6 pb-4"><Skeleton className="h-5 w-56" /></div>
+          <div className="px-4 pb-4 grid grid-cols-2 gap-4">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="space-y-2">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-4 w-28" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+          <div className="p-6 pb-4"><Skeleton className="h-5 w-40" /></div>
+          <div className="px-4 pb-6 space-y-4">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="space-y-2">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-10 w-full rounded-lg" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     );
-  });
+  }
+
+  if (!data?.active_session) {
+    return (
+      <div className="max-w-2xl mx-auto px-1">
+        <GateCard icon={IconClock} color="blue" title="No Active Session">
+          <p className="text-gray-600 text-sm">There is no active teaching practice session at this time.</p>
+        </GateCard>
+      </div>
+    );
+  }
+
+  if (!data?.acceptance?.approved) {
+    return (
+      <div className="max-w-2xl mx-auto px-1">
+        <GateCard icon={IconAlertCircle} color="amber" title="Acceptance Required">
+          <p className="text-gray-600 text-sm mb-4">
+            Your acceptance form must be approved before you can submit a school update.
+          </p>
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => navigate('/student/acceptance')}>
+              Go to Acceptance
+            </Button>
+          </div>
+        </GateCard>
+      </div>
+    );
+  }
+
+  if (!data?.feature_enabled) {
+    return (
+      <div className="max-w-2xl mx-auto px-1">
+        <GateCard icon={IconAlertCircle} color="amber" title="Feature Disabled">
+          <p className="text-gray-600 text-sm">
+            Principal update submissions are not enabled for this institution.
+          </p>
+        </GateCard>
+      </div>
+    );
+  }
+
+  const { acceptance, principal } = data;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-      {/* Page Header */}
+    <div className="max-w-2xl mx-auto px-1 pb-8 space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-gray-900">Update Principal Details</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Update Principal</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Help keep school records accurate by reporting changes to principal information
+          Submit a correction if your school&apos;s principal has changed.
         </p>
       </div>
 
-      {/* Error Alert */}
-      {error && (
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-200 animate-in slide-in-from-top-2 duration-300">
-          <IconAlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-          <p className="text-sm font-medium text-red-800 flex-1">{error}</p>
-          <button onClick={() => setError('')} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
-        </div>
-      )}
-
-      {/* Progress Steps */}
-      <div className="flex items-center gap-2">
-        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-          selectedSchool ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-600'
-        }`}>
-          <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${
-            selectedSchool ? 'bg-primary-500 text-white' : 'bg-gray-300 text-gray-600'
-          }`}>1</span>
-          Select School
-        </div>
-        <IconChevronRight className="w-4 h-4 text-gray-400" />
-        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-          schoolInfo ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-600'
-        }`}>
-          <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${
-            schoolInfo ? 'bg-primary-500 text-white' : 'bg-gray-300 text-gray-600'
-          }`}>2</span>
-          Update Details
-        </div>
-      </div>
-
-      {/* Main Card */}
-      <Card className="shadow-sm border-gray-200">
-        <CardContent className="p-0">
-          {/* School Selection */}
-          <div className="p-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
-                <IconSchool className="w-4 h-4 text-primary-600" />
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900 text-sm">Select School</p>
-                <p className="text-xs text-gray-500">Search and choose the school to update</p>
-              </div>
-            </div>
-
-            {/* Search */}
-            <div className="relative">
-              <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              <Input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10 h-11 text-sm"
-                placeholder="Search by name, code, ward, or LGA..."
-                disabled={!!selectedSchool}
-              />
-            </div>
-
-            {/* Selected School Card */}
-            {selectedSchoolData && (
-              <div className="p-3 sm:p-4 bg-primary-50 border-2 border-primary-300 rounded-xl">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-start gap-3 min-w-0 flex-1">
-                    <div className="w-9 h-9 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
-                      <IconBuilding className="w-4 h-4 text-primary-600" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-primary-900 text-sm truncate">
-                        {selectedSchoolData.school_code
-                          ? `${selectedSchoolData.school_code} | ${selectedSchoolData.name}`
-                          : selectedSchoolData.name}
-                      </p>
-                      <p className="text-xs text-gray-700 flex items-center gap-1 mt-0.5">
-                        <IconMapPin className="w-3 h-3 flex-shrink-0" />
-                        <span className="truncate">
-                          {selectedSchoolData.ward}, {selectedSchoolData.lga}
-                          {selectedSchoolData.state ? `, ${selectedSchoolData.state}` : ''}
-                        </span>
-                      </p>
-                      {selectedSchoolData.route_name && (
-                        <p className="text-xs text-primary-600 mt-0.5 truncate">
-                          Route: {selectedSchoolData.route_name}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedSchool('')}
-                    className="p-1.5 text-primary-600 hover:text-primary-800 hover:bg-primary-100 active:bg-primary-200 rounded-lg transition-colors flex-shrink-0"
-                  >
-                    <IconX className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* School List */}
-            {!selectedSchool && (
-              <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
-                {loadingSchools ? (
-                  <div className="flex items-center justify-center p-8 text-gray-500">
-                    <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mr-3" />
-                    <span className="text-sm">Loading schools...</span>
-                  </div>
-                ) : filteredSchools.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-10 text-gray-500">
-                    <IconSchool className="w-10 h-10 text-gray-300 mb-2" />
-                    <p className="font-medium text-sm">No schools found</p>
-                    <p className="text-xs text-gray-400">Try adjusting your search</p>
-                  </div>
-                ) : (
-                  filteredSchools.map((school) => (
-                    <button
-                      key={school.id}
-                      type="button"
-                      onClick={() => setSelectedSchool(String(school.id))}
-                      className="w-full p-3 sm:p-4 text-left hover:bg-gray-50 active:bg-gray-100 transition-colors flex items-start gap-3"
-                    >
-                      <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                        <IconBuilding className="w-4 h-4 text-gray-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 truncate text-sm">{school.name}</p>
-                        {school.school_code && (
-                          <p className="text-xs font-medium text-primary-700 mt-0.5">({school.school_code})</p>
-                        )}
-                        <p className="text-xs text-gray-600 flex items-center gap-1 mt-0.5">
-                          <IconMapPin className="w-3 h-3 flex-shrink-0" />
-                          <span className="truncate">
-                            {school.ward}, {school.lga}
-                            {school.state ? `, ${school.state}` : ''}
-                          </span>
-                        </p>
-                        {school.route_name && (
-                          <p className="text-xs text-primary-600 mt-0.5 truncate">Route: {school.route_name}</p>
-                        )}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-
-            <p className="text-xs text-gray-500 flex items-start gap-2">
-              <IconInfoCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-              <span>Schools with pending requests are hidden. Contact the TP office if your school is not listed.</span>
-            </p>
-          </div>
-
-          {/* School Info */}
-          {loading ? (
-            <div className="p-8 flex items-center justify-center border-t border-gray-100">
-              <div className="flex items-center gap-3 text-gray-500">
-                <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
-                Loading school information...
-              </div>
-            </div>
-          ) : schoolInfo && (
-            <div className="border-t border-gray-100">
-              <div className="p-6 space-y-4">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Current Principal</p>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="flex items-start gap-3 p-4 rounded-xl bg-slate-50">
-                    <div className="w-9 h-9 rounded-lg bg-white shadow-sm flex items-center justify-center flex-shrink-0">
-                      <IconUser className="w-4 h-4 text-slate-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-gray-500 mb-1">Principal Name</p>
-                      <p className="text-sm font-semibold text-gray-900 truncate">
-                        {schoolInfo.school?.principal_name || <span className="text-gray-400 font-normal italic">Not recorded</span>}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3 p-4 rounded-xl bg-slate-50">
-                    <div className="w-9 h-9 rounded-lg bg-white shadow-sm flex items-center justify-center flex-shrink-0">
-                      <IconPhone className="w-4 h-4 text-slate-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-gray-500 mb-1">Principal Phone</p>
-                      <p className="text-sm font-semibold text-gray-900 font-mono">
-                        {schoolInfo.school?.principal_phone || <span className="text-gray-400 font-normal font-sans italic">Not recorded</span>}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {!schoolInfo.feature_enabled && (
-                  <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
-                    <IconInfoCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-amber-800">Principal update submissions are currently disabled for this institution.</p>
-                  </div>
-                )}
-
-                {schoolInfo.pending_request_exists && !success && (
-                  <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-50 border border-blue-200">
-                    <IconInfoCircle className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-blue-800">An update request for this school is already pending review.</p>
-                  </div>
-                )}
-
-                {success && (
-                  <div className="flex items-start gap-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
-                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                      <IconCheck className="w-5 h-5 text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-emerald-800">Update Request Submitted!</p>
-                      <p className="text-sm text-emerald-700 mt-1">Your request will be reviewed by an administrator.</p>
-                    </div>
-                  </div>
-                )}
-
-                {schoolInfo.can_request_update && !showForm && !success && (
-                  <div className="pt-2">
-                    <p className="text-sm text-gray-600 mb-4">Is this information incorrect? Submit updated principal details.</p>
-                    <Button onClick={() => setShowForm(true)}>
-                      <IconUser className="w-4 h-4 mr-2" />
-                      Update Details
-                    </Button>
-                  </div>
-                )}
-
-                {showForm && (
-                  <form onSubmit={handleSubmit} className="space-y-4 pt-4 border-t border-gray-100">
-                    <div>
-                      <h4 className="font-semibold text-gray-900">Submit Updated Information</h4>
-                      <p className="text-sm text-gray-500">Provide the correct principal details for this school</p>
-                    </div>
-
-                    <div className="p-5 rounded-xl border border-primary-100 space-y-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <IconUserCircle className="w-5 h-5 text-primary-600" />
-                        <span className="font-medium text-primary-900">New Principal Information</span>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <Input
-                          label="Principal Name"
-                          required
-                          value={formData.proposed_principal_name}
-                          onChange={(e) => setFormData({ ...formData, proposed_principal_name: e.target.value.toUpperCase() })}
-                          error={formErrors.proposed_principal_name}
-                          placeholder="Enter principal's full name"
-                          className="uppercase"
-                        />
-                        <Input
-                          label="Principal Phone"
-                          required
-                          type="tel"
-                          value={formData.proposed_principal_phone}
-                          onChange={(e) => setFormData({ ...formData, proposed_principal_phone: e.target.value })}
-                          error={formErrors.proposed_principal_phone}
-                          placeholder="e.g., 08012345678"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          setShowForm(false);
-                          setFormData({ proposed_principal_name: '', proposed_principal_phone: '' });
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button type="submit" loading={submitting}>
-                        <IconCheck className="w-4 h-4 mr-2" />
-                        Submit Update Request
-                      </Button>
-                    </div>
-                  </form>
-                )}
-              </div>
-            </div>
+      {/* School info */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <IconSchool className="w-5 h-5 text-primary-600" />
+            Your School
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 space-y-1 text-sm text-gray-700">
+          <p className="font-semibold text-gray-900">{acceptance.school_name}</p>
+          {acceptance.school_code && (
+            <p className="text-gray-500 text-xs font-mono">{acceptance.school_code}</p>
+          )}
+          <p>
+            {acceptance.school_lga}, {acceptance.school_state}
+            {acceptance.school_ward ? ` - ${acceptance.school_ward}` : ''}
+          </p>
+          {acceptance.school_address && (
+            <p className="text-gray-500">{acceptance.school_address}</p>
           )}
         </CardContent>
       </Card>
+
+      {/* Current Principal */}
+      <Card className="border border-gray-200">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <IconUser className="w-5 h-5 text-gray-500" />
+            Current Principal on Record
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Name</p>
+              <p className="font-medium text-gray-900">{principal.current_name || <span className="text-gray-400 italic">Not recorded</span>}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Phone</p>
+              <p className="font-medium text-gray-900">{principal.current_phone || <span className="text-gray-400 italic">Not recorded</span>}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Status banners */}
+      {success && (
+        <Card className="border border-green-200 bg-green-50">
+          <CardContent className="p-4 flex items-center gap-3 text-green-800">
+            <IconCheck className="w-5 h-5 shrink-0" />
+            <p className="text-sm font-medium">
+              Request submitted successfully. The TP unit will review and apply the update.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {data.pending_request_exists && !success && (
+        <Card className="border border-blue-200 bg-blue-50">
+          <CardContent className="p-4 flex items-center gap-3 text-blue-800">
+            <IconInfoCircle className="w-5 h-5 shrink-0" />
+            <p className="text-sm">
+              A pending update request already exists for your school. It is currently under review.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Update form */}
+      {data.can_submit && !success && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <IconUser className="w-5 h-5 text-primary-600" />
+              Propose New Principal
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 sm:p-6 !pt-0">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Principal Name <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  type="text"
+                  className={errors.proposed_principal_name ? 'border-red-400' : ''}
+                  placeholder="Enter full name"
+                  value={form.proposed_principal_name}
+                  onChange={(e) => {
+                    setForm((prev) => ({ ...prev, proposed_principal_name: e.target.value }));
+                    setErrors((err) => ({ ...err, proposed_principal_name: undefined }));
+                  }}
+                  disabled={submitting}
+                />
+                {errors.proposed_principal_name && (
+                  <p className="text-xs text-red-600 mt-1">{errors.proposed_principal_name}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Principal Phone <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  type="tel"
+                  className={errors.proposed_principal_phone ? 'border-red-400' : ''}
+                  placeholder="e.g. 08012345678"
+                  value={form.proposed_principal_phone}
+                  onChange={(e) => {
+                    setForm((prev) => ({ ...prev, proposed_principal_phone: e.target.value }));
+                    setErrors((err) => ({ ...err, proposed_principal_phone: undefined }));
+                  }}
+                  disabled={submitting}
+                />
+                {errors.proposed_principal_phone && (
+                  <p className="text-xs text-red-600 mt-1">{errors.proposed_principal_phone}</p>
+                )}
+              </div>
+
+              <div className="flex justify-end">
+                <Button type="submit" disabled={submitting}>
+                  <IconUser className="w-4 h-4 mr-2" />
+                  {submitting ? 'Submitting…' : 'Submit Request'}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
