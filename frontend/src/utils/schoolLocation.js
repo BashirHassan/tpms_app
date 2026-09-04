@@ -59,7 +59,7 @@ const META = {
     tone: 'gray',
     headline: 'This location was confirmed by another institution',
     description:
-      'A student from another institution posted here recorded these coordinates on the ground, and their directorate approved them. You do not need to record it again — but do check the pin, and send a correction if it is wrong.',
+      'A student from another institution posted here recorded these coordinates on the ground, and their TP unit approved them. You do not need to record it again — but do check the pin, and send a correction if it is wrong.',
     badgeClass: 'bg-gray-100 text-gray-700',
     cardClass: 'border-gray-200 bg-gray-50',
     accentClass: 'text-gray-500',

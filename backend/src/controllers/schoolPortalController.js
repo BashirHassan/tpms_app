@@ -574,9 +574,18 @@ const submitMyLocationUpdate = async (req, res, next) => {
 
     const note = typeof student_note === 'string' ? student_note.trim() : '';
 
+    const currentLat = toNumber(acceptance.latitude);
+    const currentLng = toNumber(acceptance.longitude);
+    const hasCurrentCoords = currentLat !== null && currentLng !== null;
+
     // Correcting an already-confirmed location is allowed, but it has to be a
     // deliberate act: a real reason and a materially different position.
-    if (approved || externalVerification) {
+    //
+    // Gated on coordinates actually being on record, so this matches exactly
+    // when the status builder reports requires_note - otherwise a confirmation
+    // whose coordinates never landed would demand a reason the page never
+    // asked the student for.
+    if ((approved || externalVerification) && hasCurrentCoords) {
       if (note.length < 10) {
         throw new ValidationError(
           approved
@@ -585,15 +594,11 @@ const submitMyLocationUpdate = async (req, res, next) => {
         );
       }
 
-      const currentLat = toNumber(acceptance.latitude);
-      const currentLng = toNumber(acceptance.longitude);
-      if (currentLat !== null && currentLng !== null) {
-        const moved = distanceMeters(currentLat, currentLng, proposed_latitude, proposed_longitude);
-        if (moved !== null && moved < MIN_CORRECTION_DISTANCE_M) {
-          throw new ValidationError(
-            `The location on record is already within ${Math.round(moved)} m of the coordinates you submitted, so no correction is needed.`
-          );
-        }
+      const moved = distanceMeters(currentLat, currentLng, proposed_latitude, proposed_longitude);
+      if (moved !== null && moved < MIN_CORRECTION_DISTANCE_M) {
+        throw new ValidationError(
+          `The location on record is already within ${Math.round(moved)} m of the coordinates you submitted, so no correction is needed.`
+        );
       }
     }
 
@@ -627,8 +632,8 @@ const submitMyLocationUpdate = async (req, res, next) => {
           proposed_address || null,
           accuracy,
           note || null,
-          toNumber(acceptance.latitude),
-          toNumber(acceptance.longitude),
+          currentLat,
+          currentLng,
           student?.full_name || null,
           acceptance.student_phone || null,
           req.ip || null,

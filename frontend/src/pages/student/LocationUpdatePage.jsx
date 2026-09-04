@@ -205,12 +205,18 @@ export default function StudentLocationUpdatePage() {
 
   const wardOptions = useMemo(() => wards.map((w) => ({ label: w.name, value: w.name })), [wards]);
 
+  // Clears the captured reading only. The ward/address/reason the student has
+  // already typed survives "Record again" - re-recording a position is not a
+  // reason to make them write their explanation out a second time.
   const resetRecorder = () => {
     setRecorder(null);
     resetSampling();
     setManual({ latitude: '', longitude: '' });
     setManualErrors({});
     setManualOpen(false);
+  };
+
+  const clearDetails = () => {
     setDetailsOpen(false);
     setDetails(EMPTY_DETAILS);
     setNoteError(null);
@@ -270,7 +276,8 @@ export default function StudentLocationUpdatePage() {
   const handleSubmit = async () => {
     if (!recorder) return;
     if (noteRequired && details.note.trim().length < 10) {
-      setNoteError('Please tell the directorate why the approved location needs to change (at least 10 characters).');
+      setNoteError('Please tell the TP unit why the approved location needs to change (at least 10 characters).');
+      setDetailsOpen(true); // the error renders inside this panel
       return;
     }
     setNoteError(null);
@@ -287,6 +294,7 @@ export default function StudentLocationUpdatePage() {
       setJustSubmitted(true);
       setCorrecting(false);
       resetRecorder();
+      clearDetails();
       await fetchData();
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Failed to submit your location');
@@ -491,7 +499,7 @@ export default function StudentLocationUpdatePage() {
               </div>
             )}
 
-            {/* Settled - by our directorate, or by another institution sharing this point */}
+            {/* Settled - by our TP unit, or by another institution sharing this point */}
             {settled && !correcting && (
               <div className="mt-3">
                 {status === LOCATION_STATUS.VERIFIED && location.verified_at && (
@@ -564,6 +572,7 @@ export default function StudentLocationUpdatePage() {
                 onClick={() => {
                   setCorrecting(false);
                   resetRecorder();
+                  clearDetails();
                 }}
                 className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-3"
               >
