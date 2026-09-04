@@ -127,11 +127,11 @@ function AdminBiometricDevicesPage() {
     }
   };
 
-  const handleOpenExempt = (supervisor) => {
+  const handleOpenExempt = useCallback((supervisor) => {
     setSelectedSupervisorForExemption(supervisor);
     setExemptReason('');
     setExemptDialogOpen(true);
-  };
+  }, []);
 
   const handleGrantExemption = async () => {
     if (!selectedSupervisorForExemption || exemptReason.length < 10) {
@@ -155,7 +155,7 @@ function AdminBiometricDevicesPage() {
     }
   };
 
-  const handleRemoveExemption = async (supervisor) => {
+  const handleRemoveExemption = useCallback(async (supervisor) => {
     try {
       await biometricApi.adminSetExemption(supervisor.supervisor_id, { exempt: false });
       toast.success('Exemption removed.');
@@ -163,7 +163,7 @@ function AdminBiometricDevicesPage() {
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to remove exemption');
     }
-  };
+  }, [fetchExemptions, toast]);
 
   const stats = useMemo(
     () => ({
@@ -338,7 +338,7 @@ function AdminBiometricDevicesPage() {
           ),
       },
     ],
-    []
+    [handleOpenExempt, handleRemoveExemption]
   );
 
   const supervisorOptions = supervisors.map((s) => ({
