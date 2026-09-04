@@ -193,7 +193,7 @@ const getById = async (req, res, next) => {
               ms.name as school_name, ms.official_code as school_code, ms.address as school_address,
               ms.state as school_state, ms.lga as school_lga, ms.ward as school_ward,
               ms.principal_name, ms.principal_phone,
-              ST_X(ms.location) as school_latitude, ST_Y(ms.location) as school_longitude,
+              ST_Latitude(ms.location) as school_latitude, ST_Longitude(ms.location) as school_longitude,
               r.name as route_name,
               sess.name as session_name
        FROM supervisor_postings sp
@@ -1090,7 +1090,7 @@ const getMyPostings = async (req, res, next) => {
               ms.name as school_name, ms.official_code as school_code, ms.address as school_address,
               ms.state as school_state, ms.lga as school_lga, ms.ward as school_ward,
               ms.principal_name, ms.principal_phone,
-              ST_X(ms.location) as school_latitude, ST_Y(ms.location) as school_longitude,
+              ST_Latitude(ms.location) as school_latitude, ST_Longitude(ms.location) as school_longitude,
               r.name as route_name,
               sess.name as session_name
        FROM supervisor_postings sp
@@ -1157,7 +1157,7 @@ const getMyPostingsPrintable = async (req, res, next) => {
              sp.transport, sp.dsa, sp.dta, sp.local_running, sp.tetfund,
              ms.name as school_name, ms.official_code as school_code, ms.address as school_address,
              ms.state as school_state, ms.lga as school_lga, ms.ward as school_ward,
-             ST_X(ms.location) as school_latitude, ST_Y(ms.location) as school_longitude,
+             ST_Latitude(ms.location) as school_latitude, ST_Longitude(ms.location) as school_longitude,
              isv.distance_km as school_distance_km, isv.location_category,
              ms.principal_name, ms.principal_phone,
              r.id as route_id, r.name as route_name
@@ -1260,7 +1260,7 @@ const getMyPostingsPrintable = async (req, res, next) => {
               sp.merged_with_posting_id,
               ms.name as school_name, ms.address as school_address,
               ms.state as school_state, ms.lga as school_lga, ms.ward as school_ward,
-              ST_X(ms.location) as school_latitude, ST_Y(ms.location) as school_longitude,
+              ST_Latitude(ms.location) as school_latitude, ST_Longitude(ms.location) as school_longitude,
               isv.distance_km as school_distance_km, isv.location_category,
               ms.principal_name, ms.principal_phone,
               r.name as route_name
@@ -1647,7 +1647,7 @@ const getPrintablePostings = async (req, res, next) => {
                u.id as supervisor_id, u.name as supervisor_name, u.email as supervisor_email, u.phone as supervisor_phone,
                ms.name as school_name, ms.official_code as school_code, ms.address as school_address,
                ms.state as school_state, ms.lga as school_lga, ms.ward as school_ward,
-               ST_X(ms.location) as school_latitude, ST_Y(ms.location) as school_longitude,
+               ST_Latitude(ms.location) as school_latitude, ST_Longitude(ms.location) as school_longitude,
                isv.distance_km as school_distance_km, isv.location_category,
                ms.principal_name, ms.principal_phone,
                r.id as route_id, r.name as route_name
@@ -1711,7 +1711,7 @@ const getPrintablePostings = async (req, res, next) => {
                   sp.merged_with_posting_id,
                   ms.name as school_name, ms.address as school_address,
                   ms.state as school_state, ms.lga as school_lga, ms.ward as school_ward,
-                  ST_X(ms.location) as school_latitude, ST_Y(ms.location) as school_longitude,
+                  ST_Latitude(ms.location) as school_latitude, ST_Longitude(ms.location) as school_longitude,
                   isv.distance_km as school_distance_km, isv.location_category,
                   ms.principal_name, ms.principal_phone,
                   r.name as route_name
@@ -1827,8 +1827,8 @@ const getPrintablePostings = async (req, res, next) => {
         ms.state as school_state,
         ms.lga as school_lga,
         ms.ward as school_ward,
-        ST_X(ms.location) as school_latitude,
-        ST_Y(ms.location) as school_longitude,
+        ST_Latitude(ms.location) as school_latitude,
+        ST_Longitude(ms.location) as school_longitude,
         isv.distance_km as school_distance_km,
         isv.location_category,
         ms.principal_name,
@@ -1934,7 +1934,7 @@ const getPrintablePostings = async (req, res, next) => {
               mg.secondary_institution_school_id as school_id, mg.secondary_group_number as group_number,
               ms.name as school_name, ms.address as school_address,
               ms.state as school_state, ms.lga as school_lga, ms.ward as school_ward,
-              ST_X(ms.location) as school_latitude, ST_Y(ms.location) as school_longitude,
+              ST_Latitude(ms.location) as school_latitude, ST_Longitude(ms.location) as school_longitude,
               isv.distance_km as school_distance_km, isv.location_category,
               ms.principal_name, ms.principal_phone,
               r.name as route_name
@@ -2842,8 +2842,8 @@ const getPrepostingTemplate = async (req, res, next) => {
         ms.state as school_state,
         ms.lga as school_lga,
         ms.ward as school_ward,
-        ST_X(ms.location) as school_latitude,
-        ST_Y(ms.location) as school_longitude,
+        ST_Latitude(ms.location) as school_latitude,
+        ST_Longitude(ms.location) as school_longitude,
         isv.distance_km as school_distance_km,
         r.id as route_id,
         r.name as route_name,
@@ -2913,7 +2913,7 @@ const getPrepostingTemplate = async (req, res, next) => {
               mg.secondary_institution_school_id as school_id, mg.secondary_group_number as group_number,
               ms.name as school_name, ms.address as school_address,
               ms.state as school_state, ms.lga as school_lga, ms.ward as school_ward,
-              ST_X(ms.location) as school_latitude, ST_Y(ms.location) as school_longitude,
+              ST_Latitude(ms.location) as school_latitude, ST_Longitude(ms.location) as school_longitude,
               isv.distance_km as school_distance_km, isv.location_category,
               ms.principal_name, ms.principal_phone,
               r.name as route_name

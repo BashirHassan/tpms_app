@@ -372,8 +372,8 @@ const getLocationRequests = async (req, res, next) => {
       SELECT slur.*, 
              ms.name as school_name, ms.official_code as school_code,
              ms.state, ms.lga, ms.ward,
-             ST_X(ms.location) as current_latitude,
-             ST_Y(ms.location) as current_longitude,
+             ST_Latitude(ms.location) as current_latitude,
+             ST_Longitude(ms.location) as current_longitude,
              ms.location_updated_at,
              ms.location_updated_by_institution_id,
              sess.name as session_name,
@@ -448,8 +448,8 @@ const getLocationRequestById = async (req, res, next) => {
       `SELECT slur.*, 
               ms.name as school_name, ms.official_code as school_code, ms.address as school_address,
               ms.state, ms.lga, ms.ward,
-              ST_X(ms.location) as current_latitude,
-              ST_Y(ms.location) as current_longitude,
+              ST_Latitude(ms.location) as current_latitude,
+              ST_Longitude(ms.location) as current_longitude,
               ms.location_updated_at,
               ms.location_updated_by_institution_id,
               sess.name as session_name,
@@ -521,7 +521,7 @@ const approveLocationRequest = async (req, res, next) => {
         // (GDJSS Jalo Waziri Gombe reads ST_X=10.2882, ST_Y=11.1590; Gombe town
         // is 10.290 N, 11.167 E). Writing longitude-first here would leave this
         // school's point oriented the opposite way to every other row.
-        const updates = ['location = ST_GeomFromText(?)'];
+        const updates = ['location = ST_GeomFromText(?, 4326)'];
         const updateParams = [
           `POINT(${request.proposed_latitude} ${request.proposed_longitude})`,
         ];

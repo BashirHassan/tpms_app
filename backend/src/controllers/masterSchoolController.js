@@ -111,7 +111,7 @@ const getAll = async (req, res, next) => {
         ms.state, ms.lga, ms.ward, ms.address,
         ms.principal_name, ms.principal_phone,
         ms.is_verified, ms.status,
-        ST_X(ms.location) as latitude, ST_Y(ms.location) as longitude,
+        ST_Latitude(ms.location) as latitude, ST_Longitude(ms.location) as longitude,
         ms.created_at, ms.updated_at,
         ms.created_by_institution_id, ms.merged_into_id,
         i.name as created_by_institution_name,
@@ -201,7 +201,7 @@ const getById = async (req, res, next) => {
         ms.state, ms.lga, ms.ward, ms.address,
         ms.principal_name, ms.principal_phone,
         ms.is_verified, ms.status,
-        ST_X(ms.location) as latitude, ST_Y(ms.location) as longitude,
+        ST_Latitude(ms.location) as latitude, ST_Longitude(ms.location) as longitude,
         ms.created_at, ms.updated_at,
         ms.created_by_institution_id, ms.merged_into_id,
         i.name as created_by_institution_name
@@ -290,7 +290,7 @@ const create = async (req, res, next) => {
         INSERT INTO master_schools (
           name, official_code, school_type, category, state, lga, ward, address,
           principal_name, principal_phone, is_verified, location
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromText(?))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromText(?, 4326))
       `;
       insertParams.push(`POINT(${parseFloat(latitude)} ${parseFloat(longitude)})`);
     }
@@ -298,7 +298,7 @@ const create = async (req, res, next) => {
     const result = await query(insertSql, insertParams);
 
     const [school] = await query(
-      `SELECT ms.*, ST_X(ms.location) as latitude, ST_Y(ms.location) as longitude
+      `SELECT ms.*, ST_Latitude(ms.location) as latitude, ST_Longitude(ms.location) as longitude
        FROM master_schools ms WHERE id = ?`,
       [result.insertId]
     );
@@ -356,7 +356,7 @@ const update = async (req, res, next) => {
 
     if (updates.latitude !== undefined && updates.longitude !== undefined) {
       if (updates.latitude !== null && updates.longitude !== null) {
-        updateFields.push('location = ST_GeomFromText(?)');
+        updateFields.push('location = ST_GeomFromText(?, 4326)');
         updateParams.push(`POINT(${parseFloat(updates.latitude)} ${parseFloat(updates.longitude)})`);
       } else {
         updateFields.push('location = NULL');
@@ -375,7 +375,7 @@ const update = async (req, res, next) => {
     );
 
     const [school] = await query(
-      `SELECT ms.*, ST_X(ms.location) as latitude, ST_Y(ms.location) as longitude
+      `SELECT ms.*, ST_Latitude(ms.location) as latitude, ST_Longitude(ms.location) as longitude
        FROM master_schools ms WHERE id = ?`,
       [parseInt(id)]
     );

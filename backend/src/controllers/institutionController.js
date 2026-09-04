@@ -168,7 +168,7 @@ const getById = async (req, res, next) => {
 
     const [institution] = await query(
       `SELECT i.*,
-              ST_X(i.location) as longitude, ST_Y(i.location) as latitude,
+              ST_Longitude(i.location) as longitude, ST_Latitude(i.location) as latitude,
               (SELECT COUNT(*) FROM users u WHERE u.institution_id = i.id) as user_count,
               (SELECT COUNT(*) FROM students s WHERE s.institution_id = i.id) as student_count,
               (SELECT COUNT(*) FROM institution_schools isv WHERE isv.institution_id = i.id) as school_count,
@@ -369,7 +369,7 @@ const update = async (req, res, next) => {
       const lng = data.longitude;
       if (lat != null && lng != null) {
         updates.push(`location = ST_PointFromText(?, 4326)`);
-        params.push(`POINT(${parseFloat(lng)} ${parseFloat(lat)})`);
+        params.push(`POINT(${parseFloat(lat)} ${parseFloat(lng)})`);
       } else {
         updates.push(`location = NULL`);
       }

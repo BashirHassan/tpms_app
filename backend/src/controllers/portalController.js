@@ -168,7 +168,7 @@ const getStudentPosting = async (req, res, next) => {
               ms.name as school_name, ms.official_code as school_code, ms.address as school_address,
               ms.state as school_state, ms.lga as school_lga, ms.ward as school_ward,
               ms.principal_name, ms.principal_phone,
-              ST_X(ms.location) as school_latitude, ST_Y(ms.location) as school_longitude,
+              ST_Latitude(ms.location) as school_latitude, ST_Longitude(ms.location) as school_longitude,
               r.name as route_name
        FROM student_acceptances sa
        INNER JOIN institution_schools isv ON sa.institution_school_id = isv.id

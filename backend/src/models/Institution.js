@@ -94,7 +94,7 @@ class Institution {
   static async findById(id, includeSensitive = false) {
     const [rows] = await pool.query(
       `SELECT id, name, code, subdomain, institution_type, email, phone, address, state,
-              ST_X(location) as longitude, ST_Y(location) as latitude,
+              ST_Longitude(location) as longitude, ST_Latitude(location) as latitude,
               logo_url, primary_color, secondary_color, status, tp_unit_name,
               smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password,
               smtp_from_name, smtp_from_email,
@@ -154,7 +154,7 @@ class Institution {
    */
   static async findAll(filters = {}) {
     let query = `SELECT id, name, code, subdomain, institution_type, email, phone, address, state,
-                        ST_X(location) as longitude, ST_Y(location) as latitude,
+                        ST_Longitude(location) as longitude, ST_Latitude(location) as latitude,
                         logo_url, primary_color, secondary_color, status, tp_unit_name,
                         created_at, updated_at 
                  FROM institutions WHERE 1=1`;
@@ -236,7 +236,7 @@ class Institution {
     // Build location POINT if coordinates provided
     const hasLocation = latitude != null && longitude != null;
     const locationValue = hasLocation 
-      ? `ST_PointFromText('POINT(${parseFloat(longitude)} ${parseFloat(latitude)})', 4326)` 
+      ? `ST_PointFromText('POINT(${parseFloat(latitude)} ${parseFloat(longitude)})', 4326)` 
       : 'NULL';
 
     const [result] = await pool.query(
@@ -313,7 +313,7 @@ class Institution {
       const lat = data.latitude;
       const lng = data.longitude;
       if (lat != null && lng != null) {
-        updates.push(`location = ST_PointFromText('POINT(${parseFloat(lng)} ${parseFloat(lat)})', 4326)`);
+        updates.push(`location = ST_PointFromText('POINT(${parseFloat(lat)} ${parseFloat(lng)})', 4326)`);
       } else if (lat === null || lng === null) {
         updates.push('location = NULL');
       }
@@ -651,14 +651,10 @@ class Institution {
    */
   static async getDistanceToSchool(institutionId, schoolId) {
     const [rows] = await pool.query(
-      // See getSchoolsWithDistances - the two columns use different conventions
-      // and SRIDs, so both points are rebuilt as SRID-0 POINT(longitude latitude)
-      // before measuring.
+      // Both columns are SRID 4326 with EPSG axis order (migration 065), so the
+      // points are directly comparable.
       `SELECT
-         ST_Distance_Sphere(
-           POINT(ST_X(i.location), ST_Y(i.location)),
-           POINT(ST_Y(ms.location), ST_X(ms.location))
-         ) / 1000 as distance_km
+         ST_Distance_Sphere(i.location, ms.location) / 1000 as distance_km
        FROM institutions i
        JOIN institution_schools isv ON isv.institution_id = i.id
        JOIN master_schools ms ON isv.master_school_id = ms.id
@@ -681,22 +677,13 @@ class Institution {
    */
   static async getSchoolsWithDistances(institutionId) {
     const [rows] = await pool.query(
-      // The two columns use different conventions, so the points cannot be
-      // compared directly: institutions.location is SRID 4326 holding
-      // POINT(longitude latitude), master_schools.location is SRID 0 holding
-      // POINT(latitude longitude). Passing them straight to ST_Distance_Sphere
-      // raises ER_GIS_DIFFERENT_SRIDS (3033). Rebuild both as SRID-0
-      // POINT(longitude latitude), which is the order ST_Distance_Sphere expects.
+      // Both columns are SRID 4326 with EPSG axis order (migration 065), so the
+      // points are directly comparable.
       `SELECT
          isv.id, ms.name, ms.lga, ms.school_type,
-         ST_X(ms.location) as latitude,
-         ST_Y(ms.location) as longitude,
-         ROUND(
-           ST_Distance_Sphere(
-             POINT(ST_X(i.location), ST_Y(i.location)),
-             POINT(ST_Y(ms.location), ST_X(ms.location))
-           ) / 1000, 2
-         ) as distance_km
+         ST_Latitude(ms.location) as latitude,
+         ST_Longitude(ms.location) as longitude,
+         ROUND(ST_Distance_Sphere(i.location, ms.location) / 1000, 2) as distance_km
        FROM institution_schools isv
        JOIN master_schools ms ON isv.master_school_id = ms.id
        JOIN institutions i ON isv.institution_id = i.id
@@ -720,7 +707,7 @@ class Institution {
     let query;
     
     if (latitude != null && longitude != null) {
-      query = `UPDATE institutions SET location = ST_PointFromText('POINT(${parseFloat(longitude)} ${parseFloat(latitude)})', 4326), updated_at = NOW() WHERE id = ?`;
+      query = `UPDATE institutions SET location = ST_PointFromText('POINT(${parseFloat(latitude)} ${parseFloat(longitude)})', 4326), updated_at = NOW() WHERE id = ?`;
     } else {
       query = `UPDATE institutions SET location = NULL, updated_at = NOW() WHERE id = ?`;
     }

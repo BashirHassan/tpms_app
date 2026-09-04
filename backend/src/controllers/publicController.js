@@ -175,7 +175,7 @@ const getSchools = async (req, res, next) => {
     const params = [parseInt(institutionId)];
 
     if (missing_coordinates_only === 'true') {
-      sql += ` AND (ms.location IS NULL OR ST_X(ms.location) IS NULL OR ST_Y(ms.location) IS NULL)`;
+      sql += ` AND (ms.location IS NULL OR ST_Latitude(ms.location) IS NULL OR ST_Longitude(ms.location) IS NULL)`;
     }
 
     if (search) {

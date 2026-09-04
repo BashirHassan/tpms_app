@@ -103,8 +103,8 @@ async function getApprovedAcceptance(studentId, sessionId, institutionId) {
             ms.ward  AS school_ward,
             ms.address AS school_address,
             ms.principal_name, ms.principal_phone,
-            ST_X(ms.location) AS latitude,
-            ST_Y(ms.location) AS longitude
+            ST_Latitude(ms.location) AS latitude,
+            ST_Longitude(ms.location) AS longitude
      FROM student_acceptances sa
      JOIN institution_schools isv ON isv.id = sa.institution_school_id
      JOIN master_schools ms ON ms.id = isv.master_school_id
@@ -137,8 +137,8 @@ async function getSchoolRecord(institutionSchoolId, institutionId) {
             ms.lga   AS school_lga,
             ms.ward  AS school_ward,
             ms.address AS school_address,
-            ST_X(ms.location) AS latitude,
-            ST_Y(ms.location) AS longitude
+            ST_Latitude(ms.location) AS latitude,
+            ST_Longitude(ms.location) AS longitude
      FROM institution_schools isv
      JOIN master_schools ms ON ms.id = isv.master_school_id
      WHERE isv.id = ? AND isv.institution_id = ?`,

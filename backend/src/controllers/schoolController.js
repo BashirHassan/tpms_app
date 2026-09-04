@@ -256,8 +256,8 @@ const getAll = async (req, res, next) => {
         isv.updated_at,
         r.name as route_name,
         r.code as route_code,
-        ST_X(ms.location) as latitude, 
-        ST_Y(ms.location) as longitude,
+        ST_Latitude(ms.location) as latitude, 
+        ST_Longitude(ms.location) as longitude,
         ms.id as master_school_id,
         ms.is_verified,
         ms.official_code
@@ -366,7 +366,7 @@ const getById = async (req, res, next) => {
         isv.status, isv.notes,
         isv.created_at, isv.updated_at,
         r.name as route_name, r.code as route_code,
-        ST_X(ms.location) as latitude, ST_Y(ms.location) as longitude,
+        ST_Latitude(ms.location) as latitude, ST_Longitude(ms.location) as longitude,
         ms.id as master_school_id, ms.is_verified, ms.official_code
       FROM institution_schools isv
       JOIN master_schools ms ON isv.master_school_id = ms.id
@@ -455,7 +455,7 @@ const create = async (req, res, next) => {
               INSERT INTO master_schools (
                 name, school_type, category, state, lga, ward, address,
                 principal_name, principal_phone, created_by_institution_id, location
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromText(?))
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromText(?, 4326))
             `;
             masterParams.push(`POINT(${parseFloat(schoolLat)} ${parseFloat(schoolLng)})`);
           }
@@ -506,7 +506,7 @@ const create = async (req, res, next) => {
         ms.principal_name, ms.principal_phone,
         isv.status, isv.notes,
         isv.created_at, isv.updated_at,
-        ST_X(ms.location) as latitude, ST_Y(ms.location) as longitude,
+        ST_Latitude(ms.location) as latitude, ST_Longitude(ms.location) as longitude,
         ms.id as master_school_id, ms.is_verified
       FROM institution_schools isv
       JOIN master_schools ms ON isv.master_school_id = ms.id
@@ -586,7 +586,7 @@ const linkSchool = async (req, res, next) => {
         ms.principal_name, ms.principal_phone,
         isv.status, isv.notes,
         isv.created_at, isv.updated_at,
-        ST_X(ms.location) as latitude, ST_Y(ms.location) as longitude,
+        ST_Latitude(ms.location) as latitude, ST_Longitude(ms.location) as longitude,
         ms.id as master_school_id, ms.is_verified
       FROM institution_schools isv
       JOIN master_schools ms ON isv.master_school_id = ms.id
@@ -619,7 +619,7 @@ const searchMasterSchools = async (req, res, next) => {
         ms.state, ms.lga, ms.ward,
         ms.principal_name, ms.principal_phone,
         ms.is_verified,
-        ST_X(ms.location) as latitude, ST_Y(ms.location) as longitude,
+        ST_Latitude(ms.location) as latitude, ST_Longitude(ms.location) as longitude,
         (SELECT COUNT(*) FROM institution_schools isv2 WHERE isv2.master_school_id = ms.id) as linked_institutions_count
       FROM master_schools ms
       WHERE ms.status = 'active'
@@ -723,7 +723,7 @@ const update = async (req, res, next) => {
         ms.principal_name, ms.principal_phone,
         isv.status, isv.notes,
         r.name as route_name,
-        ST_X(ms.location) as latitude, ST_Y(ms.location) as longitude,
+        ST_Latitude(ms.location) as latitude, ST_Longitude(ms.location) as longitude,
         ms.id as master_school_id
       FROM institution_schools isv
       JOIN master_schools ms ON isv.master_school_id = ms.id
