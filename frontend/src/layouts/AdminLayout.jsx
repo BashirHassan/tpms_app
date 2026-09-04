@@ -33,6 +33,7 @@ import {
   IconCalendar,
   IconCreditCard,
   IconFileCheck,
+  IconMap2,
   IconUserCheck,
   IconCalculator,
   IconSignature,
@@ -81,6 +82,9 @@ const navigationGroups = [
       { name: 'Students', href: '/admin/students', icon: IconSchool, roles: ROLE_GROUPS.ADMIN },
       { name: 'Payments', href: '/admin/payments', icon: IconCreditCard, roles: ROLE_GROUPS.SUPER_ADMIN_ONLY },
       { name: 'Acceptances', href: '/admin/acceptances', icon: IconFileCheck, roles: ROLE_GROUPS.ADMIN },
+      // Institution-wide placement spread: head_of_teaching_practice/super_admin only,
+      // matching the route guard and the backend's isHeadOfTP check.
+      { name: 'Distribution', href: '/admin/distribution', icon: IconMap2, roles: ROLE_GROUPS.ADMIN },
     ],
   },
   {
@@ -109,7 +113,7 @@ const navigationGroups = [
       { name: 'Manage Results', href: '/admin/results', icon: IconClipboardList, roles: ROLE_GROUPS.ADMIN },
       { name: 'Location Logs', href: '/admin/location-logs', icon: IconMapPin, roles: ROLE_GROUPS.ADMIN, feature: 'supervisor_location_tracking' },
       { name: 'Biometric Devices', href: '/admin/biometric-devices', icon: IconFingerprint, roles: ROLE_GROUPS.ADMIN, feature: 'supervisor_biometric_verification' },
-      { name: 'Monitoring', href: '/admin/monitoring', icon: IconClipboardCheck, roles: ROLE_GROUPS.FIELD_MONITOR_PLUS },
+      { name: 'Monitoring', href: '/admin/monitoring', icon: IconClipboardCheck, roles: ROLE_GROUPS.MONITORS },
     ],
   },
 ];

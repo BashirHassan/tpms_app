@@ -65,6 +65,7 @@ const SchoolRegistrationRequestsPage = lazy(() => import('./pages/admin/SchoolRe
 const SessionsPage = lazy(() => import('./pages/admin/SessionsPage'));
 const PaymentsPage = lazy(() => import('./pages/admin/PaymentsPage'));
 const AcceptancesPage = lazy(() => import('./pages/admin/AcceptancesPage'));
+const StudentDistributionPage = lazy(() => import('./pages/admin/StudentDistributionPage'));
 const PostingsPage = lazy(() => import('./pages/admin/PostingsPage'));
 const MultipostingPage = lazy(() => import('./pages/admin/MultipostingPage'));
 const AllowancesPage = lazy(() => import('./pages/admin/AllowancesPage'));
@@ -243,6 +244,14 @@ function AppRoutes() {
                 element={
                   <HeadOfTPRoute>
                     <AcceptancesPage />
+                  </HeadOfTPRoute>
+                } 
+              />
+              <Route 
+                path="distribution" 
+                element={
+                  <HeadOfTPRoute>
+                    <StudentDistributionPage />
                   </HeadOfTPRoute>
                 } 
               />

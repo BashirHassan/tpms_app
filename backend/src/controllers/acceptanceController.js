@@ -634,6 +634,145 @@ const getFilterOptions = async (req, res, next) => {
   }
 };
 
+/**
+ * Joins shared by every distribution query: an acceptance is the record of where a
+ * student is actually placed, and the school's state/LGA comes from the central
+ * master_schools row rather than the per-institution link row.
+ */
+const DISTRIBUTION_JOINS = `
+  FROM student_acceptances sa
+  JOIN students st ON st.id = sa.student_id
+  JOIN institution_schools isv ON isv.id = sa.institution_school_id
+  JOIN master_schools ms ON ms.id = isv.master_school_id
+  WHERE sa.institution_id = ? AND sa.session_id = ?
+`;
+
+/**
+ * Resolve the session to report on: the explicit query param when given,
+ * otherwise the institution's current session.
+ */
+async function resolveDistributionSession(institutionId, sessionId) {
+  if (sessionId) {
+    const [session] = await query(
+      'SELECT id, name FROM academic_sessions WHERE id = ? AND institution_id = ?',
+      [parseInt(sessionId), institutionId]
+    );
+    if (!session) throw new ValidationError('Invalid session ID');
+    return session;
+  }
+
+  const [session] = await query(
+    `SELECT id, name FROM academic_sessions
+     WHERE institution_id = ? AND is_current = 1 AND status = 'active'
+     ORDER BY created_at DESC LIMIT 1`,
+    [institutionId]
+  );
+  if (!session) throw new ValidationError('No active session');
+  return session;
+}
+
+/**
+ * Placement distribution: how the session's students are spread across states
+ * and LGAs, drilled down state -> LGA.
+ * GET /:institutionId/acceptances/distribution
+ *
+ * Counts the school's own state/LGA from master_schools, so a state's count here
+ * reconciles with filtering the acceptances list to the same state.
+ */
+const getDistribution = async (req, res, next) => {
+  try {
+    const institutionId = parseInt(req.params.institutionId);
+    const session = await resolveDistributionSession(institutionId, req.query.session_id);
+
+    // Deleted/inactive students should not appear in a distribution report, and a
+    // school with no state recorded cannot be placed on the breakdown at all.
+    const base = `${DISTRIBUTION_JOINS}
+      AND st.status = 'active'
+      AND TRIM(COALESCE(ms.state, '')) <> ''`;
+    const params = [institutionId, session.id];
+
+    // student_acceptances has no unique key on (student_id, session_id), so every
+    // headcount is COUNT(DISTINCT sa.student_id). State totals come from their own
+    // GROUP BY rather than summing LGAs: a student with duplicate acceptances in
+    // two LGAs of the same state would otherwise be counted twice.
+    const [stateRows, lgaRows, [summaryRow], [studentCountRow]] = await Promise.all([
+      query(
+        `SELECT ms.state,
+                COUNT(DISTINCT sa.student_id) AS student_count,
+                COUNT(DISTINCT isv.id) AS school_count,
+                COUNT(DISTINCT ms.lga) AS lga_count
+         ${base}
+         GROUP BY ms.state
+         ORDER BY student_count DESC, ms.state ASC`,
+        params
+      ),
+      // LGA names repeat across states, so LGAs are always keyed by (state, lga).
+      query(
+        `SELECT ms.state, ms.lga,
+                COUNT(DISTINCT sa.student_id) AS student_count,
+                COUNT(DISTINCT isv.id) AS school_count
+         ${base}
+         GROUP BY ms.state, ms.lga
+         ORDER BY student_count DESC, ms.lga ASC`,
+        params
+      ),
+      query(
+        `SELECT COUNT(DISTINCT sa.student_id) AS placed_students,
+                COUNT(DISTINCT ms.state) AS states_covered,
+                COUNT(DISTINCT CONCAT(ms.state, '|', ms.lga)) AS lgas_covered,
+                COUNT(DISTINCT isv.id) AS schools_covered
+         ${base}`,
+        params
+      ),
+      query(
+        `SELECT COUNT(*) AS count
+         FROM students
+         WHERE institution_id = ? AND session_id = ? AND status = 'active'`,
+        params
+      ),
+    ]);
+
+    const lgasByState = new Map();
+    for (const row of lgaRows) {
+      const lga = String(row.lga || '').trim();
+      if (!lga) continue;
+      if (!lgasByState.has(row.state)) lgasByState.set(row.state, []);
+      lgasByState.get(row.state).push({
+        lga,
+        student_count: parseInt(row.student_count, 10) || 0,
+        school_count: parseInt(row.school_count, 10) || 0,
+      });
+    }
+
+    const totalStudents = parseInt(studentCountRow?.count, 10) || 0;
+    const placedStudents = parseInt(summaryRow?.placed_students, 10) || 0;
+
+    res.json({
+      success: true,
+      data: {
+        session: { id: session.id, name: session.name },
+        summary: {
+          total_students: totalStudents,
+          placed_students: placedStudents,
+          unplaced_students: Math.max(0, totalStudents - placedStudents),
+          states_covered: parseInt(summaryRow?.states_covered, 10) || 0,
+          lgas_covered: parseInt(summaryRow?.lgas_covered, 10) || 0,
+          schools_covered: parseInt(summaryRow?.schools_covered, 10) || 0,
+        },
+        states: stateRows.map((row) => ({
+          state: row.state,
+          student_count: parseInt(row.student_count, 10) || 0,
+          school_count: parseInt(row.school_count, 10) || 0,
+          lga_count: parseInt(row.lga_count, 10) || 0,
+          lgas: lgasByState.get(row.state) || [],
+        })),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ============================================================================
 // STUDENT-FACING METHODS (for student portal)
 // ============================================================================
@@ -1070,6 +1209,7 @@ module.exports = {
   getById,
   getStatistics,
   getFilterOptions,
+  getDistribution,
   create,
   update,
   remove,
