@@ -63,7 +63,7 @@ const getPostingStats = async (institutionId, sessionId) => {
   const [groupStats] = await query(
     `SELECT COUNT(DISTINCT CONCAT(institution_school_id, '-', group_number)) as unique_groups 
      FROM student_acceptances 
-     WHERE institution_id = ? AND session_id = ? AND status = 'approved'`,
+     WHERE institution_id = ? AND session_id = ? AND status = 'submitted'`,
     [parseInt(institutionId), parseInt(sessionId)]
   );
 

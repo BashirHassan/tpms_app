@@ -85,8 +85,6 @@ export const acceptancesApi = {
   getDistribution: (params = {}) => apiClient.get(`${getBasePath()}/distribution`, { params }),
   create: (data) => apiClient.post(getBasePath(), data),
   update: (id, data) => apiClient.put(`${getBasePath()}/${id}`, data),
-  // Review acceptance (approve/reject) - calls update endpoint
-  review: (id, data) => apiClient.put(`${getBasePath()}/${id}`, data),
   delete: (id) => apiClient.delete(`${getBasePath()}/${id}`),
   uploadDocument: (id, file) => {
     const formData = new FormData();

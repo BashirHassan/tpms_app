@@ -108,7 +108,7 @@ async function getApprovedAcceptance(studentId, sessionId, institutionId) {
      FROM student_acceptances sa
      JOIN institution_schools isv ON isv.id = sa.institution_school_id
      JOIN master_schools ms ON ms.id = isv.master_school_id
-     WHERE sa.student_id = ? AND sa.session_id = ? AND sa.institution_id = ? AND sa.status = 'approved'`,
+     WHERE sa.student_id = ? AND sa.session_id = ? AND sa.institution_id = ? AND sa.status = 'submitted'`,
     [studentId, sessionId, institutionId]
   );
 }

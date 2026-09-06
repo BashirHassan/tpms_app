@@ -227,7 +227,7 @@ const getAssignment = async (req, res, next) => {
        JOIN students st ON sa.student_id = st.id
        LEFT JOIN programs p ON st.program_id = p.id
        WHERE sa.institution_school_id = ? AND sa.session_id = ? 
-         AND sa.institution_id = ? AND sa.status = 'approved'
+         AND sa.institution_id = ? AND sa.status = 'submitted'
        ORDER BY st.full_name`,
       [assignment.institution_school_id, assignment.session_id, parseInt(institutionId)]
     );
@@ -729,7 +729,7 @@ const createReport = async (req, res, next) => {
         `SELECT s.id
          FROM students s
          INNER JOIN student_acceptances sa ON s.id = sa.student_id
-           AND sa.session_id = ? AND sa.status = 'approved'${schoolFilter}
+           AND sa.session_id = ? AND sa.status = 'submitted'${schoolFilter}
          WHERE s.institution_id = ? AND s.id IN (?)`,
         params
       );
@@ -1046,7 +1046,7 @@ const getUnassignedSchools = async (req, res, next) => {
        LEFT JOIN (
          SELECT institution_school_id, COUNT(DISTINCT student_id) AS student_count
          FROM student_acceptances
-         WHERE institution_id = ? AND session_id = ? AND status = 'approved'
+         WHERE institution_id = ? AND session_id = ? AND status = 'submitted'
          GROUP BY institution_school_id
        ) sc ON sc.institution_school_id = isv.id
        WHERE isv.institution_id = ? AND isv.status = 'active'

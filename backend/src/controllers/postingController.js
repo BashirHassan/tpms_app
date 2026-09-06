@@ -554,7 +554,7 @@ const getAvailableSchools = async (req, res, next) => {
              MAX(sa.group_number) as max_group_number
       FROM institution_schools isv
       JOIN master_schools ms ON isv.master_school_id = ms.id
-      INNER JOIN student_acceptances sa ON isv.id = sa.institution_school_id AND sa.status = 'approved'
+      INNER JOIN student_acceptances sa ON isv.id = sa.institution_school_id AND sa.status = 'submitted'
       LEFT JOIN routes r ON isv.route_id = r.id
       WHERE isv.institution_id = ? AND sa.session_id = ? AND isv.status = 'active'
     `;
@@ -1241,7 +1241,7 @@ const getMyPostingsPrintable = async (req, res, next) => {
        FROM student_acceptances sa
        JOIN students s ON sa.student_id = s.id
        LEFT JOIN programs p ON s.program_id = p.id
-       WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'approved'
+       WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'submitted'
          AND (${studentConditions})
        ORDER BY s.full_name`,
       [parseInt(institutionId), parseInt(activeSessionId), ...studentParams]
@@ -1286,7 +1286,7 @@ const getMyPostingsPrintable = async (req, res, next) => {
          FROM student_acceptances sa
          JOIN students s ON sa.student_id = s.id
          LEFT JOIN programs p ON s.program_id = p.id
-         WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'approved'
+         WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'submitted'
            AND (${mergedStudentConditions})
          ORDER BY s.full_name`,
         [parseInt(institutionId), parseInt(activeSessionId), ...mergedStudentParams]
@@ -1434,7 +1434,7 @@ const getMyInvitationLetter = async (req, res, next) => {
          AND sa.group_number = sp.group_number 
          AND sa.session_id = sp.session_id
        WHERE sp.institution_id = ? AND sp.supervisor_id = ? AND sp.session_id = ? 
-         AND sp.status = 'active' AND sa.status = 'approved'`,
+         AND sp.status = 'active' AND sa.status = 'submitted'`,
       [parseInt(institutionId), userId, session.id]
     );
 
@@ -1690,7 +1690,7 @@ const getPrintablePostings = async (req, res, next) => {
            FROM student_acceptances sa
            JOIN students s ON sa.student_id = s.id
            LEFT JOIN programs p ON s.program_id = p.id
-           WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'approved'
+           WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'submitted'
              AND (${primaryPostings.map(() => '(sa.institution_school_id = ? AND sa.group_number = ?)').join(' OR ')})
            ORDER BY s.full_name`,
           [parseInt(institutionId), parseInt(activeSessionId),
@@ -1734,7 +1734,7 @@ const getPrintablePostings = async (req, res, next) => {
              FROM student_acceptances sa
              JOIN students s ON sa.student_id = s.id
              LEFT JOIN programs p ON s.program_id = p.id
-             WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'approved'
+             WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'submitted'
                AND (${mergedPostings.map(() => '(sa.institution_school_id = ? AND sa.group_number = ?)').join(' OR ')})
              ORDER BY s.full_name`,
             [parseInt(institutionId), parseInt(activeSessionId),
@@ -1884,7 +1884,7 @@ const getPrintablePostings = async (req, res, next) => {
        FROM student_acceptances sa
        JOIN students s ON sa.student_id = s.id
        LEFT JOIN programs p ON s.program_id = p.id
-       WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'approved'
+       WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'submitted'
          AND (${studentConditions})
        ORDER BY s.full_name`,
       [parseInt(institutionId), parseInt(activeSessionId), ...studentParams]
@@ -1957,7 +1957,7 @@ const getPrintablePostings = async (req, res, next) => {
          FROM student_acceptances sa
          JOIN students s ON sa.student_id = s.id
          LEFT JOIN programs p ON s.program_id = p.id
-         WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'approved'
+         WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'submitted'
            AND (${mergedGroups.map(() => '(sa.institution_school_id = ? AND sa.group_number = ?)').join(' OR ')})
          ORDER BY s.full_name`,
         [parseInt(institutionId), parseInt(activeSessionId),
@@ -2160,13 +2160,13 @@ const getSchoolsWithStudents = async (req, res, next) => {
        LEFT JOIN routes r ON r.id = isv.route_id
        LEFT JOIN student_acceptances sa ON isv.id = sa.institution_school_id 
          AND sa.session_id = ? 
-         AND sa.status = 'approved'
+         AND sa.status = 'submitted'
        WHERE isv.institution_id = ?
          AND EXISTS (
            SELECT 1 FROM student_acceptances acc 
            WHERE acc.institution_school_id = isv.id 
              AND acc.session_id = ? 
-             AND acc.status = 'approved'
+             AND acc.status = 'submitted'
          )
        GROUP BY isv.id, ms.name, ms.category, ms.state, ms.lga, r.name
        ORDER BY ms.name ASC`,
@@ -2218,7 +2218,7 @@ const getSchoolsWithSupervisors = async (req, res, next) => {
        JOIN master_schools ms ON isv.master_school_id = ms.id
        INNER JOIN student_acceptances sa ON isv.id = sa.institution_school_id 
          AND sa.session_id = ? 
-         AND sa.status = 'approved'
+         AND sa.status = 'submitted'
        LEFT JOIN supervisor_postings sp ON isv.id = sp.institution_school_id 
          AND sp.session_id = sa.session_id
          AND sp.group_number = sa.group_number
@@ -2306,7 +2306,7 @@ const validatePosting = async (req, res, next) => {
     // Check if group exists for the school
     const groupExists = await query(
       `SELECT COUNT(*) as count FROM student_acceptances 
-       WHERE institution_id = ? AND session_id = ? AND institution_school_id = ? AND group_number = ? AND status = 'approved'`,
+       WHERE institution_id = ? AND session_id = ? AND institution_school_id = ? AND group_number = ? AND status = 'submitted'`,
       [parseInt(institutionId), parseInt(session_id), parseInt(school_id), parseInt(group_number)]
     );
 
@@ -2381,7 +2381,7 @@ const getSchoolsWithGroups = async (req, res, next) => {
        LEFT JOIN routes r ON r.id = isv.route_id
        INNER JOIN student_acceptances sa ON isv.id = sa.institution_school_id 
          AND sa.session_id = ? 
-         AND sa.status = 'approved'
+         AND sa.status = 'submitted'
        LEFT JOIN merged_groups mg ON mg.secondary_institution_school_id = isv.id 
          AND mg.secondary_group_number = sa.group_number
          AND mg.session_id = sa.session_id
@@ -2854,7 +2854,7 @@ const getPrepostingTemplate = async (req, res, next) => {
       LEFT JOIN routes r ON r.id = isv.route_id
       INNER JOIN student_acceptances sa ON isv.id = sa.institution_school_id 
         AND sa.session_id = ? 
-        AND sa.status = 'approved'
+        AND sa.status = 'submitted'
       LEFT JOIN merged_groups mg ON mg.secondary_institution_school_id = isv.id 
         AND mg.secondary_group_number = sa.group_number
         AND mg.session_id = sa.session_id
@@ -2893,7 +2893,7 @@ const getPrepostingTemplate = async (req, res, next) => {
        FROM student_acceptances sa
        JOIN students s ON sa.student_id = s.id
        LEFT JOIN programs p ON s.program_id = p.id
-       WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'approved'
+       WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'submitted'
          AND (${studentConditions})
        ORDER BY s.full_name`,
       [parseInt(institutionId), parseInt(activeSessionId), ...studentParams]
@@ -2936,7 +2936,7 @@ const getPrepostingTemplate = async (req, res, next) => {
          FROM student_acceptances sa
          JOIN students s ON sa.student_id = s.id
          LEFT JOIN programs p ON s.program_id = p.id
-         WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'approved'
+         WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'submitted'
            AND (${mergedGroups.map(() => '(sa.institution_school_id = ? AND sa.group_number = ?)').join(' OR ')})
          ORDER BY s.full_name`,
         [parseInt(institutionId), parseInt(activeSessionId),
@@ -3311,7 +3311,7 @@ const getSchoolGroups = async (req, res, next) => {
        WHERE sa.institution_id = ? 
          AND sa.institution_school_id = ? 
          AND sa.session_id = ? 
-         AND sa.status = 'approved'
+         AND sa.status = 'submitted'
          AND mg.id IS NULL
        GROUP BY sa.group_number
        ORDER BY sa.group_number ASC`,

@@ -555,7 +555,7 @@ const downloadTemplate = async (req, res, next) => {
          JOIN students st ON sa.student_id = st.id
          LEFT JOIN institution_schools isv ON sa.institution_school_id = isv.id
          LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
-         WHERE sa.session_id = ? AND sa.institution_id = ? AND sa.status = 'approved'
+         WHERE sa.session_id = ? AND sa.institution_id = ? AND sa.status = 'submitted'
          ORDER BY st.registration_number`,
         [parseInt(session_id), parseInt(institutionId)]
       );
@@ -822,7 +822,7 @@ const getAdminStudentsWithResults = async (req, res, next) => {
         sa.group_number,
         p.name as program_name
       FROM students st
-      INNER JOIN student_acceptances sa ON st.id = sa.student_id AND sa.status = 'approved'
+      INNER JOIN student_acceptances sa ON st.id = sa.student_id AND sa.status = 'submitted'
       LEFT JOIN institution_schools isv ON sa.institution_school_id = isv.id
       LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
       LEFT JOIN programs p ON st.program_id = p.id
@@ -1129,7 +1129,7 @@ const adminBulkSubmitResults = async (req, res, next) => {
         const students = await query(
           `SELECT s.id, sa.institution_school_id as school_id, sa.group_number
            FROM students s
-           INNER JOIN student_acceptances sa ON s.id = sa.student_id AND sa.session_id = ? AND sa.status = 'approved'
+           INNER JOIN student_acceptances sa ON s.id = sa.student_id AND sa.session_id = ? AND sa.status = 'submitted'
            WHERE s.id = ? AND s.institution_id = ?`,
           [session_id, student_id, parseInt(institutionId)]
         );
@@ -1227,7 +1227,7 @@ const getAssignedGroups = async (req, res, next) => {
           WHERE sa.institution_school_id = sp.institution_school_id 
           AND sa.session_id = sp.session_id 
           AND sa.group_number = sp.group_number
-          AND sa.status = 'approved') as student_count
+          AND sa.status = 'submitted') as student_count
        FROM supervisor_postings sp
        JOIN institution_schools isv ON sp.institution_school_id = isv.id
        JOIN master_schools ms ON isv.master_school_id = ms.id
@@ -1301,7 +1301,7 @@ const getStudentsForScoring = async (req, res, next) => {
          AND sa.session_id = ?
          AND sa.institution_school_id = ?
          AND sa.group_number = ?
-         AND sa.status = 'approved'
+         AND sa.status = 'submitted'
        ORDER BY s.full_name`,
       [parseInt(institutionId), session.id, parseInt(school_id), parseInt(group_number)]
     );

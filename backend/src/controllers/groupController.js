@@ -51,7 +51,7 @@ const getAll = async (req, res, next) => {
       JOIN institution_schools isv ON sa.institution_school_id = isv.id
       JOIN master_schools ms ON isv.master_school_id = ms.id
       LEFT JOIN academic_sessions sess ON sa.session_id = sess.id
-      WHERE sa.institution_id = ? AND sa.status = 'approved'
+      WHERE sa.institution_id = ? AND sa.status = 'submitted'
     `;
     const params = [parseInt(institutionId)];
 
@@ -71,7 +71,7 @@ const getAll = async (req, res, next) => {
       SELECT COUNT(*) as total FROM (
         SELECT DISTINCT sa.institution_school_id, sa.group_number, sa.session_id
         FROM student_acceptances sa
-        WHERE sa.institution_id = ? AND sa.status = 'approved'
+        WHERE sa.institution_id = ? AND sa.status = 'submitted'
         ${session_id ? ' AND sa.session_id = ?' : ''}
         ${school_id ? ' AND sa.institution_school_id = ?' : ''}
       ) as group_count
@@ -155,7 +155,7 @@ const getById = async (req, res, next) => {
        JOIN master_schools ms ON isv.master_school_id = ms.id
        LEFT JOIN academic_sessions sess ON sa.session_id = sess.id
        WHERE sa.institution_school_id = ? AND sa.group_number = ? AND sa.session_id = ? 
-         AND sa.institution_id = ? AND sa.status = 'approved'
+         AND sa.institution_id = ? AND sa.status = 'submitted'
        GROUP BY sa.institution_school_id, sa.group_number, sa.session_id,
                 ms.name, ms.official_code, ms.address, ms.ward, ms.lga, sess.name`,
       [schoolId, groupNumber, sessionId, parseInt(institutionId)]
@@ -287,7 +287,7 @@ const getSummary = async (req, res, next) => {
       INNER JOIN institution_schools isv ON sa.institution_school_id = isv.id
       INNER JOIN master_schools ms ON isv.master_school_id = ms.id
       LEFT JOIN routes r ON isv.route_id = r.id
-      WHERE sa.institution_id = ? AND sa.status = 'approved'
+      WHERE sa.institution_id = ? AND sa.status = 'submitted'
     `;
     const params = [parseInt(institutionId)];
 
@@ -338,7 +338,7 @@ const getStudentsBySchool = async (req, res, next) => {
        WHERE sa.institution_id = ? 
          AND sa.institution_school_id = ? 
          AND sa.session_id = ?
-         AND sa.status = 'approved'
+         AND sa.status = 'submitted'
        ORDER BY sa.group_number, s.full_name`,
       [parseInt(institutionId), parseInt(schoolId), parseInt(session_id)]
     );
@@ -390,7 +390,7 @@ const getSchoolGroups = async (req, res, next) => {
        WHERE sa.institution_id = ?
          AND sa.institution_school_id = ?
          AND sa.session_id = ?
-         AND sa.status = 'approved'
+         AND sa.status = 'submitted'
        GROUP BY sa.group_number, mg_sec.id, mg_pri.id,
                 mg_sec.primary_institution_school_id, mg_sec.primary_group_number
        ORDER BY sa.group_number`,
@@ -438,7 +438,7 @@ const assignStudentGroup = async (req, res, next) => {
       `SELECT mg.id, 
               (SELECT COUNT(*) FROM student_acceptances sa 
                WHERE sa.institution_school_id = ? AND sa.session_id = ? 
-               AND sa.group_number = ? AND sa.status = 'approved') as student_count
+               AND sa.group_number = ? AND sa.status = 'submitted') as student_count
        FROM merged_groups mg
        WHERE mg.session_id = ?
          AND ((mg.primary_institution_school_id = ? AND mg.primary_group_number = ?)
@@ -521,12 +521,12 @@ const getMergedGroups = async (req, res, next) => {
                WHERE sa.session_id = mg.session_id
                AND sa.institution_school_id = mg.primary_institution_school_id
                AND sa.group_number = mg.primary_group_number
-               AND sa.status = 'approved') AS primary_student_count,
+               AND sa.status = 'submitted') AS primary_student_count,
               (SELECT COUNT(*) FROM student_acceptances sa
                WHERE sa.session_id = mg.session_id
                AND sa.institution_school_id = mg.secondary_institution_school_id
                AND sa.group_number = mg.secondary_group_number
-               AND sa.status = 'approved') AS secondary_student_count
+               AND sa.status = 'submitted') AS secondary_student_count
        FROM merged_groups mg
        JOIN institution_schools ps_isv ON mg.primary_institution_school_id = ps_isv.id
        JOIN master_schools ps ON ps_isv.master_school_id = ps.id
@@ -579,7 +579,7 @@ const getAvailableForMerge = async (req, res, next) => {
          mg.secondary_institution_school_id = sa.institution_school_id AND
          mg.secondary_group_number = sa.group_number AND
          mg.status = 'active'
-       WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'approved' AND mg.id IS NULL
+       WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'submitted' AND mg.id IS NULL
        GROUP BY sa.institution_school_id, ms.name, isv.location_category, r.name, ms.state, ms.lga, sa.group_number
        HAVING student_count > 0
        ORDER BY ms.name, sa.group_number`,
@@ -684,9 +684,9 @@ const createMerge = async (req, res, next) => {
     const counts = await query(
       `SELECT
         (SELECT COUNT(*) FROM student_acceptances
-         WHERE session_id = ? AND institution_school_id = ? AND group_number = ? AND status = 'approved') AS primary_count,
+         WHERE session_id = ? AND institution_school_id = ? AND group_number = ? AND status = 'submitted') AS primary_count,
         (SELECT COUNT(*) FROM student_acceptances
-         WHERE session_id = ? AND institution_school_id = ? AND group_number = ? AND status = 'approved') AS secondary_count`,
+         WHERE session_id = ? AND institution_school_id = ? AND group_number = ? AND status = 'submitted') AS secondary_count`,
       [
         parseInt(session_id), parseInt(primary_school_id), parseInt(primary_group_number),
         parseInt(session_id), parseInt(secondary_school_id), parseInt(secondary_group_number)

@@ -33,19 +33,6 @@ const schemas = {
       group_number: z.number().int().positive().optional(),
       phone: z.string().optional(),
       email: z.string().email().optional(),
-      status: z.enum(['pending', 'approved', 'rejected']).optional(),
-      rejection_reason: z.string().optional(),
-    }),
-    params: z.object({
-      institutionId: z.string(),
-      id: z.string(),
-    }),
-  }),
-
-  review: z.object({
-    body: z.object({
-      status: z.enum(['approved', 'rejected']),
-      rejection_reason: z.string().optional(),
     }),
     params: z.object({
       institutionId: z.string(),
@@ -246,7 +233,7 @@ const create = async (req, res, next) => {
       const [insertResult] = await conn.execute(
         `INSERT INTO student_acceptances 
          (institution_id, session_id, student_id, institution_school_id, group_number, phone, email, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'submitted')`,
         [parseInt(institutionId), session_id, student_id, school_id, group_number || null, phone || null, email || null]
       );
 
@@ -278,7 +265,7 @@ const create = async (req, res, next) => {
 const update = async (req, res, next) => {
   try {
     const { institutionId, id } = req.params;
-    const { school_id, group_number, phone, email, status, rejection_reason } = req.body;
+    const { school_id, group_number, phone, email } = req.body;
 
     // Get existing
     const existing = await query(
@@ -289,8 +276,6 @@ const update = async (req, res, next) => {
     if (existing.length === 0) {
       throw new NotFoundError('Acceptance not found');
     }
-
-    const acceptance = existing[0];
 
     // Build update
     const updates = [];
@@ -321,21 +306,6 @@ const update = async (req, res, next) => {
       updates.push('email = ?');
       params.push(email);
     }
-    if (status !== undefined) {
-      updates.push('status = ?');
-      params.push(status);
-      
-      if (status === 'approved' || status === 'rejected') {
-        updates.push('reviewed_by = ?');
-        params.push(req.user.id);
-        updates.push('reviewed_at = NOW()');
-      }
-    }
-    if (rejection_reason !== undefined) {
-      updates.push('rejection_reason = ?');
-      params.push(rejection_reason);
-    }
-
     if (updates.length === 0) {
       throw new ValidationError('No updates provided');
     }
@@ -347,14 +317,6 @@ const update = async (req, res, next) => {
       `UPDATE student_acceptances SET ${updates.join(', ')} WHERE id = ? AND institution_id = ?`,
       params
     );
-
-    // Update student's acceptance_status if status was changed
-    if (status !== undefined) {
-      await query(
-        'UPDATE students SET acceptance_status = ? WHERE id = ?',
-        [status, acceptance.student_id]
-      );
-    }
 
     res.json({
       success: true,
@@ -393,7 +355,7 @@ const remove = async (req, res, next) => {
 
       // Reset student's acceptance_status
       await conn.execute(
-        'UPDATE students SET acceptance_status = NULL WHERE id = ?',
+        "UPDATE students SET acceptance_status = 'not_submitted' WHERE id = ?",
         [acceptance.student_id]
       );
     });
@@ -522,7 +484,7 @@ const bulkCreate = async (req, res, next) => {
           await conn.execute(
             `INSERT INTO student_acceptances 
              (institution_id, session_id, student_id, institution_school_id, group_number, status)
-             VALUES (?, ?, ?, ?, ?, 'approved')`,
+             VALUES (?, ?, ?, ?, ?, 'submitted')`,
             [parseInt(institutionId), session_id, assignment.student_id, 
              assignment.school_id, assignment.group_number || null]
           );
@@ -554,11 +516,9 @@ const getStatistics = async (req, res, next) => {
     const { session_id } = req.query;
 
     let sql = `
-      SELECT 
+      SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
-        SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected,
+        SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) as submitted,
         COUNT(DISTINCT institution_school_id) as schools_selected
       FROM student_acceptances
       WHERE institution_id = ?
@@ -592,9 +552,7 @@ const getStatistics = async (req, res, next) => {
         total_submissions: totalSubmissions,
         total_students: totalStudents,
         not_submitted: Math.max(0, totalStudents - totalSubmissions),
-        pending: parseInt(stats.pending) || 0,
-        approved: parseInt(stats.approved) || 0,
-        rejected: parseInt(stats.rejected) || 0,
+        submitted: parseInt(stats.submitted) || 0,
         schools_selected: parseInt(stats.schools_selected) || 0,
       },
     });
@@ -989,7 +947,7 @@ const getAvailableSchools = async (req, res, next) => {
                (SELECT COUNT(*) FROM student_acceptances sa
                 JOIN students st ON st.id = sa.student_id
                 WHERE sa.institution_school_id = isv.id AND sa.session_id = ?
-                  AND st.program_id = ? AND sa.status IN ('pending', 'approved')),
+                  AND st.program_id = ? AND sa.status = 'submitted'),
                0
              ) as current_count,
              ? as max_count
@@ -1165,7 +1123,7 @@ const submitAcceptance = async (req, res, next) => {
               COUNT(*) as total_in_school
        FROM student_acceptances 
        WHERE institution_school_id = ? AND session_id = ? AND institution_id = ?
-       AND status IN ('pending', 'approved')`,
+       AND status = 'submitted'`,
       [parseInt(school_id), session.id, institutionId]
     );
 
@@ -1176,7 +1134,7 @@ const submitAcceptance = async (req, res, next) => {
     const result = await query(
       `INSERT INTO student_acceptances 
        (institution_id, session_id, student_id, institution_school_id, phone, email, group_number, signed_form_url, signed_form_original_name, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted')`,
       [institutionId, session.id, studentId, parseInt(school_id), phone, email, groupNumber, signedFormUrl, signedFormOriginalName]
     );
 

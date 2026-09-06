@@ -123,7 +123,7 @@ const getAll = async (req, res, next) => {
           INNER JOIN academic_sessions sess ON sa.session_id = sess.id AND sess.institution_id = isc.institution_id
           WHERE isc.master_school_id = ms.id
             AND sess.is_current = 1
-            AND sa.status = 'approved'
+            AND sa.status = 'submitted'
         ) AS current_session_students
       FROM master_schools ms
       LEFT JOIN institutions i ON ms.created_by_institution_id = i.id

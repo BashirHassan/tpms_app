@@ -771,7 +771,7 @@ const generateDocument = async (req, res, next) => {
          FROM student_acceptances sa
          INNER JOIN institution_schools isv ON sa.institution_school_id = isv.id
          INNER JOIN master_schools ms ON isv.master_school_id = ms.id
-         WHERE sa.student_id = ? AND sa.session_id = ? AND sa.status = 'approved'`,
+         WHERE sa.student_id = ? AND sa.session_id = ? AND sa.status = 'submitted'`,
         [parseInt(studentId), session?.id]
       );
       school = acceptance || null;

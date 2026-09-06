@@ -42,7 +42,7 @@ const getGlobalStats = async (req, res, next) => {
         COUNT(*) as total_students,
         SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_students,
         SUM(CASE WHEN payment_status = 'paid' THEN 1 ELSE 0 END) as paid_students,
-        SUM(CASE WHEN acceptance_status = 'approved' THEN 1 ELSE 0 END) as approved_students
+        SUM(CASE WHEN acceptance_status = 'submitted' THEN 1 ELSE 0 END) as submitted_students
       FROM students
     `);
 
@@ -384,7 +384,7 @@ const getSupervisorStats = async (req, res, next) => {
            WHERE sa.institution_school_id = sp.institution_school_id 
            AND sa.group_number = sp.group_number 
            AND sa.session_id = sp.session_id
-           AND sa.status = 'approved') as student_count
+           AND sa.status = 'submitted') as student_count
         FROM supervisor_postings sp
         JOIN institution_schools isv ON sp.institution_school_id = isv.id
         JOIN master_schools ms ON isv.master_school_id = ms.id

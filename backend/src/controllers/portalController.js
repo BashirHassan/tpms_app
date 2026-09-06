@@ -706,7 +706,7 @@ const getPortalStatus = async (req, res, next) => {
         session,
         studentId,
         institutionSchoolId: acceptanceRecord?.institution_school_id || null,
-        acceptanceApproved: acceptanceRecord?.status === 'approved',
+        acceptanceApproved: acceptanceRecord?.status === 'submitted',
       });
     } catch (locationError) {
       console.error('[portal] Failed to load school location status:', locationError.message);
@@ -1100,7 +1100,7 @@ const renderDocument = async (req, res, next) => {
        FROM student_acceptances sa
        JOIN institution_schools isv ON sa.institution_school_id = isv.id
        JOIN master_schools ms ON isv.master_school_id = ms.id
-       WHERE sa.student_id = ? AND sa.session_id = ? AND sa.status = 'approved'`,
+       WHERE sa.student_id = ? AND sa.session_id = ? AND sa.status = 'submitted'`,
       [studentId, session.id]
     );
     if (acceptanceRow) {

@@ -77,16 +77,6 @@ function StudentDashboard() {
     }
   };
 
-  const getAcceptanceStatusColor = (status) => {
-    switch (status) {
-      case 'approved':
-      case 'pending':
-        return 'bg-green-100 text-green-800';
-      default:
-        return 'bg-gray-100 text-gray-600';
-    }
-  };
-
   if (loading) {
     return <StudentDashboardSkeleton />;
   }
@@ -224,7 +214,7 @@ function StudentDashboard() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs sm:text-sm text-gray-500">Acceptance Status</p>
-                <span className={`inline-block px-2 py-0.5 sm:py-1 text-xs sm:text-sm rounded-full ${getAcceptanceStatusColor(acceptance.status)}`}>
+                <span className={`inline-block px-2 py-0.5 sm:py-1 text-xs sm:text-sm rounded-full ${acceptance.submitted ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
                   {acceptance.submitted ? 'Submitted' : 'Not Submitted'}
                 </span>
                 {acceptance.school_name && (
