@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { studentsApi, programsApi, sessionsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
+import { useInstitutionSelection } from '../../context/InstitutionSelectionContext';
 import { useToast } from '../../context/ToastContext';
 import { formatFileSize } from '../../utils/helpers';
 import { createExportAllHandler } from '../../utils/exportAll';
@@ -44,8 +45,10 @@ import {
 
 function StudentsPage() {
   const { hasRole } = useAuth();
+  const { institution } = useInstitutionSelection();
   const { toast } = useToast();
   const canEdit = hasRole(['super_admin', 'head_of_teaching_practice']);
+  const canSeePaymentStatus = hasRole(['super_admin']) && institution?.payment_type === 'per_student';
   const fileInputRef = useRef(null);
 
   // State
@@ -653,6 +656,15 @@ function StudentsPage() {
         </Badge>
       ),
     },
+    ...(canSeePaymentStatus ? [{
+      accessor: 'payment_status',
+      header: 'Payment Status',
+      render: (value) => (
+        <Badge variant={value === 'paid' ? 'success' : value === 'partial' ? 'warning' : 'default'}>
+          {value ? value.charAt(0).toUpperCase() + value.slice(1) : 'Pending'}
+        </Badge>
+      ),
+    }] : []),
     ...(canEdit ? [{
       accessor: 'actions',
       header: 'Actions',
@@ -682,7 +694,7 @@ function StudentsPage() {
         </div>
       ),
     }] : []),
-  ], [canEdit, copiedPin, handleCopyPin, openEditModal, openDeleteConfirm, pagination.page, pagination.limit]);
+  ], [canEdit, canSeePaymentStatus, copiedPin, handleCopyPin, openEditModal, openDeleteConfirm, pagination.page, pagination.limit]);
 
   // Toolbar with filters
   const tableToolbar = (

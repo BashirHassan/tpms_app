@@ -119,7 +119,8 @@ function StudentDashboard() {
   } = portalStatus;
 
   // Per-session institutions don't require student payment
-  const isPaymentRequired = payment.required && payment.status !== 'not_required';
+  const isPerStudentPayment = user?.institution?.payment_type === 'per_student';
+  const isPaymentRequired = isPerStudentPayment && payment.required && payment.status !== 'not_required';
 
   return (
     <div className="space-y-3 sm:space-y-4 px-1">

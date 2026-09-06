@@ -129,17 +129,18 @@ function StudentLayout() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [paymentRequired, setPaymentRequired] = useState(true);
   const [locationStatus, setLocationStatus] = useState(null);
+  // Payment UI only makes sense for institutions that bill per student -
+  // derived synchronously from the profile so it's correct immediately,
+  // rather than depending on an async call that has no `payment` key at all
+  // when the student has no active session.
+  const paymentRequired = user?.institution?.payment_type === 'per_student';
 
   useEffect(() => {
-    const checkPaymentRequired = async () => {
+    const checkLocationStatus = async () => {
       try {
         const response = await portalApi.getStatus();
         const portal = response.data.data || response.data;
-        if (portal?.payment) {
-          setPaymentRequired(portal.payment.required === true);
-        }
         const schoolLocation = portal?.school_location;
         setLocationStatus(
           schoolLocation?.feature_enabled && schoolLocation?.acceptance_approved
@@ -147,11 +148,11 @@ function StudentLayout() {
             : null
         );
       } catch {
-        // Keep payment visible if status cannot be loaded.
+        // Leave location status unset if it cannot be loaded.
       }
     };
 
-    checkPaymentRequired();
+    checkLocationStatus();
   }, []);
 
   const filteredNavigationGroups = useMemo(

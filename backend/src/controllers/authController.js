@@ -699,7 +699,7 @@ const getProfile = async (req, res, next) => {
                 i.subdomain, i.institution_type, i.email as institution_email,
                 i.phone as institution_phone, i.address as institution_address,
                 i.state as institution_state, i.logo_url, i.primary_color, i.secondary_color,
-                i.tp_unit_name,
+                i.tp_unit_name, i.payment_type,
                 p.name as program_name
          FROM students s
          LEFT JOIN institutions i ON s.institution_id = i.id
@@ -729,6 +729,7 @@ const getProfile = async (req, res, next) => {
           primary_color: student.primary_color,
           secondary_color: student.secondary_color,
           tp_unit_name: student.tp_unit_name,
+          payment_type: student.payment_type,
         },
       };
     } else {
@@ -738,7 +739,7 @@ const getProfile = async (req, res, next) => {
                 i.subdomain, i.institution_type, i.email as institution_email,
                 i.phone as institution_phone, i.address as institution_address,
                 i.state as institution_state, i.logo_url, i.primary_color, i.secondary_color,
-                i.tp_unit_name,
+                i.tp_unit_name, i.payment_type,
                 r.name as rank_name, f.name as faculty_name
          FROM users u
          LEFT JOIN institutions i ON u.institution_id = i.id
@@ -778,6 +779,7 @@ const getProfile = async (req, res, next) => {
               primary_color: staffUser.primary_color,
               secondary_color: staffUser.secondary_color,
               tp_unit_name: staffUser.tp_unit_name,
+              payment_type: staffUser.payment_type,
             }
           : null,
       };
@@ -793,6 +795,7 @@ const getProfile = async (req, res, next) => {
           primary_color: req.subdomainInstitution.primary_color,
           secondary_color: req.subdomainInstitution.secondary_color,
           tp_unit_name: req.subdomainInstitution.tp_unit_name,
+          payment_type: req.subdomainInstitution.payment_type,
         };
       }
     }

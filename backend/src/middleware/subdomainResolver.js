@@ -112,7 +112,7 @@ async function getInstitutionBySubdomain(subdomain) {
   try {
     const [institutions] = await pool.query(
       `SELECT id, public_id, name, code, subdomain, status, logo_url, primary_color, secondary_color,
-              maintenance_mode, maintenance_message, tp_unit_name
+              maintenance_mode, maintenance_message, tp_unit_name, payment_type
        FROM institutions
        WHERE subdomain = ? AND status = 'active'
        LIMIT 1`,

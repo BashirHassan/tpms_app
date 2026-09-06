@@ -10,6 +10,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { paymentsApi, portalApi } from '../../api';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { usePaystackInline } from '../../hooks';
 import { cn, formatCurrency, formatDate } from '../../utils/helpers';
@@ -122,7 +123,9 @@ const StatCard = ({ icon: Icon, label, value, variant = 'default', className }) 
 
 function PaymentPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { toast } = useToast();
+  const isPerStudentPayment = user?.institution?.payment_type === 'per_student';
   const { resumeTransaction } = usePaystackInline();
   const contentRef = useRef(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -296,6 +299,38 @@ function PaymentPage() {
     fetchData();
   };
 
+  const renderNotRequired = () => (
+    <div
+      className={cn(
+        'transition-all duration-500',
+        isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+      )}
+    >
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-gray-900">Payment</h1>
+        <p className="text-gray-500 mt-1">Manage your teaching practice fees</p>
+      </div>
+      <div className="bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 rounded-2xl p-8 border border-emerald-100">
+        <div className="text-center max-w-md mx-auto">
+          <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <IconCircleCheck className="w-8 h-8 text-emerald-600" />
+          </div>
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">No Payment Required</h3>
+          <p className="text-gray-600">
+            Payment is not required for this session, or has already been completed. You&apos;re all
+            set!
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Institution doesn't bill per student - never show the payment flow, not
+  // even the loading shell (checked synchronously, before any async state).
+  if (!isPerStudentPayment) {
+    return renderNotRequired();
+  }
+
   // Loading state with modern skeleton + spinner
   if (loading) {
     return (
@@ -368,31 +403,7 @@ function PaymentPage() {
 
   // Payment not required - Success state
   if (!paymentStatus?.required) {
-    return (
-      <div
-        className={cn(
-          'transition-all duration-500',
-          isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
-        )}
-      >
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">Payment</h1>
-          <p className="text-gray-500 mt-1">Manage your teaching practice fees</p>
-        </div>
-        <div className="bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 rounded-2xl p-8 border border-emerald-100">
-          <div className="text-center max-w-md mx-auto">
-            <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <IconCircleCheck className="w-8 h-8 text-emerald-600" />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">No Payment Required</h3>
-            <p className="text-gray-600">
-              Payment is not required for this session, or has already been completed. You&apos;re all
-              set!
-            </p>
-          </div>
-        </div>
-      </div>
-    );
+    return renderNotRequired();
   }
 
   const isCompleted = paymentStatus.status === 'completed';
