@@ -644,6 +644,15 @@ function StudentsPage() {
       header: 'Status',
       type: 'status',
     },
+    {
+      accessor: 'acceptance_status',
+      header: 'Acceptance',
+      render: (value) => (
+        <Badge variant={value === 'approved' ? 'success' : value === 'rejected' ? 'error' : value === 'pending' ? 'warning' : 'default'}>
+          {value ? value.charAt(0).toUpperCase() + value.slice(1) : 'Not Submitted'}
+        </Badge>
+      ),
+    },
     ...(canEdit ? [{
       accessor: 'actions',
       header: 'Actions',

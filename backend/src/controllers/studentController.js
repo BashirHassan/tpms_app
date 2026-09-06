@@ -80,7 +80,10 @@ const getAll = async (req, res, next) => {
              s.full_name, s.status, s.payment_status,
              s.pin_encrypted, s.created_at, s.updated_at,
              p.name as program_name, p.code as program_code,
-             sess.name as session_name
+             sess.name as session_name,
+             (SELECT sa.status FROM student_acceptances sa
+              WHERE sa.student_id = s.id
+              ORDER BY sa.submitted_at DESC LIMIT 1) as acceptance_status
       FROM students s
       LEFT JOIN programs p ON s.program_id = p.id
       LEFT JOIN academic_sessions sess ON s.session_id = sess.id
