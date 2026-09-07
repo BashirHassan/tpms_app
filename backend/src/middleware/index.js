@@ -38,8 +38,10 @@ const {
 
 const {
   createRateLimiter,
+  getClientIP,
   authRateLimiter,
   apiRateLimiter,
+  ipCeilingRateLimiter,
   publicRateLimiter,
   uploadRateLimiter,
   sensitiveRateLimiter,
@@ -121,8 +123,10 @@ module.exports = {
 
   // Rate Limiting
   createRateLimiter,
+  getClientIP,
   authRateLimiter,
   apiRateLimiter,
+  ipCeilingRateLimiter,
   publicRateLimiter,
   uploadRateLimiter,
   sensitiveRateLimiter,

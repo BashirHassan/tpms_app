@@ -18,12 +18,19 @@ const {
   securityHeaders,
   blockSuspiciousUserAgents,
   apiRateLimiter,
+  ipCeilingRateLimiter,
   resolveSubdomain,
 } = require('./middleware');
 // Import healthService directly to avoid loading all services (some still use deprecated models)
 const healthService = require('./services/healthService');
 
 const app = express();
+
+// Behind Cloudflare -> nginx, so the socket address is always the proxy.
+// Without this every req.ip was 127.0.0.1 and each IP-keyed rate limiter
+// collapsed into ONE global bucket: ten password resets by ten different
+// users exhausted sensitiveRateLimiter for the entire platform.
+app.set('trust proxy', true);
 
 // ============ Security Middleware ============
 
@@ -111,6 +118,12 @@ app.get('/health', async (req, res) => {
 app.get('/health/detailed', healthService.healthCheckMiddleware);
 
 // ============ API Routes ============
+
+// Coarse ceiling first (600/min per IP), then the general backstop
+// (60/min per logged-in session + IP). apiRateLimiter was imported here but
+// never mounted, so until now nothing bounded a runaway client.
+app.use('/api', ipCeilingRateLimiter);
+app.use('/api', apiRateLimiter);
 
 app.use('/api', routes);
 

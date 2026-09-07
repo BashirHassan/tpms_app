@@ -3,7 +3,55 @@
  * Token bucket rate limiting for API protection
  */
 
+const crypto = require('crypto');
 const config = require('../config');
+
+/**
+ * Real client IP.
+ *
+ * Prefers Cloudflare's header because the edge overwrites it, so it cannot be
+ * forged by the caller the way X-Forwarded-For can. Falls back to Express's
+ * req.ip (meaningful now that server.js sets `trust proxy`), then the raw
+ * socket.
+ *
+ * Before this existed every key was built from a bare req.ip, which without
+ * `trust proxy` was the nginx address on every request - collapsing each
+ * IP-keyed limiter into one global bucket for the whole platform.
+ */
+function getClientIP(req) {
+  const ip =
+    req.headers?.['cf-connecting-ip'] ||
+    req.headers?.['x-forwarded-for']?.split(',')[0].trim() ||
+    req.ip ||
+    req.socket?.remoteAddress ||
+    'unknown';
+
+  return String(ip).replace(/^::ffff:/, '');
+}
+
+/**
+ * Identify the caller for bucketing.
+ *
+ * Limiters mounted before `authenticate` have no req.user, so fall back to a
+ * fingerprint of the bearer token: enough to tell two logged-in students
+ * apart behind one carrier NAT, and never trusted for authorisation. Callers
+ * rotating fake tokens to mint fresh buckets are caught by
+ * ipCeilingRateLimiter.
+ */
+function getRequestIdentity(req) {
+  const userId = req.user?.id || req.student?.id;
+  if (userId) return `u${userId}`;
+
+  const header = req.headers?.authorization || '';
+  if (header.startsWith('Bearer ')) {
+    const token = header.slice(7).trim();
+    if (token) {
+      return `t${crypto.createHash('sha256').update(token).digest('hex').slice(0, 16)}`;
+    }
+  }
+
+  return 'anon';
+}
 
 // In-memory store for rate limiting
 // In production, use Redis for distributed rate limiting
@@ -15,13 +63,16 @@ const rateLimitStore = new Map();
  * @returns {Function} Express middleware
  */
 const createRateLimiter = (options = {}) => {
-  const windowMs = options.windowMs || config.rateLimit.windowMs;
-  const maxRequests = options.maxRequests || config.rateLimit.maxRequests;
-  const keyGenerator = options.keyGenerator || ((req) => req.ip);
+  const windowMs = options.windowMs ?? config.rateLimit.windowMs;
+  const maxRequests = options.maxRequests ?? config.rateLimit.maxRequests;
+  const keyGenerator = options.keyGenerator || ((req) => getClientIP(req));
   const skipSuccessfulRequests = options.skipSuccessfulRequests || false;
   const message = options.message || 'Too many requests, please try again later.';
+  const skip = options.skip || (() => false);
 
   return (req, res, next) => {
+    if (skip(req)) return next();
+
     const key = keyGenerator(req);
     const now = Date.now();
     const windowStart = now - windowMs;
@@ -50,6 +101,10 @@ const createRateLimiter = (options = {}) => {
       res.setHeader('X-RateLimit-Limit', maxRequests);
       res.setHeader('X-RateLimit-Remaining', 0);
       res.setHeader('X-RateLimit-Reset', new Date(entry.windowStart + windowMs).toISOString());
+
+      console.warn(
+        `[rate-limit] key=${key} ip=${getClientIP(req)} path=${req.path} count=${entry.count}`
+      );
 
       return res.status(429).json({
         success: false,
@@ -111,7 +166,7 @@ const authRateLimiter = createRateLimiter({
     // student login = `registrationNumber`.
     const raw = req.body?.email || req.body?.registrationNumber || '';
     const identifier = raw.toString().toLowerCase().trim();
-    return `auth:${req.ip}:${identifier}`;
+    return `auth:${getClientIP(req)}:${identifier}`;
   },
   message: 'Too many login attempts. Please try again in 15 minutes.',
 });
@@ -119,31 +174,58 @@ const authRateLimiter = createRateLimiter({
 const apiRateLimiter = createRateLimiter({
   windowMs: 60 * 1000, // 1 minute
   maxRequests: 60,
-  keyGenerator: (req) => `api:${req.ip}:${req.user?.id || 'anon'}`,
+  keyGenerator: (req) => `api:${getClientIP(req)}:${getRequestIdentity(req)}`,
+
+  // Only for requests we can attribute to a logged-in session. Anonymous
+  // traffic from one IP is NOT lumped into a single 60/min bucket: campuses
+  // and Nigerian carriers NAT heavily, so during a login rush that would lock
+  // out everyone behind the address - the same failure this keying was
+  // introduced to prevent. Unauthenticated traffic is bounded instead by
+  // ipCeilingRateLimiter (600/min per IP) plus the per-route publicRateLimiter
+  // and authRateLimiter, which key on the account being targeted.
+  skip: (req) => getRequestIdentity(req) === 'anon',
+});
+
+/**
+ * Per-IP ceiling
+ *
+ * apiRateLimiter buckets per logged-in session, so this is what bounds a
+ * single IP overall - high enough for a shared campus or carrier NAT, low
+ * enough to stop a runaway client (one student once made 9,023 requests to a
+ * single endpoint in a day, unthrottled because apiRateLimiter was never
+ * mounted).
+ */
+const ipCeilingRateLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  maxRequests: 600,
+  keyGenerator: (req) => `ipmax:${getClientIP(req)}`,
+  message: 'This network is sending too many requests. Please wait a moment and try again.',
 });
 
 const publicRateLimiter = createRateLimiter({
   windowMs: 60 * 1000, // 1 minute
   maxRequests: 30,
-  keyGenerator: (req) => `public:${req.ip}`,
+  keyGenerator: (req) => `public:${getClientIP(req)}`,
 });
 
 const uploadRateLimiter = createRateLimiter({
   windowMs: 60 * 60 * 1000, // 1 hour
   maxRequests: 20,
-  keyGenerator: (req) => `upload:${req.ip}:${req.user?.id || 'anon'}`,
+  keyGenerator: (req) => `upload:${getClientIP(req)}:${getRequestIdentity(req)}`,
   message: 'Upload limit exceeded. Please try again later.',
 });
 
 const sensitiveRateLimiter = createRateLimiter({
   windowMs: 60 * 60 * 1000, // 1 hour
   maxRequests: 10,
-  keyGenerator: (req) => `sensitive:${req.ip}:${req.user?.id || 'anon'}`,
+  keyGenerator: (req) => `sensitive:${getClientIP(req)}:${getRequestIdentity(req)}`,
   message: 'Rate limit exceeded for sensitive operations.',
 });
 
 module.exports = {
   createRateLimiter,
+  getClientIP,
+  ipCeilingRateLimiter,
   authRateLimiter,
   apiRateLimiter,
   publicRateLimiter,
