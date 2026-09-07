@@ -74,8 +74,12 @@ const isInstitutionSubdomain = (origin) => {
   const baseDomain = process.env.BASE_DOMAIN || 'sitpms.com';
   try {
     const { hostname, protocol } = new URL(origin);
-    return (protocol === 'https:' || nodeEnv !== 'production') &&
-      hostname.endsWith('.' + baseDomain);
+    if (protocol !== 'https:' && nodeEnv === 'production') return false;
+
+    // The apex itself, not just tenant subdomains. It serves our own landing
+    // page, and omitting it meant every API call from https://sitpms.com was
+    // CORS-blocked (14 such rejections in the production log).
+    return hostname === baseDomain || hostname.endsWith('.' + baseDomain);
   } catch {
     return false;
   }
