@@ -14,6 +14,8 @@ import { nigeriaGeoData } from '../../data/nigeria';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { formatFileSize } from '../../utils/helpers';
+import { prepareImageForUpload } from '../../utils/imageCompression';
+import { PHOTO_ACCEPT_ATTR } from '../../utils/imageFormats';
 import {
   Card,
   CardHeader,
@@ -108,6 +110,7 @@ function AcceptanceFormPage() {
   });
   const [formErrors, setFormErrors] = useState({});
   const [signedForm, setSignedForm] = useState(null);
+  const [preparingFile, setPreparingFile] = useState(false);
   const [imagePreview, setImagePreview] = useState(null);
 
   const fetchData = useCallback(async () => {
@@ -199,34 +202,34 @@ function AcceptanceFormPage() {
   };
 
   // Handle file change
-  const handleFileChange = useCallback((e) => {
+  const handleFileChange = useCallback(async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file type - only images
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
-    if (!allowedTypes.includes(file.type)) {
-      toast.error('Invalid file type. Only JPEG and PNG images are allowed.');
+    // Always re-encode to JPEG rather than rejecting on type/size. Phone
+    // galleries serve WebP (Android) and HEIC (iPhone), routinely mislabelled
+    // image/jpeg by the file picker, and Cloudinary judges on the real bytes -
+    // that is what produced this project's "Image file format webp not
+    // allowed" failures. It also brings a multi-MB camera photo under the 1MB
+    // cap so students no longer resize by hand.
+    setPreparingFile(true);
+    const { file: prepared, error } = await prepareImageForUpload(file);
+    setPreparingFile(false);
+
+    if (error) {
+      toast.error(error);
       e.target.value = '';
       return;
     }
 
-    // Validate file size (1MB max like legacy)
-    const maxSize = 1 * 1024 * 1024;
-    if (file.size > maxSize) {
-      toast.error(`File too large (${formatFileSize(file.size)}). Maximum size is 1MB.`);
-      e.target.value = '';
-      return;
-    }
-
-    setSignedForm(file);
+    setSignedForm(prepared);
 
     // Create preview
     const reader = new FileReader();
     reader.onload = (event) => {
       setImagePreview(event.target.result);
     };
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(prepared);
   }, [toast]);
 
   // Handle form input change
@@ -392,6 +395,7 @@ function AcceptanceFormPage() {
               imagePreview={imagePreview}
               fileInputRef={fileInputRef}
               onFileChange={handleFileChange}
+              preparing={preparingFile}
               onClear={() => {
                 setSignedForm(null);
                 setImagePreview(null);
@@ -1070,6 +1074,7 @@ function UploadStep({
   fileInputRef,
   onFileChange,
   onClear,
+  preparing = false,
 }) {
   return (
     <div className="space-y-3 sm:space-y-4">
@@ -1090,19 +1095,25 @@ function UploadStep({
         <div className="text-xs sm:text-sm text-amber-800">
           <p className="font-medium">Important</p>
           <ul className="mt-1 list-disc list-inside space-y-0.5 sm:space-y-1">
-            <li>Only JPEG and PNG images are allowed</li>
-            <li>Maximum file size: 1MB</li>
+            <li>Any photo from your camera or gallery - it is resized for you</li>
             <li>Ensure the signature and stamp are clearly visible</li>
             <li>Take the photo in good lighting</li>
           </ul>
         </div>
       </div>
 
+      {preparing && (
+        <div className="flex items-center gap-2 sm:gap-3 p-3 sm:p-4 bg-gray-50 border border-gray-200 rounded-lg">
+          <IconRefresh className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500 animate-spin flex-shrink-0" />
+          <p className="text-xs sm:text-sm text-gray-600 font-medium">Preparing image…</p>
+        </div>
+      )}
+
       <input
         type="file"
         ref={fileInputRef}
         onChange={onFileChange}
-        accept=".jpg,.jpeg,.png"
+        accept={PHOTO_ACCEPT_ATTR}
         className="hidden"
       />
 

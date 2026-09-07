@@ -8,6 +8,77 @@
 
 const cloudinary = require('cloudinary').v2;
 const config = require('../config');
+const { AppError, ValidationError, ServiceUnavailableError } = require('../utils/errors');
+const { ACCEPTED_IMAGE_FORMATS } = require('../utils/imageFormats');
+
+/** Stored format for every uploaded image, whatever the phone sent. */
+const UPLOAD_FORMAT = 'jpg';
+
+/**
+ * Detect an image's real format from its magic bytes.
+ *
+ * The browser-supplied mimetype lies routinely (a WebP saved as .jpg is
+ * reported as image/jpeg), and mislabelling the data URI hides the true format
+ * from Cloudinary. Returns null when the bytes aren't a recognised image.
+ *
+ * @param {Buffer} buffer
+ * @returns {string|null} e.g. 'image/webp'
+ */
+const detectImageMime = (buffer) => {
+  // Only as many bytes as the shortest signature (JPEG's, 3). The longer
+  // checks below are individually safe on a short buffer: subarray clamps to
+  // the available length, so the comparisons simply fail to match.
+  if (!Buffer.isBuffer(buffer) || buffer.length < 3) return null;
+
+  // JPEG: FF D8 FF
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg';
+
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return 'image/png';
+  }
+
+  // WebP: "RIFF" .... "WEBP"
+  if (buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return 'image/webp';
+  }
+
+  // HEIC/HEIF/AVIF: ISO-BMFF "ftyp" box, brand at bytes 8-12
+  if (buffer.subarray(4, 8).toString('ascii') === 'ftyp') {
+    const brand = buffer.subarray(8, 12).toString('ascii');
+    if (brand.startsWith('avif') || brand.startsWith('avis')) return 'image/avif';
+    if (brand.startsWith('hei') || brand.startsWith('mif1') || brand.startsWith('msf1')) {
+      return 'image/heic';
+    }
+    if (brand.startsWith('hev') || brand.startsWith('heif')) return 'image/heif';
+  }
+
+  // GIF: "GIF8"
+  if (buffer.subarray(0, 4).toString('ascii') === 'GIF8') return 'image/gif';
+
+  return null;
+};
+
+/**
+ * Reject anything that is not an image we support, before spending a round
+ * trip on Cloudinary. Only possible for in-memory buffers (multer); file paths
+ * and URLs are left to Cloudinary.
+ *
+ * @param {Buffer} buffer
+ * @throws {ValidationError} when the bytes are not a supported image
+ */
+const assertSupportedImage = (buffer) => {
+  const mime = detectImageMime(buffer);
+  const format = mime ? mime.replace('image/', '') : null;
+
+  if (!format || !ACCEPTED_IMAGE_FORMATS.includes(format)) {
+    throw new ValidationError(
+      'That file is not a supported image. Please upload a JPG or PNG photo taken with your camera.'
+    );
+  }
+};
+
 
 // Configure Cloudinary on module load
 const initializeCloudinary = () => {
@@ -113,9 +184,22 @@ const uploadImage = async (file, options = {}) => {
     resource_type: 'image',
     folder,
     public_id: publicId,
-    allowed_formats: ['jpg', 'jpeg', 'png'],
+    // Normalise WebP/HEIC/AVIF from phone cameras to jpg so everything
+    // downstream (PDF letters, printed lists) gets a usable image.
+    //
+    // Deliberately NO allowed_formats: verified against real Cloudinary that
+    // when it is present it validates the incoming format and IGNORES
+    // `format`, leaving a WebP stored as WebP. It is also what produced this
+    // project's "Image file format webp not allowed" upload failures. The
+    // incoming bytes are validated by assertSupportedImage below instead,
+    // which we control and can return a useful 400 for.
+    format: UPLOAD_FORMAT,
     max_bytes: 5 * 1024 * 1024, // 5MB max
-    transformation: [{ quality: 'auto' }, { fetch_format: 'auto' }],
+    // No fetch_format:'auto' here - that is a delivery concern, and on an
+    // upload it overrides `format` and picks the stored format itself (a
+    // WebP probe came back stored as png). These images end up in printed
+    // documents, so the stored format has to be predictable.
+    transformation: [{ quality: 'auto' }],
     // Store original filename in context
     context: originalFilename ? { original_filename: originalFilename } : undefined,
   };
@@ -135,7 +219,9 @@ const uploadImage = async (file, options = {}) => {
       uploadSource = file.path;
     } else if (file.buffer) {
       // Multer memory storage
-      uploadSource = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+      assertSupportedImage(file.buffer);
+      const realMime = detectImageMime(file.buffer);
+      uploadSource = `data:${realMime};base64,${file.buffer.toString('base64')}`;
     } else {
       throw new Error('Invalid file input: must be a Buffer, string (path/base64), or multer file object');
     }
@@ -154,37 +240,52 @@ const uploadImage = async (file, options = {}) => {
       folder: folder,
     };
   } catch (error) {
+    // Our own validation (assertSupportedImage) already carries the right
+    // status and wording - don't let the remapping below downgrade it.
+    if (error instanceof AppError) throw error;
+
     console.error('[Cloudinary] Upload error:', error);
 
     // Extract error message from various error formats
     const errorMessage = error?.message || error?.error?.message || String(error);
 
-    // Provide user-friendly error messages
+    // The student's fault - 400, with a message they can act on. These used to
+    // be bare Errors, which the error handler turned into a masked 500
+    // ("Internal server error"), leaving students retrying the same bad file.
     if (errorMessage?.includes('File size too large')) {
-      throw new Error('Image file is too large. Maximum size is 5MB.');
+      throw new ValidationError('Image file is too large. Maximum size is 5MB.');
     }
-    if (errorMessage?.includes('Invalid image file')) {
-      throw new Error('Invalid image file. Please upload a valid image (JPG or PNG).');
+    if (errorMessage?.includes('not allowed') || errorMessage?.includes('Invalid image file')) {
+      throw new ValidationError(
+        'That file is not a supported image. Please upload a JPG or PNG photo taken with your camera.'
+      );
     }
+
+    // Ours or Cloudinary's fault - 503, and worth retrying.
     if (errorMessage?.includes('Must supply api_key') || errorMessage?.includes('Invalid API Key')) {
-      throw new Error('Cloudinary API key is invalid or missing.');
+      throw new ServiceUnavailableError('Image upload is misconfigured. Please contact your SIWES office.');
     }
     if (errorMessage?.includes('cloud_name') || errorMessage?.includes('Unknown cloud')) {
-      throw new Error('Cloudinary cloud name is invalid.');
+      throw new ServiceUnavailableError('Image upload is misconfigured. Please contact your SIWES office.');
     }
-    // Network-related errors
     if (
       error.code === 'ENOTFOUND' ||
       error.code === 'ECONNREFUSED' ||
       error.code === 'ETIMEDOUT' ||
+      error?.error?.name === 'TimeoutError' ||
+      errorMessage?.includes('Timeout') ||
       errorMessage?.includes('ENOTFOUND') ||
       errorMessage?.includes('network') ||
       errorMessage?.includes('getaddrinfo')
     ) {
-      throw new Error('Network error: Unable to connect to Cloudinary. Please check your internet connection.');
+      throw new ServiceUnavailableError(
+        'Could not upload your photo - the connection timed out. Please check your network and try again.'
+      );
     }
 
-    throw new Error(`Failed to upload image: ${errorMessage || 'Unknown error'}`);
+    throw new ServiceUnavailableError(
+      'Could not upload your photo right now. Please try again in a moment.'
+    );
   }
 };
 
