@@ -6,17 +6,6 @@
 const config = require('../config');
 
 const errorHandler = (err, req, res, next) => {
-  // Log error with request context
-  console.error('Error:', {
-    message: err.message,
-    stack: err.stack,
-    path: req.path,
-    method: req.method,
-    requestId: req.requestId,
-    institutionId: req.institution?.id,
-    userId: req.user?.id,
-  });
-
   // Default error response
   let statusCode = err.statusCode || 500;
   let message = err.message || 'Internal server error';
@@ -53,6 +42,22 @@ const errorHandler = (err, req, res, next) => {
     message = 'Token expired.';
     errorCode = 'TOKEN_EXPIRED';
   }
+
+  // Logged AFTER the mappings above so statusCode is the one the client
+  // actually receives - a duplicate-key error is logged as 409, not 500.
+  // The nightly error digest keys off this to separate real defects (5xx)
+  // from ordinary user error (4xx), which dominates this log by volume.
+  console.error('Error:', {
+    statusCode,
+    errorCode,
+    message: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method,
+    requestId: req.requestId,
+    institutionId: req.institution?.id,
+    userId: req.user?.id,
+  });
 
   // Don't leak error details in production
   if (config.isProduction && statusCode === 500) {
