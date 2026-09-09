@@ -111,8 +111,10 @@ function clearFeatureCache(institutionId = null) {
 const requireFeature = (featureKey) => {
   return async (req, res, next) => {
     try {
-      // Get institution ID from req.institution (set by requireInstitutionAccess) or req.institutionId
-      const institutionId = req.institution?.id || req.institutionId;
+      // Get institution ID from req.institution/req.institutionId (set by requireInstitutionAccess),
+      // falling back to req.user.institution_id for routes like the student portal that resolve
+      // institution from the authenticated user instead of the URL.
+      const institutionId = req.institution?.id || req.institutionId || req.user?.institution_id;
 
       if (!institutionId) {
         return res.status(401).json({
@@ -148,7 +150,7 @@ const requireFeature = (featureKey) => {
 const requireAllFeatures = (...featureKeys) => {
   return async (req, res, next) => {
     try {
-      const institutionId = req.institution?.id || req.institutionId;
+      const institutionId = req.institution?.id || req.institutionId || req.user?.institution_id;
 
       if (!institutionId) {
         return res.status(401).json({
@@ -185,7 +187,7 @@ const requireAllFeatures = (...featureKeys) => {
 const requireAnyFeature = (...featureKeys) => {
   return async (req, res, next) => {
     try {
-      const institutionId = req.institution?.id || req.institutionId;
+      const institutionId = req.institution?.id || req.institutionId || req.user?.institution_id;
 
       if (!institutionId) {
         return res.status(401).json({

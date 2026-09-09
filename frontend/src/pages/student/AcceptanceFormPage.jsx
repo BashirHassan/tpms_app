@@ -13,6 +13,7 @@ import { schoolRegistrationRequestsApi } from '../../api/schoolRegistrationReque
 import { nigeriaGeoData } from '../../data/nigeria';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { useFeature } from '../../context';
 import { formatFileSize } from '../../utils/helpers';
 import { prepareImageForUpload } from '../../utils/imageCompression';
 import { PHOTO_ACCEPT_ATTR } from '../../utils/imageFormats';
@@ -91,6 +92,7 @@ function AcceptanceFormPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
+  const schoolRegistrationEnabled = useFeature('school_registration_requests');
 
   // State
   const [loading, setLoading] = useState(true);
@@ -119,7 +121,9 @@ function AcceptanceFormPage() {
       const [statusRes, schoolsRes, registrationRes] = await Promise.all([
         acceptancesApi.getStudentStatus(),
         acceptancesApi.getAvailableSchools(),
-        schoolRegistrationRequestsApi.getStatus().catch(() => ({ data: { data: null } })),
+        schoolRegistrationEnabled
+          ? schoolRegistrationRequestsApi.getStatus().catch(() => ({ data: { data: null } }))
+          : Promise.resolve({ data: { data: null } }),
       ]);
 
       setStatus(statusRes.data.data);
@@ -130,7 +134,7 @@ function AcceptanceFormPage() {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, schoolRegistrationEnabled]);
 
   // Fetch status and schools
   useEffect(() => {
@@ -385,6 +389,7 @@ function AcceptanceFormPage() {
               schools={schools}
               registrationRequest={registrationRequest}
               onOpenRegistrationModal={() => setShowRegistrationModal(true)}
+              schoolRegistrationEnabled={schoolRegistrationEnabled}
             />
           </StepContent>
 
@@ -450,19 +455,21 @@ function AcceptanceFormPage() {
       </Card>
 
       {/* Request a new school modal */}
-      <SchoolRegistrationRequestModal
-        isOpen={showRegistrationModal}
-        onClose={() => setShowRegistrationModal(false)}
-        schools={schools}
-        onSelectSchool={(school) => {
-          setSelectedSchool(school);
-          setShowRegistrationModal(false);
-        }}
-        onSubmitted={(request) => {
-          setRegistrationRequest(request);
-          setShowRegistrationModal(false);
-        }}
-      />
+      {schoolRegistrationEnabled && (
+        <SchoolRegistrationRequestModal
+          isOpen={showRegistrationModal}
+          onClose={() => setShowRegistrationModal(false)}
+          schools={schools}
+          onSelectSchool={(school) => {
+            setSelectedSchool(school);
+            setShowRegistrationModal(false);
+          }}
+          onSubmitted={(request) => {
+            setRegistrationRequest(request);
+            setShowRegistrationModal(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -555,6 +562,7 @@ function ContactAndSchoolStep({
   filteredSchools,
   registrationRequest,
   onOpenRegistrationModal,
+  schoolRegistrationEnabled,
 }) {
   return (
     <div className="space-y-4 sm:space-y-4">
@@ -567,7 +575,7 @@ function ContactAndSchoolStep({
           <div>
             <h3 className="font-semibold text-gray-900 text-sm sm:text-base">Contact Information</h3>
             <p className="text-xs sm:text-sm text-gray-500">
-              Provide your contact details
+              Provide your own personal contact details - not your school&apos;s
             </p>
           </div>
         </div>
@@ -586,6 +594,7 @@ function ContactAndSchoolStep({
                 className="pl-10 text-base"
                 placeholder="08012345678"
                 error={formErrors.phone}
+                helperText="This is your own phone number, not your school's."
               />
             </div>
           </div>
@@ -603,6 +612,7 @@ function ContactAndSchoolStep({
                 className="pl-10 text-base"
                 placeholder="student@email.com"
                 error={formErrors.email}
+                helperText="This is your own email address, not your school's."
               />
             </div>
           </div>
@@ -725,10 +735,12 @@ function ContactAndSchoolStep({
           </div>
         )}
 
-        <SchoolRegistrationBanner
-          registrationRequest={registrationRequest}
-          onOpenRequestModal={onOpenRegistrationModal}
-        />
+        {schoolRegistrationEnabled && (
+          <SchoolRegistrationBanner
+            registrationRequest={registrationRequest}
+            onOpenRequestModal={onOpenRegistrationModal}
+          />
+        )}
       </div>
     </div>
   );

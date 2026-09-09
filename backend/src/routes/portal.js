@@ -40,9 +40,9 @@ router.get('/portal/acceptance/schools', authenticate, studentOnly, acceptanceCo
 router.post('/portal/acceptance/submit', authenticate, studentOnly, upload.single('signed_form'), acceptanceController.submitAcceptance);
 
 // Student school registration request endpoints (request a brand-new school be added)
-router.get('/portal/school-registration-requests/status', authenticate, studentOnly, schoolRegistrationRequestController.getStudentRequestStatus);
-router.get('/portal/school-registration-requests/search-master', authenticate, studentOnly, schoolRegistrationRequestController.searchMasterSchools);
-router.post('/portal/school-registration-requests', authenticate, studentOnly, validate(schoolRegistrationRequestController.schemas.submit), schoolRegistrationRequestController.submitRequest);
+router.get('/portal/school-registration-requests/status', authenticate, studentOnly, requireFeature('school_registration_requests'), schoolRegistrationRequestController.getStudentRequestStatus);
+router.get('/portal/school-registration-requests/search-master', authenticate, studentOnly, requireFeature('school_registration_requests'), schoolRegistrationRequestController.searchMasterSchools);
+router.post('/portal/school-registration-requests', authenticate, studentOnly, requireFeature('school_registration_requests'), validate(schoolRegistrationRequestController.schemas.submit), schoolRegistrationRequestController.submitRequest);
 
 // Student payment endpoints
 router.get('/portal/payments/status', authenticate, studentOnly, paymentController.getStudentPaymentStatus);
