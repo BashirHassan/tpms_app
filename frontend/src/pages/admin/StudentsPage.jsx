@@ -43,6 +43,17 @@ import {
   IconPrinter,
 } from '@tabler/icons-react';
 
+function detectProgramFromRegistration(registrationNumber, availablePrograms) {
+  const registrationParts = registrationNumber.toUpperCase().split('/').map((part) => part.trim());
+
+  return availablePrograms.find((program) => {
+    const programCode = program.code?.toUpperCase().trim();
+    if (!programCode) return false;
+    const codeSuffix = programCode.includes('-') ? programCode.split('-').pop() : programCode;
+    return registrationParts.includes(programCode) || registrationParts.includes(codeSuffix);
+  }) || null;
+}
+
 function StudentsPage() {
   const { hasRole } = useAuth();
   const { institution } = useInstitutionSelection();
@@ -81,8 +92,8 @@ function StudentsPage() {
   const [studentForm, setStudentForm] = useState({
     full_name: '',
     registration_number: '',
-    program_id: '',
   });
+  const [registrationTouched, setRegistrationTouched] = useState(false);
 
   // Delete confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -106,6 +117,11 @@ function StudentsPage() {
     if (statusFilter) params.status = statusFilter;
     return params;
   }, [search, programFilter, selectedSession, statusFilter]);
+
+  const detectedFormProgram = useMemo(
+    () => detectProgramFromRegistration(studentForm.registration_number, programs),
+    [studentForm.registration_number, programs]
+  );
 
   // Fetch students
   const fetchStudents = useCallback(async () => {
@@ -485,7 +501,8 @@ function StudentsPage() {
   // Open add modal
   const openAddModal = useCallback(() => {
     setEditingStudent(null);
-    setStudentForm({ full_name: '', registration_number: '', program_id: '' });
+    setStudentForm({ full_name: '', registration_number: '' });
+    setRegistrationTouched(false);
     setShowStudentModal(true);
   }, []);
 
@@ -495,8 +512,8 @@ function StudentsPage() {
     setStudentForm({
       full_name: student.full_name || '',
       registration_number: student.registration_number || '',
-      program_id: student.program_id?.toString() || '',
     });
+    setRegistrationTouched(false);
     setShowStudentModal(true);
   }, []);
 
@@ -510,7 +527,8 @@ function StudentsPage() {
   const closeStudentModal = () => {
     setShowStudentModal(false);
     setEditingStudent(null);
-    setStudentForm({ full_name: '', registration_number: '', program_id: '' });
+    setStudentForm({ full_name: '', registration_number: '' });
+    setRegistrationTouched(false);
   };
 
   // Save student (add or edit)
@@ -522,8 +540,9 @@ function StudentsPage() {
       return;
     }
 
-    if (!studentForm.program_id) {
-      toast.error('Please select a program');
+    if (!detectedFormProgram) {
+      setRegistrationTouched(true);
+      toast.error('No active program code matches this registration number');
       return;
     }
 
@@ -547,7 +566,6 @@ function StudentsPage() {
         await studentsApi.update(editingStudent.id, {
           full_name: fullNameUpper,
           registration_number: regNumUpper,
-          program_id: parseInt(studentForm.program_id),
         });
         toast.success('Student updated successfully');
         closeStudentModal();
@@ -557,14 +575,11 @@ function StudentsPage() {
         const response = await studentsApi.create({
           full_name: fullNameUpper,
           registration_number: regNumUpper,
-          program_id: parseInt(studentForm.program_id),
         });
         const newStudent = response.data.data || response.data || {};
-        // Find program name for display
-        const selectedProgram = programs.find(p => p.id === parseInt(studentForm.program_id));
         setCreatedStudent({
           ...newStudent,
-          program_name: selectedProgram?.name || 'N/A',
+          program_name: newStudent.program_name || detectedFormProgram.name,
         });
         closeStudentModal();
         setShowSuccessDialog(true);
@@ -1274,34 +1289,30 @@ function StudentsPage() {
                   type="text"
                   value={studentForm.registration_number}
                   onChange={(e) => setStudentForm({ ...studentForm, registration_number: e.target.value.toUpperCase() })}
+                  onBlur={() => setRegistrationTouched(true)}
                   placeholder="e.g., NCE/2024/MATH/001"
-                  className="w-full px-3 py-2 text-sm sm:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 uppercase"
+                  aria-describedby="registration-program-status"
+                  aria-invalid={registrationTouched && !detectedFormProgram ? 'true' : undefined}
+                  className={`w-full px-3 py-2 text-sm sm:text-base border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 uppercase ${
+                    registrationTouched && !detectedFormProgram ? 'border-red-400 bg-red-50' : 'border-gray-300'
+                  }`}
                   required
                 />
-                {editingStudent && (
-                  <p className="text-[10px] sm:text-xs text-amber-600 mt-1">
-                    ⚠️ Changing registration number will be validated for duplicates
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                  Program <span className="text-red-500">*</span>
-                </label>
-                <Select
-                  value={studentForm.program_id}
-                  onChange={(e) => setStudentForm({ ...studentForm, program_id: e.target.value })}
-                  className="text-sm sm:text-base"
-                  required
-                >
-                  <option value="">Select a program</option>
-                  {programs.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </Select>
+                <div id="registration-program-status" aria-live="polite" className="mt-1.5 text-xs">
+                  {detectedFormProgram ? (
+                    <span className="inline-flex items-center gap-1 text-green-700">
+                      <IconCircleCheck className="w-3.5 h-3.5" />
+                      Program detected: {detectedFormProgram.name}
+                    </span>
+                  ) : registrationTouched && studentForm.registration_number ? (
+                    <span className="inline-flex items-center gap-1 text-red-700">
+                      <IconCircleX className="w-3.5 h-3.5" />
+                      No active program code found in this registration number
+                    </span>
+                  ) : (
+                    <span className="text-gray-500">Program is detected automatically from the registration number.</span>
+                  )}
+                </div>
               </div>
 
               {!editingStudent && (

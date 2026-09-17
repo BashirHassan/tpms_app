@@ -11,7 +11,7 @@ const path = require('path');
 const fs = require('fs');
 const XLSX = require('xlsx');
 const { query, transaction } = require('../db/database');
-const { NotFoundError, ValidationError } = require('../utils/errors');
+const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 const { encryptStudentPin, decryptStudentPin } = require('../services/encryptionService');
 const { hashPassword, BULK_BCRYPT_ROUNDS } = require('./authController');
 
@@ -21,14 +21,13 @@ const schemas = {
     body: z.object({
       registration_number: z.string().min(1, 'Registration number is required'),
       full_name: z.string().min(2, 'Full name must be at least 2 characters'),
-      program_id: z.number().int().positive().optional().nullable(),
     }),
   }),
 
   update: z.object({
     body: z.object({
       full_name: z.string().min(2).optional(),
-      program_id: z.number().int().positive().optional().nullable(),
+      registration_number: z.string().min(1, 'Registration number is required').optional(),
       status: z.enum(['active', 'inactive']).optional(),
       payment_status: z.enum(['pending', 'partial', 'paid']).optional(),
     }),
@@ -59,6 +58,21 @@ const schemas = {
  */
 function generatePin() {
   return String(crypto.randomInt(1_000_000_000, 9_999_999_999));
+}
+
+function detectProgram(registrationNumber, programs) {
+  const registrationParts = registrationNumber.toUpperCase().split('/').map(part => part.trim());
+
+  for (const program of programs) {
+    const programCode = program.code.toUpperCase().trim();
+    const codeSuffix = programCode.includes('-') ? programCode.split('-').pop() : programCode;
+
+    if (registrationParts.includes(programCode) || registrationParts.includes(codeSuffix)) {
+      return program;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -192,7 +206,7 @@ const getById = async (req, res, next) => {
 const create = async (req, res, next) => {
   try {
     const { institutionId } = req.params;
-    const { registration_number, full_name, program_id } = req.body;
+    const { registration_number, full_name } = req.body;
 
     // Normalize to uppercase
     const normalizedRegNumber = registration_number.toUpperCase().trim();
@@ -212,36 +226,22 @@ const create = async (req, res, next) => {
     }
     const currentSessionId = sessionRows[0].id;
 
-    // Auto-detect program if not provided
-    let finalProgramId = program_id ? parseInt(program_id, 10) : null;
-    if (!finalProgramId) {
-      const programs = await query(
-        `SELECT id, code FROM programs WHERE institution_id = ? AND status = 'active'`,
-        [parseInt(institutionId)]
-      );
-
-      const regParts = normalizedRegNumber.split('/').map(p => p.trim().toUpperCase());
-
-      for (const program of programs) {
-        const programCode = program.code.toUpperCase();
-        const codeSuffix = programCode.includes('-') ? programCode.split('-').pop() : programCode;
-
-        if (regParts.includes(programCode) || regParts.includes(codeSuffix)) {
-          finalProgramId = program.id;
-          break;
-        }
-      }
+    const programs = await query(
+      `SELECT id, name, code FROM programs WHERE institution_id = ? AND status = 'active'`,
+      [parseInt(institutionId)]
+    );
+    const detectedProgram = detectProgram(normalizedRegNumber, programs);
+    if (!detectedProgram) {
+      throw new ValidationError('No matching active program code found in the registration number');
     }
 
-    // Verify program belongs to institution if provided
-    if (finalProgramId) {
-      const programs = await query(
-        'SELECT id FROM programs WHERE id = ? AND institution_id = ?',
-        [finalProgramId, parseInt(institutionId)]
-      );
-      if (programs.length === 0) {
-        throw new ValidationError('Invalid program ID');
-      }
+    const duplicates = await query(
+      `SELECT id FROM students
+       WHERE institution_id = ? AND session_id = ? AND registration_number = ?`,
+      [parseInt(institutionId), currentSessionId, normalizedRegNumber]
+    );
+    if (duplicates.length > 0) {
+      throw new ConflictError('A student with this registration number already exists in the current session');
     }
 
     // Generate PIN, hash for auth, and encrypt for admin display
@@ -249,22 +249,13 @@ const create = async (req, res, next) => {
     const pinHash = await hashPassword(pin);
     const pinEncrypted = encryptStudentPin(pin);
 
-    // INSERT IGNORE - silently skips if (institution_id, registration_number, session_id) already exists
     const result = await query(
-      `INSERT IGNORE INTO students (institution_id, program_id, session_id, registration_number,
-                                    full_name, pin_hash, pin_encrypted, status, payment_status)
+      `INSERT INTO students (institution_id, program_id, session_id, registration_number,
+                             full_name, pin_hash, pin_encrypted, status, payment_status)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 'pending')`,
-      [parseInt(institutionId), finalProgramId, currentSessionId, normalizedRegNumber,
+      [parseInt(institutionId), detectedProgram.id, currentSessionId, normalizedRegNumber,
        normalizedFullName, pinHash, pinEncrypted]
     );
-
-    if (result.affectedRows === 0) {
-      return res.status(200).json({
-        success: true,
-        message: 'Student already enrolled in the current session - no changes made.',
-        data: null,
-      });
-    }
 
     // Audit log
     await query(
@@ -282,7 +273,8 @@ const create = async (req, res, next) => {
       data: {
         id: result.insertId,
         institution_id: parseInt(institutionId),
-        program_id: finalProgramId,
+        program_id: detectedProgram.id,
+        program_name: detectedProgram.name,
         session_id: currentSessionId,
         registration_number: normalizedRegNumber,
         full_name: normalizedFullName,
@@ -304,7 +296,8 @@ const update = async (req, res, next) => {
 
     // Check student exists
     const existing = await query(
-      'SELECT id FROM students WHERE id = ? AND institution_id = ?',
+      `SELECT id, session_id, registration_number
+       FROM students WHERE id = ? AND institution_id = ?`,
       [parseInt(id), parseInt(institutionId)]
     );
     
@@ -316,19 +309,29 @@ const update = async (req, res, next) => {
     const updates = {};
     if (req.body.full_name) updates.full_name = req.body.full_name.toUpperCase().trim();
     if (req.body.registration_number) updates.registration_number = req.body.registration_number.toUpperCase().trim();
-    if (req.body.program_id !== undefined) updates.program_id = req.body.program_id;
     if (req.body.status) updates.status = req.body.status;
     if (req.body.payment_status) updates.payment_status = req.body.payment_status;
 
-    // Verify program if changing
-    if (updates.program_id) {
+    if (updates.registration_number && updates.registration_number !== existing[0].registration_number) {
       const programs = await query(
-        'SELECT id FROM programs WHERE id = ? AND institution_id = ?',
-        [updates.program_id, parseInt(institutionId)]
+        `SELECT id, name, code FROM programs WHERE institution_id = ? AND status = 'active'`,
+        [parseInt(institutionId)]
       );
-      if (programs.length === 0) {
-        throw new ValidationError('Invalid program ID');
+      const detectedProgram = detectProgram(updates.registration_number, programs);
+      if (!detectedProgram) {
+        throw new ValidationError('No matching active program code found in the registration number');
       }
+
+      const duplicates = await query(
+        `SELECT id FROM students
+         WHERE institution_id = ? AND session_id = ? AND registration_number = ? AND id <> ?`,
+        [parseInt(institutionId), existing[0].session_id, updates.registration_number, parseInt(id)]
+      );
+      if (duplicates.length > 0) {
+        throw new ConflictError('A student with this registration number already exists in the current session');
+      }
+
+      updates.program_id = detectedProgram.id;
     }
 
     // Perform update
@@ -837,10 +840,22 @@ const uploadFromExcel = async (req, res, next) => {
  */
 const downloadTemplate = async (req, res, next) => {
   try {
+    const { institutionId } = req.params;
+    const programs = await query(
+      `SELECT code FROM programs
+       WHERE institution_id = ? AND status = 'active'
+       ORDER BY name LIMIT 1`,
+      [parseInt(institutionId)]
+    );
+    if (programs.length === 0) {
+      throw new ValidationError('Create an active program before downloading the student template');
+    }
+
+    const programCode = programs[0].code.toUpperCase().split('-').pop();
     const workbook = XLSX.utils.book_new();
     const templateData = [
-      { full_name: 'JOHN DOE', registration_number: 'NCE/2024/001' },
-      { full_name: 'JANE SMITH', registration_number: 'NCE/2024/002' },
+      { full_name: 'JOHN DOE', registration_number: `NCE/2024/${programCode}/001` },
+      { full_name: 'JANE SMITH', registration_number: `NCE/2024/${programCode}/002` },
     ];
     const worksheet = XLSX.utils.json_to_sheet(templateData);
     worksheet['!cols'] = [{ wch: 30 }, { wch: 25 }];
