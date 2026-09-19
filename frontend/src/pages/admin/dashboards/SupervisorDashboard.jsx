@@ -156,7 +156,13 @@ function SupervisorDashboard() {
       {isSupervisor && (
         <>
           {/* Summary Cards */}
-          <div className={`grid grid-cols-2 ${hasFeature('allowance_management') ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3 sm:gap-4`}>
+          {/* Requires both allowance_management (the feature itself) and
+              supervisor_allowance_stats (this specific card's visibility)
+              so institutions can hide amounts from supervisors independently. */}
+          {(() => {
+            const showAllowances = hasFeature('allowance_management') && hasFeature('supervisor_allowance_stats');
+            return (
+          <div className={`grid grid-cols-2 ${showAllowances ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3 sm:gap-4`}>
             <StatsCard
               index={0}
               title="Total Postings"
@@ -186,7 +192,7 @@ function SupervisorDashboard() {
               icon={IconUsers}
               tone="purple"
             />
-            {hasFeature('allowance_management') && (
+            {showAllowances && (
               <StatsCard
                 index={4}
                 title="Total Allowances"
@@ -198,6 +204,8 @@ function SupervisorDashboard() {
               />
             )}
           </div>
+            );
+          })()}
 
           {/* My Postings */}
           <Card>
