@@ -151,9 +151,10 @@ export function LocationVerification({
     }
   };
 
-  // Auto-start GPS sampling on mount if not already verified
+  // Auto-start GPS sampling on mount if not already verified. The same capture
+  // establishes the first school GPS point when one has not been saved yet.
   useEffect(() => {
-    if (posting && !posting.location_verified && posting.has_coordinates && gpsStatus === 'idle') {
+    if (posting && !posting.location_verified && gpsStatus === 'idle') {
       startSampling();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -222,8 +223,8 @@ export function LocationVerification({
               <div>
                 <p className="font-medium text-amber-800">School GPS Not Set</p>
                 <p className="text-sm text-amber-700">
-                  This school does not have GPS coordinates configured. Please contact the TP office to
-                  update the school location.
+                  Record the school&apos;s location from your current GPS reading. Your presence will
+                  then be verified, so you can submit results for this visit.
                 </p>
               </div>
             </div>
@@ -423,8 +424,7 @@ export function LocationVerification({
         )}
 
         {/* Action buttons */}
-        {posting?.has_coordinates && (
-          <div className="flex gap-2">
+        <div className="flex gap-2">
             <Button
               variant="outline"
               onClick={startSampling}
@@ -459,10 +459,11 @@ export function LocationVerification({
                   ? 'Verifying...'
                   : biometricRequired
                     ? 'Confirm Fingerprint & Verify'
-                    : 'Verify Location'}
+                    : posting?.has_coordinates
+                      ? 'Verify Location'
+                      : 'Record School & Verify'}
             </Button>
           </div>
-        )}
 
         {/* Info text */}
         <p className="text-center text-xs text-gray-500">

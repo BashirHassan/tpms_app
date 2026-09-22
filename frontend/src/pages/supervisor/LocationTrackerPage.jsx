@@ -93,17 +93,26 @@ function LocationTrackerPage() {
     setDialogOpen(true);
   };
 
-  const handleVerified = () => {
+  const handleVerified = (result) => {
     // Update the posting in the list
     setPostings((prev) =>
       prev.map((p) =>
         p.posting_id === selectedPosting.posting_id
-          ? { ...p, location_verified: true, location_verified_at: new Date().toISOString() }
+          ? {
+              ...p,
+              location_verified: true,
+              location_verified_at: new Date().toISOString(),
+              has_coordinates: true,
+            }
           : p
       )
     );
     setDialogOpen(false);
-    toast.success('Location verified successfully!');
+    toast.success(
+      result?.school_location_recorded
+        ? 'School location recorded and presence verified successfully!'
+        : 'Presence verified successfully!'
+    );
   };
 
   // Calculate statistics
@@ -298,9 +307,9 @@ function LocationTrackerPage() {
                         Verified
                       </Badge>
                     ) : !posting.has_coordinates ? (
-                      <Badge variant="danger" className="flex items-center gap-1">
+                      <Badge variant="warning" className="flex items-center gap-1">
                         <IconX className="h-3.5 w-3.5" />
-                        No GPS
+                        GPS Needed
                       </Badge>
                     ) : (
                       <Badge variant="warning" className="flex items-center gap-1">
@@ -314,7 +323,6 @@ function LocationTrackerPage() {
                       size="sm"
                       variant={posting.location_verified ? 'outline' : 'primary'}
                       onClick={() => handleOpenDialog(posting)}
-                      disabled={!posting.has_coordinates && !posting.location_verified}
                     >
                       {posting.location_verified ? (
                         <>
@@ -324,7 +332,7 @@ function LocationTrackerPage() {
                       ) : (
                         <>
                           <IconCurrentLocation className="h-4 w-4 mr-1" />
-                          Record Location
+                          {posting.has_coordinates ? 'Record Presence' : 'Set GPS & Record Presence'}
                         </>
                       )}
                     </Button>
@@ -343,7 +351,9 @@ function LocationTrackerPage() {
         title={
           selectedPosting?.location_verified
             ? 'Location Verification Details'
-            : 'Verify Your Location'
+            : selectedPosting?.has_coordinates
+              ? 'Verify Your Presence'
+              : 'Record School Location & Verify Presence'
         }
         width="xl"
       >

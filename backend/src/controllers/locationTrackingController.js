@@ -146,6 +146,7 @@ const verifyLocation = async (req, res, next) => {
     const [posting] = await query(
       `SELECT sp.*,
               ms.name as school_name,
+              ms.id as master_school_id,
               ST_Latitude(ms.location) as school_latitude,
               ST_Longitude(ms.location) as school_longitude,
               sess.geofence_radius_m,
@@ -166,12 +167,16 @@ const verifyLocation = async (req, res, next) => {
       throw new ValidationError('Cannot verify location for inactive posting');
     }
 
-    // 2. Check if school has GPS coordinates
-    if (!posting.school_latitude || !posting.school_longitude) {
-      throw new ValidationError(
-        `School "${posting.school_name}" does not have GPS coordinates configured. Please contact the TP office.`
-      );
-    }
+    // 2. A supervisor physically at a school may establish its first GPS point.
+    // Existing school points cannot be changed through the attendance flow. The
+    // new point is persisted only after all checks pass, with the attendance log.
+    const schoolLocationMissing =
+      posting.school_latitude === null ||
+      posting.school_latitude === undefined ||
+      posting.school_longitude === null ||
+      posting.school_longitude === undefined;
+    const schoolLatitude = schoolLocationMissing ? latitude : Number(posting.school_latitude);
+    const schoolLongitude = schoolLocationMissing ? longitude : Number(posting.school_longitude);
 
     // 3. Calculate distance from school, buffered by reported GPS accuracy in the
     // supervisor's favor (a wide-uncertainty fix shouldn't be penalized for landing
@@ -179,8 +184,8 @@ const verifyLocation = async (req, res, next) => {
     const distanceFromSchool = calculateDistance(
       latitude,
       longitude,
-      posting.school_latitude,
-      posting.school_longitude
+      schoolLatitude,
+      schoolLongitude
     );
 
     const geofenceRadius = posting.geofence_radius_m;
@@ -366,6 +371,42 @@ const verifyLocation = async (req, res, next) => {
     // there is no admin override path.
     let locationLogId = null;
     await transaction(async (conn) => {
+      // Capture only a missing location. The NULL predicate prevents this
+      // endpoint from overwriting a point set by the TP office or another user.
+      if (validationStatus === 'validated' && schoolLocationMissing) {
+        const [schoolUpdate] = await conn.execute(
+          `UPDATE master_schools
+           SET location = ST_GeomFromText(?, 4326), updated_at = NOW()
+           WHERE id = ? AND location IS NULL`,
+          [`POINT(${latitude} ${longitude})`, posting.master_school_id]
+        );
+
+        if (schoolUpdate.affectedRows !== 1) {
+          throw new ValidationError(
+            'This school location was just recorded by another user. Refresh the page and verify your presence again.'
+          );
+        }
+
+        await conn.execute(
+          `INSERT INTO audit_logs
+             (institution_id, user_id, user_type, action, resource_type, resource_id, details, ip_address)
+           VALUES (?, ?, 'staff', 'school_location_recorded', 'master_school', ?, ?, ?)`,
+          [
+            parseInt(institutionId),
+            supervisorId,
+            posting.master_school_id,
+            JSON.stringify({
+              school_name: posting.school_name,
+              latitude,
+              longitude,
+              accuracy_meters: accuracy_meters || null,
+              supervisor_posting_id: posting_id,
+            }),
+            req.ip || req.connection?.remoteAddress || null,
+          ]
+        );
+      }
+
       const [logResult] = await conn.execute(
         `INSERT INTO supervision_location_logs (
           institution_id, supervisor_posting_id, supervisor_id, session_id,
@@ -443,6 +484,7 @@ const verifyLocation = async (req, res, next) => {
         reason_code: reasonCode,
         biometric_required: biometricRequired,
         biometric_verified: biometricVerified,
+        school_location_recorded: validationStatus === 'validated' && schoolLocationMissing,
         hint:
           validationStatus === 'rejected' && !isWithinGeofence
             ? `You need to be within ${geofenceRadius}m of the school. Current distance: ${Math.round(distanceFromSchool)}m`
