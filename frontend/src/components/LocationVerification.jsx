@@ -164,8 +164,8 @@ export function LocationVerification({
   if (posting?.location_verified) {
     return (
       <div className={`rounded-lg border border-green-200 bg-green-50 p-4 ${className}`}>
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100">
+        <div className="flex items-start gap-3 sm:items-center">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-green-100">
             <IconCheck className="h-5 w-5 text-green-600" />
           </div>
           <div>
@@ -183,18 +183,18 @@ export function LocationVerification({
 
   return (
     <div className={`rounded-lg border border-gray-200 bg-white shadow-sm ${className}`}>
-      <div className="border-b border-gray-100 px-4 py-3">
-        <h3 className="flex items-center gap-2 text-lg font-medium text-gray-900">
-          <IconMapPin className="h-5 w-5 text-primary-600" />
+      <div className="border-b border-gray-100 px-3 py-3 sm:px-4">
+        <h3 className="flex items-center gap-2 text-base font-medium text-gray-900 sm:text-lg">
+          <IconMapPin className="h-5 w-5 flex-shrink-0 text-primary-600" />
           Location Verification Required
         </h3>
       </div>
 
-      <div className="space-y-4 p-4">
+      <div className="space-y-3 p-3 sm:space-y-4 sm:p-4">
         {/* School info */}
         {showSchoolInfo && posting && (
           <div className="rounded-lg bg-gray-50 p-3">
-            <p className="font-medium text-gray-900">{posting.school_name}</p>
+            <p className="break-words font-medium text-gray-900">{posting.school_name}</p>
             <div className="mt-1 flex flex-wrap gap-2">
               <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
                 Group {posting.group_number}
@@ -258,7 +258,7 @@ export function LocationVerification({
               <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary-100">
                 <IconFingerprint className="h-5 w-5 text-primary-600" />
               </div>
-              <div className="flex-1">
+              <div className="min-w-0 flex-1">
                 <p className="font-medium text-gray-900">Enroll Your Fingerprint</p>
                 <p className="mt-1 text-sm text-gray-600">
                   This institution requires a fingerprint or face confirmation at each check-in, so
@@ -269,7 +269,7 @@ export function LocationVerification({
                 <Button
                   variant="primary"
                   size="sm"
-                  className="mt-3 gap-2"
+                  className="mt-3 w-full gap-2 sm:w-auto"
                   onClick={handleEnroll}
                   loading={biometricStatus === 'enrolling'}
                 >
@@ -302,7 +302,7 @@ export function LocationVerification({
         {location && (
           <div className="rounded-lg bg-blue-50 p-3">
             <p className="mb-1 text-sm font-medium text-blue-800">Your Current Location</p>
-            <p className="font-mono text-xs text-blue-700">
+            <p className="break-all font-mono text-xs text-blue-700">
               {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
             </p>
             <div className="mt-1 flex flex-wrap gap-3 text-xs">
@@ -316,35 +316,35 @@ export function LocationVerification({
 
         {/* Rejected: outside geofence */}
         {verificationResult?.reason_code === 'OUTSIDE_GEOFENCE' && (
-          <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4 shadow-sm">
+          <div className="rounded-xl border-2 border-red-300 bg-red-50 p-3 shadow-sm sm:p-4">
             <div className="flex items-start gap-3">
-              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100">
-                <IconMapPinOff className="h-6 w-6 text-red-600" />
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:h-12 sm:w-12">
+                <IconMapPinOff className="h-5 w-5 text-red-600 sm:h-6 sm:w-6" />
               </div>
-              <div className="flex-1">
-                <h4 className="text-lg font-semibold text-red-800">Outside Geofence Area</h4>
+              <div className="min-w-0 flex-1">
+                <h4 className="text-base font-semibold text-red-800 sm:text-lg">Outside Geofence Area</h4>
                 <p className="mt-1 text-sm text-red-700">
                   You are too far from <strong>{verificationResult.school_name}</strong> to verify your location.
                 </p>
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <div className="rounded-lg bg-white/60 p-3 text-center">
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:mt-4 sm:gap-3">
+              <div className="rounded-lg bg-white/60 p-2 text-center sm:p-3">
                 <p className="text-xs font-medium uppercase text-red-600">Your Distance</p>
-                <p className="mt-1 text-xl font-bold text-red-800">
+                <p className="mt-1 break-words text-lg font-bold text-red-800 sm:text-xl">
                   {formatDistance(verificationResult.distance_from_school_m)}
                 </p>
               </div>
-              <div className="rounded-lg bg-white/60 p-3 text-center">
+              <div className="rounded-lg bg-white/60 p-2 text-center sm:p-3">
                 <p className="text-xs font-medium uppercase text-green-600">Required</p>
-                <p className="mt-1 text-xl font-bold text-green-700">
+                <p className="mt-1 break-words text-lg font-bold text-green-700 sm:text-xl">
                   Within {formatDistance(verificationResult.geofence_radius_m)}
                 </p>
               </div>
             </div>
 
-            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 sm:mt-4">
               <p className="text-sm text-amber-800">
                 <strong>💡 Tip:</strong> Please move closer to the school and tap &quot;Refresh Location&quot; to try again.
               </p>
@@ -354,13 +354,13 @@ export function LocationVerification({
 
         {/* Rejected: GPS accuracy too imprecise */}
         {verificationResult?.reason_code === 'LOW_ACCURACY' && (
-          <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4 shadow-sm">
+          <div className="rounded-xl border-2 border-red-300 bg-red-50 p-3 shadow-sm sm:p-4">
             <div className="flex items-start gap-3">
-              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100">
-                <IconMapPinOff className="h-6 w-6 text-red-600" />
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:h-12 sm:w-12">
+                <IconMapPinOff className="h-5 w-5 text-red-600 sm:h-6 sm:w-6" />
               </div>
-              <div className="flex-1">
-                <h4 className="text-lg font-semibold text-red-800">GPS Accuracy Too Low</h4>
+              <div className="min-w-0 flex-1">
+                <h4 className="text-base font-semibold text-red-800 sm:text-lg">GPS Accuracy Too Low</h4>
                 <p className="mt-1 text-sm text-red-700">
                   Your GPS fix isn&apos;t precise enough to verify your location. Move to an open area,
                   away from tall buildings, and try again.
@@ -372,13 +372,13 @@ export function LocationVerification({
 
         {/* Rejected: biometric confirmation missing or invalid */}
         {verificationResult?.reason_code === 'BIOMETRIC_REQUIRED' && (
-          <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4 shadow-sm">
+          <div className="rounded-xl border-2 border-red-300 bg-red-50 p-3 shadow-sm sm:p-4">
             <div className="flex items-start gap-3">
-              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100">
-                <IconFingerprint className="h-6 w-6 text-red-600" />
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:h-12 sm:w-12">
+                <IconFingerprint className="h-5 w-5 text-red-600 sm:h-6 sm:w-6" />
               </div>
-              <div className="flex-1">
-                <h4 className="text-lg font-semibold text-red-800">Fingerprint Confirmation Needed</h4>
+              <div className="min-w-0 flex-1">
+                <h4 className="text-base font-semibold text-red-800 sm:text-lg">Fingerprint Confirmation Needed</h4>
                 <p className="mt-1 text-sm text-red-700">
                   Please confirm with your fingerprint when prompted, then try again.
                 </p>
@@ -389,13 +389,13 @@ export function LocationVerification({
 
         {/* Rejected: shared device or session/device mismatch - no admin review, use your own device */}
         {verificationResult?.reason_code === 'SHARED_DEVICE' && (
-          <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4 shadow-sm">
+          <div className="rounded-xl border-2 border-red-300 bg-red-50 p-3 shadow-sm sm:p-4">
             <div className="flex items-start gap-3">
-              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100">
-                <IconDeviceMobile className="h-6 w-6 text-red-600" />
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:h-12 sm:w-12">
+                <IconDeviceMobile className="h-5 w-5 text-red-600 sm:h-6 sm:w-6" />
               </div>
-              <div className="flex-1">
-                <h4 className="text-lg font-semibold text-red-800">Device Not Recognized as Yours</h4>
+              <div className="min-w-0 flex-1">
+                <h4 className="text-base font-semibold text-red-800 sm:text-lg">Device Not Recognized as Yours</h4>
                 <p className="mt-1 text-sm text-red-700">
                   This device is already associated with another supervisor, or a different login
                   session. Please use your own device, or log in fresh on this device, then try again.
@@ -407,13 +407,13 @@ export function LocationVerification({
 
         {/* Rejected: GPS samples look artificial (e.g. a mock-location tool) */}
         {verificationResult?.reason_code === 'SUSPICIOUS_LOCATION' && (
-          <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4 shadow-sm">
+          <div className="rounded-xl border-2 border-red-300 bg-red-50 p-3 shadow-sm sm:p-4">
             <div className="flex items-start gap-3">
-              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100">
-                <IconAlertTriangle className="h-6 w-6 text-red-600" />
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:h-12 sm:w-12">
+                <IconAlertTriangle className="h-5 w-5 text-red-600 sm:h-6 sm:w-6" />
               </div>
-              <div className="flex-1">
-                <h4 className="text-lg font-semibold text-red-800">Location Looks Artificial</h4>
+              <div className="min-w-0 flex-1">
+                <h4 className="text-base font-semibold text-red-800 sm:text-lg">Location Looks Artificial</h4>
                 <p className="mt-1 text-sm text-red-700">
                   Make sure you&apos;re using your device&apos;s real GPS, not a location-spoofing app
                   or emulator, and try again outdoors.
@@ -423,14 +423,14 @@ export function LocationVerification({
           </div>
         )}
 
-        {/* Action buttons */}
-        <div className="flex gap-2">
+        {/* Action buttons - stacked on mobile with the primary action on top */}
+        <div className="flex flex-col-reverse gap-2 sm:flex-row">
             <Button
               variant="outline"
               onClick={startSampling}
               loading={gpsStatus === 'sampling'}
               disabled={submitStatus === 'submitting'}
-              className="flex-1 gap-2"
+              className="w-full gap-2 sm:flex-1"
             >
               <IconRefresh className="h-4 w-4" />
               {gpsStatus === 'sampling' ? 'Getting Location...' : 'Refresh Location'}
@@ -446,7 +446,7 @@ export function LocationVerification({
                 gpsStatus === 'sampling' ||
                 (biometricRequired && hasEnrolledDevice !== true)
               }
-              className="flex-1 gap-2"
+              className="w-full gap-2 sm:flex-1"
             >
               {biometricRequired ? (
                 <IconFingerprint className="h-4 w-4" />
@@ -468,7 +468,7 @@ export function LocationVerification({
         {/* Info text */}
         <p className="text-center text-xs text-gray-500">
           You must be physically at the school to verify your location.
-          <br />
+          <br className="hidden sm:inline" />{' '}
           GPS accuracy and device information are recorded for audit purposes.
         </p>
       </div>
