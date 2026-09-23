@@ -71,7 +71,265 @@ const schemas = {
       admin_notes: z.string().max(500).optional().nullable(),
     }),
   }),
+
+  bulkApprove: z.object({
+    body: z.object({
+      ids: z.array(z.coerce.number().int().positive()).min(1, 'Select at least one request').max(200),
+      admin_notes: z.string().max(500).optional().nullable(),
+    }),
+  }),
+
+  approveAll: z.object({
+    body: z.object({
+      session_id: z.coerce.number().int().positive().optional().nullable(),
+      search: z.string().max(200).optional().nullable(),
+      preview: z.boolean().optional(),
+      max_id: z.coerce.number().int().positive().optional().nullable(),
+      admin_notes: z.string().max(500).optional().nullable(),
+    }),
+  }),
 };
+
+// ============================================================================
+// APPROVAL HELPERS (shared by single and bulk approve)
+// ============================================================================
+
+/**
+ * Mark a request approved, guarding on status so a request approved or rejected
+ * by someone else in the meantime is never processed twice. Throwing here rolls
+ * back the surrounding transaction, including the school update.
+ */
+async function markApproved(conn, table, requestId, institutionId, userId, adminNotes) {
+  const [result] = await conn.execute(
+    `UPDATE ${table}
+     SET status = 'approved', reviewed_by = ?, admin_notes = ?, reviewed_at = NOW()
+     WHERE id = ? AND institution_id = ? AND status = 'pending'`,
+    [userId, adminNotes, requestId, institutionId]
+  );
+  if (result.affectedRows === 0) {
+    throw new ConflictError('Request has already been processed');
+  }
+}
+
+async function applyPrincipalApproval(conn, request, institutionId, userId, adminNotes) {
+  // Get the master_school_id from the institution_school
+  const [isv] = await conn.execute(
+    'SELECT master_school_id FROM institution_schools WHERE id = ?',
+    [request.institution_school_id]
+  );
+
+  if (isv.length > 0) {
+    // Update the master_school with new principal info
+    await conn.execute(
+      `UPDATE master_schools SET principal_name = ?, principal_phone = ?, updated_at = NOW()
+       WHERE id = ?`,
+      [request.proposed_principal_name, request.proposed_principal_phone,
+       isv[0].master_school_id]
+    );
+  }
+
+  await markApproved(conn, 'school_principal_update_requests', request.id, institutionId, userId, adminNotes);
+}
+
+async function applyLocationApproval(conn, request, institutionId, userId, adminNotes) {
+  // Get the master_school_id from the institution_school
+  const [isv] = await conn.execute(
+    'SELECT master_school_id FROM institution_schools WHERE id = ?',
+    [request.institution_school_id]
+  );
+
+  if (isv.length > 0) {
+    // master_schools.location is shared across every institution linked to this
+    // school - stamp who moved it so the next institution to review a request
+    // can be warned before overwriting this correction.
+    // Stored as POINT(latitude longitude) - verified against live data
+    // (GDJSS Jalo Waziri Gombe reads ST_X=10.2882, ST_Y=11.1590; Gombe town
+    // is 10.290 N, 11.167 E). Writing longitude-first here would leave this
+    // school's point oriented the opposite way to every other row.
+    const updates = ['location = ST_GeomFromText(?, 4326)'];
+    const updateParams = [
+      `POINT(${request.proposed_latitude} ${request.proposed_longitude})`,
+    ];
+
+    if (request.proposed_ward) {
+      updates.push('ward = ?');
+      updateParams.push(request.proposed_ward);
+    }
+    if (request.proposed_address) {
+      updates.push('address = ?');
+      updateParams.push(request.proposed_address);
+    }
+
+    updates.push('location_updated_at = NOW()');
+    updates.push('location_updated_by_institution_id = ?');
+    updateParams.push(institutionId);
+    updates.push('updated_at = NOW()');
+
+    await conn.execute(
+      `UPDATE master_schools SET ${updates.join(', ')} WHERE id = ?`,
+      [...updateParams, isv[0].master_school_id]
+    );
+  }
+
+  await markApproved(conn, 'school_location_update_requests', request.id, institutionId, userId, adminNotes);
+}
+
+/**
+ * Approve several pending requests in one transaction (all or nothing).
+ *
+ * When the selection holds more than one request for the same school, only the
+ * newest is applied - approving them all would silently overwrite the school with
+ * whichever ran last. The older ones stay pending and are reported as skipped.
+ */
+async function bulkApprove(req, table, applyApproval) {
+  const { institutionId } = req.params;
+  const instId = parseInt(institutionId);
+  const validation = schemas.bulkApprove.safeParse({ body: req.body });
+
+  if (!validation.success) {
+    throw new ValidationError('Validation failed', validation.error.flatten().fieldErrors);
+  }
+
+  const { admin_notes: adminNotes = null } = validation.data.body;
+  const ids = [...new Set(validation.data.body.ids)];
+
+  const requests = await query(
+    `SELECT * FROM ${table}
+     WHERE institution_id = ? AND status = 'pending' AND id IN (${ids.map(() => '?').join(', ')})
+     ORDER BY created_at DESC, id DESC`,
+    [instId, ...ids]
+  );
+
+  const { toApprove, skipped } = keepNewestPerSchool(requests);
+
+  const foundIds = new Set(requests.map((r) => r.id));
+  for (const id of ids) {
+    if (!foundIds.has(id)) {
+      skipped.push({ id, reason: 'Not found or already processed' });
+    }
+  }
+
+  await approveInTransaction(toApprove, instId, req.user.id, adminNotes, applyApproval);
+
+  return {
+    approved: toApprove.map((r) => r.id),
+    skipped,
+  };
+}
+
+/**
+ * Split requests (ordered newest first) into the newest per school, which get
+ * approved, and older ones for a school already covered, which are skipped.
+ */
+function keepNewestPerSchool(requests) {
+  const toApprove = [];
+  const skipped = [];
+  const seenSchools = new Set();
+
+  for (const request of requests) {
+    if (seenSchools.has(request.institution_school_id)) {
+      skipped.push({ id: request.id, reason: 'A newer request for the same school was approved' });
+    } else {
+      seenSchools.add(request.institution_school_id);
+      toApprove.push(request);
+    }
+  }
+
+  return { toApprove, skipped };
+}
+
+async function approveInTransaction(requests, institutionId, userId, adminNotes, applyApproval) {
+  if (requests.length === 0) return;
+  await transaction(async (conn) => {
+    for (const request of requests) {
+      await applyApproval(conn, request, institutionId, userId, adminNotes);
+    }
+  });
+}
+
+const APPROVE_ALL_SOURCES = {
+  principal: {
+    table: 'school_principal_update_requests',
+    searchColumns: ['ms.name', 'r.proposed_principal_name', 'r.contributor_name'],
+    extraColumns: '',
+    applyApproval: applyPrincipalApproval,
+  },
+  location: {
+    table: 'school_location_update_requests',
+    searchColumns: ['ms.name', 'r.contributor_name'],
+    extraColumns: `,
+             ST_Latitude(ms.location) as current_latitude,
+             ST_Longitude(ms.location) as current_longitude,
+             ms.location_updated_at,
+             ms.location_updated_by_institution_id`,
+    applyApproval: applyLocationApproval,
+  },
+};
+
+/**
+ * Approve every pending request matching the list filters (session + search),
+ * across all pages. With preview: true nothing is written - it returns the counts
+ * the confirmation dialog shows, plus max_id. Passing that max_id back on the real
+ * call bounds it to what was previewed, so requests submitted in between are not
+ * approved unseen.
+ */
+async function approveAllMatching(req, type) {
+  const source = APPROVE_ALL_SOURCES[type];
+  const instId = parseInt(req.params.institutionId);
+  const validation = schemas.approveAll.safeParse({ body: req.body });
+
+  if (!validation.success) {
+    throw new ValidationError('Validation failed', validation.error.flatten().fieldErrors);
+  }
+
+  const { session_id, search, preview, max_id, admin_notes: adminNotes = null } = validation.data.body;
+
+  let sql = `
+    SELECT r.*${source.extraColumns}
+    FROM ${source.table} r
+    LEFT JOIN institution_schools isv ON r.institution_school_id = isv.id
+    LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
+    WHERE r.institution_id = ? AND r.status = 'pending'
+  `;
+  const params = [instId];
+
+  if (session_id) {
+    sql += ' AND r.session_id = ?';
+    params.push(session_id);
+  }
+  if (search) {
+    sql += ` AND (${source.searchColumns.map((col) => `${col} LIKE ?`).join(' OR ')})`;
+    params.push(...source.searchColumns.map(() => `%${search}%`));
+  }
+  if (max_id) {
+    sql += ' AND r.id <= ?';
+    params.push(max_id);
+  }
+  sql += ' ORDER BY r.created_at DESC, r.id DESC';
+
+  const requests = await query(sql, params);
+  const { toApprove, skipped } = keepNewestPerSchool(requests);
+
+  if (preview) {
+    return {
+      total: requests.length,
+      to_approve: toApprove.length,
+      superseded: skipped.length,
+      // Only meaningful for location requests - see buildLocationProvenance
+      overwrites_other_institution: type === 'location'
+        ? toApprove.filter((r) => buildLocationProvenance(r, instId)?.by_other_institution).length
+        : 0,
+      max_id: requests.reduce((max, r) => Math.max(max, r.id), 0),
+    };
+  }
+
+  await approveInTransaction(toApprove, instId, req.user.id, adminNotes, source.applyApproval);
+
+  return {
+    approved: toApprove.map((r) => r.id),
+    skipped,
+  };
+}
 
 // ============================================================================
 // PRINCIPAL UPDATE REQUEST METHODS
@@ -208,34 +466,46 @@ const approvePrincipalRequest = async (req, res, next) => {
     }
 
     await transaction(async (conn) => {
-      // Get the master_school_id from the institution_school
-      const [isv] = await conn.execute(
-        'SELECT master_school_id FROM institution_schools WHERE id = ?',
-        [request.institution_school_id]
-      );
-      
-      if (isv.length > 0) {
-        // Update the master_school with new principal info
-        await conn.execute(
-          `UPDATE master_schools SET principal_name = ?, principal_phone = ?, updated_at = NOW()
-           WHERE id = ?`,
-          [request.proposed_principal_name, request.proposed_principal_phone, 
-           isv[0].master_school_id]
-        );
-      }
-
-      // Update request status
-      await conn.execute(
-        `UPDATE school_principal_update_requests 
-         SET status = 'approved', reviewed_by = ?, admin_notes = ?, reviewed_at = NOW()
-         WHERE id = ? AND institution_id = ?`,
-        [req.user.id, adminNotes, parseInt(id), parseInt(institutionId)]
-      );
+      await applyPrincipalApproval(conn, request, parseInt(institutionId), req.user.id, adminNotes);
     });
 
     res.json({
       success: true,
       message: 'Request approved successfully. School principal details have been updated.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Bulk approve principal update requests
+ * POST /:institutionId/school-update-requests/principal/bulk-approve
+ */
+const bulkApprovePrincipalRequests = async (req, res, next) => {
+  try {
+    const result = await bulkApprove(req, 'school_principal_update_requests', applyPrincipalApproval);
+    res.json({
+      success: true,
+      message: `${result.approved.length} request(s) approved`,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Approve all pending principal update requests matching the current filters
+ * POST /:institutionId/school-update-requests/principal/approve-all
+ */
+const approveAllPrincipalRequests = async (req, res, next) => {
+  try {
+    const result = await approveAllMatching(req, 'principal');
+    res.json({
+      success: true,
+      message: req.body.preview ? 'Preview' : `${result.approved.length} request(s) approved`,
+      data: result,
     });
   } catch (error) {
     next(error);
@@ -507,57 +777,46 @@ const approveLocationRequest = async (req, res, next) => {
     }
 
     await transaction(async (conn) => {
-      // Get the master_school_id from the institution_school
-      const [isv] = await conn.execute(
-        'SELECT master_school_id FROM institution_schools WHERE id = ?',
-        [request.institution_school_id]
-      );
-      
-      if (isv.length > 0) {
-        // master_schools.location is shared across every institution linked to this
-        // school - stamp who moved it so the next institution to review a request
-        // can be warned before overwriting this correction.
-        // Stored as POINT(latitude longitude) - verified against live data
-        // (GDJSS Jalo Waziri Gombe reads ST_X=10.2882, ST_Y=11.1590; Gombe town
-        // is 10.290 N, 11.167 E). Writing longitude-first here would leave this
-        // school's point oriented the opposite way to every other row.
-        const updates = ['location = ST_GeomFromText(?, 4326)'];
-        const updateParams = [
-          `POINT(${request.proposed_latitude} ${request.proposed_longitude})`,
-        ];
-
-        if (request.proposed_ward) {
-          updates.push('ward = ?');
-          updateParams.push(request.proposed_ward);
-        }
-        if (request.proposed_address) {
-          updates.push('address = ?');
-          updateParams.push(request.proposed_address);
-        }
-
-        updates.push('location_updated_at = NOW()');
-        updates.push('location_updated_by_institution_id = ?');
-        updateParams.push(parseInt(institutionId));
-        updates.push('updated_at = NOW()');
-
-        await conn.execute(
-          `UPDATE master_schools SET ${updates.join(', ')} WHERE id = ?`,
-          [...updateParams, isv[0].master_school_id]
-        );
-      }
-
-      // Update request status
-      await conn.execute(
-        `UPDATE school_location_update_requests 
-         SET status = 'approved', reviewed_by = ?, admin_notes = ?, reviewed_at = NOW()
-         WHERE id = ? AND institution_id = ?`,
-        [req.user.id, adminNotes, parseInt(id), parseInt(institutionId)]
-      );
+      await applyLocationApproval(conn, request, parseInt(institutionId), req.user.id, adminNotes);
     });
 
     res.json({
       success: true,
       message: 'Request approved successfully. School location has been updated.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Bulk approve location update requests
+ * POST /:institutionId/school-update-requests/location/bulk-approve
+ */
+const bulkApproveLocationRequests = async (req, res, next) => {
+  try {
+    const result = await bulkApprove(req, 'school_location_update_requests', applyLocationApproval);
+    res.json({
+      success: true,
+      message: `${result.approved.length} request(s) approved`,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Approve all pending location update requests matching the current filters
+ * POST /:institutionId/school-update-requests/location/approve-all
+ */
+const approveAllLocationRequests = async (req, res, next) => {
+  try {
+    const result = await approveAllMatching(req, 'location');
+    res.json({
+      success: true,
+      message: req.body.preview ? 'Preview' : `${result.approved.length} request(s) approved`,
+      data: result,
     });
   } catch (error) {
     next(error);
@@ -688,6 +947,8 @@ module.exports = {
   getPrincipalRequests,
   getPrincipalRequestById,
   approvePrincipalRequest,
+  bulkApprovePrincipalRequests,
+  approveAllPrincipalRequests,
   rejectPrincipalRequest,
   getPrincipalRequestsBySchool,
   getPrincipalStatistics,
@@ -696,6 +957,8 @@ module.exports = {
   getLocationRequests,
   getLocationRequestById,
   approveLocationRequest,
+  bulkApproveLocationRequests,
+  approveAllLocationRequests,
   rejectLocationRequest,
   getLocationRequestsBySchool,
   getLocationStatistics,

@@ -53,6 +53,27 @@ export const schoolUpdateRequestsApi = {
     }),
 
   /**
+   * Approve several pending principal update requests at once
+   */
+  bulkApprovePrincipalRequests: (ids, adminNotes = null) =>
+    apiClient.post(`${getBasePath()}/principal/bulk-approve`, {
+      ids,
+      admin_notes: adminNotes,
+    }),
+
+  /**
+   * Approve every pending principal request matching the filters, across all pages.
+   * Pass preview: true to get counts (and max_id) without approving anything.
+   */
+  approveAllPrincipalRequests: ({ sessionId, search, preview = false, maxId = null }) =>
+    apiClient.post(`${getBasePath()}/principal/approve-all`, {
+      session_id: sessionId || null,
+      search: search || null,
+      preview,
+      max_id: maxId,
+    }),
+
+  /**
    * Reject principal update request
    */
   rejectPrincipalRequest: (id, rejectionReason, adminNotes = null) =>
@@ -91,6 +112,27 @@ export const schoolUpdateRequestsApi = {
   approveLocationRequest: (id, adminNotes = null) =>
     apiClient.post(`${getBasePath()}/location/${id}/approve`, {
       admin_notes: adminNotes,
+    }),
+
+  /**
+   * Approve several pending location update requests at once
+   */
+  bulkApproveLocationRequests: (ids, adminNotes = null) =>
+    apiClient.post(`${getBasePath()}/location/bulk-approve`, {
+      ids,
+      admin_notes: adminNotes,
+    }),
+
+  /**
+   * Approve every pending location request matching the filters, across all pages.
+   * Pass preview: true to get counts (and max_id) without approving anything.
+   */
+  approveAllLocationRequests: ({ sessionId, search, preview = false, maxId = null }) =>
+    apiClient.post(`${getBasePath()}/location/approve-all`, {
+      session_id: sessionId || null,
+      search: search || null,
+      preview,
+      max_id: maxId,
     }),
 
   /**

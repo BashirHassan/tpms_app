@@ -29,6 +29,12 @@ router.get('/:institutionId/school-update-requests/principal/by-school/:schoolId
 // GET principal update request by ID
 router.get('/:institutionId/school-update-requests/principal/:id', ...middleware, schoolUpdateRequestController.getPrincipalRequestById);
 
+// POST bulk approve principal update requests
+router.post('/:institutionId/school-update-requests/principal/bulk-approve', ...middleware, schoolUpdateRequestController.bulkApprovePrincipalRequests);
+
+// POST approve all pending principal update requests matching filters (preview: true for counts only)
+router.post('/:institutionId/school-update-requests/principal/approve-all', ...middleware, schoolUpdateRequestController.approveAllPrincipalRequests);
+
 // POST approve principal update request
 router.post('/:institutionId/school-update-requests/principal/:id/approve', ...middleware, schoolUpdateRequestController.approvePrincipalRequest);
 
@@ -50,6 +56,12 @@ router.get('/:institutionId/school-update-requests/location/by-school/:schoolId'
 
 // GET location update request by ID
 router.get('/:institutionId/school-update-requests/location/:id', ...middleware, schoolUpdateRequestController.getLocationRequestById);
+
+// POST bulk approve location update requests
+router.post('/:institutionId/school-update-requests/location/bulk-approve', ...middleware, schoolUpdateRequestController.bulkApproveLocationRequests);
+
+// POST approve all pending location update requests matching filters (preview: true for counts only)
+router.post('/:institutionId/school-update-requests/location/approve-all', ...middleware, schoolUpdateRequestController.approveAllLocationRequests);
 
 // POST approve location update request
 router.post('/:institutionId/school-update-requests/location/:id/approve', ...middleware, schoolUpdateRequestController.approveLocationRequest);

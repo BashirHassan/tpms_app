@@ -9,6 +9,7 @@ import {
   IconUser,
   IconMapPin,
   IconCheck,
+  IconChecks,
   IconX,
   IconEye,
   IconRefresh,
@@ -85,6 +86,12 @@ export default function SchoolUpdateRequestsPage() {
   const [showApproveConfirm, setShowApproveConfirm] = useState(false);
   const [approvingRequest, setApprovingRequest] = useState(null);
 
+  // Bulk approval
+  const [selectedRows, setSelectedRows] = useState([]);
+  const [showBulkApproveConfirm, setShowBulkApproveConfirm] = useState(false);
+  // Server-side counts for "approve all pending"; non-null while its dialog is open
+  const [approveAllPreview, setApproveAllPreview] = useState(null);
+
   // Filters
   const [filters, setFilters] = useState({
     session_id: '',
@@ -128,6 +135,8 @@ export default function SchoolUpdateRequestsPage() {
         : await schoolUpdateRequestsApi.getLocationRequests(params);
 
       setRequests(response.data.data || response.data || []);
+      // A selection only makes sense against the rows it was made on
+      setSelectedRows([]);
       setPagination((prev) => ({
         ...prev,
         total: response.data.pagination?.total || 0,
@@ -207,6 +216,85 @@ export default function SchoolUpdateRequestsPage() {
       setApprovingRequest(null);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to approve request');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const confirmBulkApprove = async () => {
+    if (selectedRows.length === 0) return;
+
+    try {
+      setProcessing(true);
+      const ids = selectedRows.map((row) => row.id);
+      const response = activeTab === 'principal'
+        ? await schoolUpdateRequestsApi.bulkApprovePrincipalRequests(ids)
+        : await schoolUpdateRequestsApi.bulkApproveLocationRequests(ids);
+
+      const { approved = [], skipped = [] } = response.data.data || {};
+      if (approved.length > 0) {
+        toast.success(`${approved.length} request${approved.length === 1 ? '' : 's'} approved`);
+      }
+      if (skipped.length > 0) {
+        const sameSchool = skipped.filter((s) => s.reason.includes('same school')).length;
+        toast.warning(
+          sameSchool > 0
+            ? `${skipped.length} skipped - ${sameSchool} had a newer request for the same school, which was applied instead`
+            : `${skipped.length} skipped - already processed by someone else`
+        );
+      }
+      setShowBulkApproveConfirm(false);
+      loadRequests();
+      loadStatistics();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to approve requests');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const approveAllMatching = (options) => {
+    const params = { sessionId: filters.session_id, search: filters.search, ...options };
+    return activeTab === 'principal'
+      ? schoolUpdateRequestsApi.approveAllPrincipalRequests(params)
+      : schoolUpdateRequestsApi.approveAllLocationRequests(params);
+  };
+
+  // Ask the server what "all" covers across every page before confirming
+  const handleApproveAll = async () => {
+    try {
+      setProcessing(true);
+      const response = await approveAllMatching({ preview: true });
+      const preview = response.data.data;
+      if (!preview?.total) {
+        toast.info('No pending requests match the current filters');
+        return;
+      }
+      setApproveAllPreview(preview);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to count pending requests');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const confirmApproveAll = async () => {
+    if (!approveAllPreview) return;
+
+    try {
+      setProcessing(true);
+      // max_id keeps requests submitted after the preview out of this approval
+      const response = await approveAllMatching({ maxId: approveAllPreview.max_id });
+      const { approved = [], skipped = [] } = response.data.data || {};
+      toast.success(`${approved.length} request${approved.length === 1 ? '' : 's'} approved`);
+      if (skipped.length > 0) {
+        toast.warning(`${skipped.length} older request${skipped.length === 1 ? '' : 's'} left pending - a newer request for the same school was applied`);
+      }
+      setApproveAllPreview(null);
+      loadRequests();
+      loadStatistics();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to approve requests');
     } finally {
       setProcessing(false);
     }
@@ -308,6 +396,34 @@ export default function SchoolUpdateRequestsPage() {
           >
             <IconEye className="w-5 h-5" />
           </Button>
+          {row.status === 'pending' && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleApprove(row);
+                }}
+                title="Approve"
+                className="hover:text-green-600"
+              >
+                <IconCheck className="w-5 h-5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleReject(row);
+                }}
+                title="Reject"
+                className="hover:text-red-600"
+              >
+                <IconX className="w-5 h-5" />
+              </Button>
+            </>
+          )}
         </div>
       ),
     },
@@ -556,6 +672,35 @@ export default function SchoolUpdateRequestsPage() {
         onServerExport={handleExportAll}
         exportFilename={`${activeTab}-update-requests`}
         toolbar={tableToolbar}
+        selectable
+        selectedRows={selectedRows}
+        onSelectionChange={setSelectedRows}
+        isRowSelectable={(row) => row.status === 'pending'}
+        headerActionsRight={
+          selectedRows.length > 0 ? (
+            <Button
+              size="sm"
+              onClick={() => setShowBulkApproveConfirm(true)}
+              disabled={processing}
+              className="active:scale-95"
+            >
+              <IconChecks className="w-4 h-4 mr-2" />
+              Approve {selectedRows.length}
+            </Button>
+          ) : statistics.pending > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleApproveAll}
+              loading={processing && !approveAllPreview}
+              disabled={processing}
+              className="active:scale-95"
+            >
+              <IconChecks className="w-4 h-4 mr-2" />
+              Approve All Pending
+            </Button>
+          )
+        }
         emptyTitle={`No ${activeTab} update requests found`}
         emptyDescription="Try adjusting your filters or check back later"
         pagination={{
@@ -813,6 +958,58 @@ export default function SchoolUpdateRequestsPage() {
         confirmVariant="primary"
         loading={processing}
       />
+
+      {/* Bulk Approve Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showBulkApproveConfirm}
+        onClose={() => setShowBulkApproveConfirm(false)}
+        onConfirm={confirmBulkApprove}
+        title={`Approve ${selectedRows.length} Request${selectedRows.length === 1 ? '' : 's'}`}
+        message={`Approve ${selectedRows.length} ${activeTab === 'principal' ? 'principal' : 'location'} update request${selectedRows.length === 1 ? '' : 's'}? Each school record will be updated. If two selected requests are for the same school, only the newest is applied.`}
+        confirmText="Approve All"
+        confirmVariant="primary"
+        loading={processing}
+      >
+        {activeTab === 'location' && (() => {
+          const overwrites = selectedRows.filter((row) => row.location_provenance?.by_other_institution).length;
+          return overwrites > 0 && (
+            <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              {overwrites} of the selected school{overwrites === 1 ? ' was' : 's were'} recently moved by
+              another institution. Approving overwrites{overwrites === 1 ? ' that correction' : ' those corrections'}.
+              Open each request to compare the pins if you are unsure.
+            </p>
+          );
+        })()}
+      </ConfirmDialog>
+
+      {/* Approve All Pending Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={!!approveAllPreview}
+        onClose={() => setApproveAllPreview(null)}
+        onConfirm={confirmApproveAll}
+        title="Approve All Pending Requests"
+        message={`Approve ${approveAllPreview?.to_approve} pending ${activeTab === 'principal' ? 'principal' : 'location'} update request${approveAllPreview?.to_approve === 1 ? '' : 's'}${filters.search ? ` matching "${filters.search}"` : ''} in the selected session, across all pages? Each school record will be updated.`}
+        confirmText={`Approve ${approveAllPreview?.to_approve ?? ''}`}
+        confirmVariant="primary"
+        loading={processing}
+      >
+        {approveAllPreview && (approveAllPreview.superseded > 0 || approveAllPreview.overwrites_other_institution > 0) && (
+          <div className="space-y-2">
+            {approveAllPreview.superseded > 0 && (
+              <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
+                {approveAllPreview.superseded} older request{approveAllPreview.superseded === 1 ? '' : 's'} will stay
+                pending because a newer request for the same school is being applied.
+              </p>
+            )}
+            {approveAllPreview.overwrites_other_institution > 0 && (
+              <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                {approveAllPreview.overwrites_other_institution} of these school{approveAllPreview.overwrites_other_institution === 1 ? ' was' : 's were'} recently
+                moved by another institution. Approving overwrites{approveAllPreview.overwrites_other_institution === 1 ? ' that correction' : ' those corrections'}.
+              </p>
+            )}
+          </div>
+        )}
+      </ConfirmDialog>
 
       {/* Rejection Modal */}
       <Dialog
