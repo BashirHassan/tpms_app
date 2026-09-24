@@ -6,8 +6,10 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { resultsApi } from '../../api';
+import { Link } from 'react-router-dom';
+import { resultsApi, locationApi } from '../../api';
 import { useToast } from '../../context/ToastContext';
+import { useFeature } from '../../context';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
@@ -21,6 +23,8 @@ import {
   IconDeviceFloppy,
   IconChartBar,
   IconAlertCircle,
+  IconAlertTriangle,
+  IconCurrentLocation,
   IconCheck,
   IconX,
 } from '@tabler/icons-react';
@@ -28,16 +32,22 @@ import { getOrdinal } from '../../utils/helpers';
 
 function SupervisorResultUploadPage() {
   const { toast } = useToast();
+  const locationTrackingEnabled = useFeature('supervisor_location_tracking');
 
   // State
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
-  
+
   // Session & Postings
   const [session, setSession] = useState(null);
   const [hasPostings, setHasPostings] = useState(false);
   const [assignedGroups, setAssignedGroups] = useState([]);
   const [selectedGroup, setSelectedGroup] = useState('');
+
+  // Location verification status per posting (only fetched when the
+  // supervisor_location_tracking feature is on)
+  const [locationStatus, setLocationStatus] = useState([]);
+  const [locationStatusLoaded, setLocationStatusLoaded] = useState(false);
 
   // Students & Scoring
   const [students, setStudents] = useState([]);
@@ -94,6 +104,31 @@ function SupervisorResultUploadPage() {
     fetchAssignedGroups();
     fetchScoringCriteria();
   }, [fetchAssignedGroups, fetchScoringCriteria]);
+
+  // Fetch per-posting location verification status once the current session is
+  // known, so scoring can be locked for postings the supervisor hasn't verified
+  // their presence at yet. Skipped entirely when the feature is off.
+  useEffect(() => {
+    if (!locationTrackingEnabled || !session) {
+      setLocationStatusLoaded(!locationTrackingEnabled);
+      return;
+    }
+
+    let cancelled = false;
+    locationApi.getMyPostingsLocationStatus({ session_id: session.id })
+      .then((response) => {
+        if (cancelled) return;
+        setLocationStatus(response.data.data || response.data || []);
+      })
+      .catch((err) => {
+        console.error('Failed to load location verification status:', err);
+      })
+      .finally(() => {
+        if (!cancelled) setLocationStatusLoaded(true);
+      });
+
+    return () => { cancelled = true; };
+  }, [locationTrackingEnabled, session]);
 
   // ============================================================
   // PHASE 3: Student List Rendering
@@ -154,6 +189,26 @@ function SupervisorResultUploadPage() {
     );
     return groupInfo;
   }, [selectedGroup, assignedGroups]);
+
+  // Location verification record for the currently selected posting, if any
+  const currentGroupLocation = useMemo(() => {
+    if (!currentGroup) return null;
+    return locationStatus.find(
+      p => p.institution_school_id === currentGroup.school_id
+        && p.group_number === currentGroup.group_number
+        && p.visit_number === currentGroup.visit_number
+    ) || null;
+  }, [currentGroup, locationStatus]);
+
+  // Only lock scoring once we've actually confirmed (not just assumed) the
+  // posting is unverified - avoids blocking on a stale load or a data mismatch.
+  const scoringLocked = Boolean(
+    locationTrackingEnabled
+    && currentGroup
+    && locationStatusLoaded
+    && currentGroupLocation
+    && !currentGroupLocation.location_verified
+  );
 
   // Custom renderers for SearchableSelect
   const renderGroupOption = (group, { isSelected }) => (
@@ -447,9 +502,15 @@ function SupervisorResultUploadPage() {
                 placeholder="0-100"
                 className={`w-24 h-8 text-center ${
                   hasPending ? 'border-amber-400 bg-amber-50' : ''
-                } ${!canEdit ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                disabled={savingChanges || !canEdit}
-                title={!canEdit ? 'You cannot edit scores submitted by another supervisor' : ''}
+                } ${(!canEdit || scoringLocked) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                disabled={savingChanges || !canEdit || scoringLocked}
+                title={
+                  scoringLocked
+                    ? 'Verify your location at this school before entering scores'
+                    : !canEdit
+                      ? 'You cannot edit scores submitted by another supervisor'
+                      : ''
+                }
               />
               {hasPending && (
                 <span className="w-2 h-2 rounded-full bg-amber-400" title="Unsaved change" />
@@ -555,8 +616,9 @@ function SupervisorResultUploadPage() {
                   }
                 }}
                 placeholder={`0-${criterion.max_score}`}
-                className="w-24 h-8 text-center"
-                disabled={savingChanges || !canEdit}
+                className={`w-24 h-8 text-center ${scoringLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                disabled={savingChanges || !canEdit || scoringLocked}
+                title={scoringLocked ? 'Verify your location at this school before entering scores' : ''}
               />
             );
           },
@@ -565,7 +627,7 @@ function SupervisorResultUploadPage() {
     }
 
     return baseColumns;
-  }, [scoringType, scoringCriteria, totalMaxScore, pendingChanges, savingChanges, handleScoreChange, handleAdvancedScoreChange, students, toast]);
+  }, [scoringType, scoringCriteria, totalMaxScore, pendingChanges, savingChanges, scoringLocked, handleScoreChange, handleAdvancedScoreChange, students, toast]);
 
   // Check if at least one student has complete criteria in advanced mode
   const hasCompleteAdvancedScoring = useMemo(() => {
@@ -598,8 +660,14 @@ function SupervisorResultUploadPage() {
         variant="primary"
         size="sm"
         onClick={saveAllChanges}
-        disabled={savingChanges || (scoringType === 'advanced' && !hasCompleteAdvancedScoring)}
-        title={scoringType === 'advanced' && !hasCompleteAdvancedScoring ? 'Fill all criteria for at least one student' : ''}
+        disabled={savingChanges || (scoringType === 'advanced' && !hasCompleteAdvancedScoring) || scoringLocked}
+        title={
+          scoringLocked
+            ? 'Verify your location at this school before saving scores'
+            : scoringType === 'advanced' && !hasCompleteAdvancedScoring
+              ? 'Fill all criteria for at least one student'
+              : ''
+        }
       >
         <IconDeviceFloppy className="w-4 h-4 mr-2" />
         {savingChanges ? 'Saving...' : `Save (${Object.keys(pendingChanges).length})`}
@@ -778,6 +846,30 @@ function SupervisorResultUploadPage() {
             <Badge variant={scoringType === 'advanced' ? 'info' : 'secondary'} className="px-3 py-1">
                 {scoringType === 'advanced' ? '📊 Advanced Scoring' : '📝 Basic Scoring'}
             </Badge>
+        </div>
+      )}
+
+      {/* Location Not Verified Banner */}
+      {scoringLocked && (
+        <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 sm:flex-row sm:items-center sm:p-4">
+          <div className="flex flex-1 items-start gap-3 min-w-0">
+            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-amber-100">
+              <IconAlertTriangle className="h-5 w-5 text-amber-600" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-amber-800">Location not verified yet</p>
+              <p className="text-xs sm:text-sm text-amber-700">
+                Verify your presence at {currentGroup.school_name} before entering scores. You can still browse
+                students; score fields unlock as soon as your location is verified.
+              </p>
+            </div>
+          </div>
+          <Link to="/admin/location-tracker" className="flex-shrink-0">
+            <Button size="sm" variant="warning">
+              <IconCurrentLocation className="w-4 h-4 mr-1" />
+              Verify Location
+            </Button>
+          </Link>
         </div>
       )}
 
