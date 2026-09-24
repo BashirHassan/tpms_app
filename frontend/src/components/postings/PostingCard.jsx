@@ -31,7 +31,7 @@ import {
 // ============================================
 // Student Table Component (Mobile-First)
 // ============================================
-function StudentsTable({ students, className = '' }) {
+function StudentsTable({ students, showStudentPhone = false, className = '' }) {
   if (!students || students.length === 0) {
     return (
       <p className="text-xs sm:text-sm text-gray-500 italic">
@@ -54,6 +54,11 @@ function StudentsTable({ students, className = '' }) {
             <th className="border border-gray-300 px-1.5 sm:px-2 py-0.5 text-left font-semibold">
               Student Name
             </th>
+            {showStudentPhone && (
+              <th className="border border-gray-300 px-1.5 sm:px-2 py-0.5 text-left font-semibold">
+                Phone
+              </th>
+            )}
             <th className="border border-gray-300 px-1.5 sm:px-2 py-0.5 text-left font-semibold">
               Score
             </th>
@@ -74,8 +79,20 @@ function StudentsTable({ students, className = '' }) {
               <td className="border border-gray-300 px-1.5 sm:px-2 py-0.5 whitespace-nowrap">
                 {student.full_name}
               </td>
+              {showStudentPhone && (
+                <td className="border border-gray-300 px-1.5 sm:px-2 py-0.5 whitespace-nowrap">
+                  {student.student_phone && (
+                    <a
+                      href={`tel:${student.student_phone}`}
+                      className="text-primary-600 hover:underline print:text-black print:no-underline"
+                    >
+                      {student.student_phone}
+                    </a>
+                  )}
+                </td>
+              )}
               <td className="border border-gray-300 px-1.5 sm:px-2 py-0.5">
-                
+
               </td>
             </tr>
           ))}
@@ -92,8 +109,10 @@ StudentsTable.propTypes = {
       registration_number: PropTypes.string,
       full_name: PropTypes.string,
       program_name: PropTypes.string,
+      student_phone: PropTypes.string,
     })
   ),
+  showStudentPhone: PropTypes.bool,
   className: PropTypes.string,
 };
 
@@ -124,14 +143,15 @@ const postingPropType = PropTypes.shape({
   orphan: PropTypes.bool, // Flag for orphaned merged postings
 });
 
-function SchoolCard({ 
-  posting, 
-  variant = 'primary', 
+function SchoolCard({
+  posting,
+  variant = 'primary',
   showVisit = true,
   showMergedBadge = false,
   mergedCount = 0,
+  showStudentPhone = false,
   children,
-  className = '' 
+  className = ''
 }) {
   const isPrimary = variant === 'primary';
   
@@ -279,7 +299,7 @@ function SchoolCard({
           <IconUsers className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           Students ({posting.student_count || posting.students?.length || 0})
         </div>
-        <StudentsTable students={posting.students} />
+        <StudentsTable students={posting.students} showStudentPhone={showStudentPhone} />
       </div>
 
       {/* Children (for nested secondary postings) */}
@@ -294,6 +314,7 @@ SchoolCard.propTypes = {
   showVisit: PropTypes.bool,
   showMergedBadge: PropTypes.bool,
   mergedCount: PropTypes.number,
+  showStudentPhone: PropTypes.bool,
   children: PropTypes.node,
   className: PropTypes.string,
 };
@@ -301,11 +322,12 @@ SchoolCard.propTypes = {
 // ============================================
 // Main Posting Card Component
 // ============================================
-function PostingCard({ 
+function PostingCard({
   posting,
   showMergedBadge = true,
   showSupervisor = false,
-  className = '' 
+  showStudentPhone = false,
+  className = ''
 }) {
   // Support both new nested structure (merged_groups) and legacy prop-based structure
   const mergedGroups = posting.merged_groups || [];
@@ -327,6 +349,7 @@ function PostingCard({
         showVisit={true}
         showMergedBadge={showMergedBadge && isMergedGroup}
         mergedCount={totalSchools}
+        showStudentPhone={showStudentPhone}
       >
         {/* Merged Schools Section - Nested inside primary card */}
         {mergedGroups.length > 0 && (
@@ -336,7 +359,7 @@ function PostingCard({
               <IconRoute className="w-3 h-3 flex-shrink-0" />
               <span>MERGED SCHOOLS ({mergedGroups.length})</span>
             </div>
-            
+
             {/* Secondary School Cards - Same component with secondary variant */}
             {mergedGroups.map((mergedPosting) => (
               <SchoolCard
@@ -344,6 +367,7 @@ function PostingCard({
                 posting={mergedPosting}
                 variant="secondary"
                 showVisit={false}
+                showStudentPhone={showStudentPhone}
               />
             ))}
           </div>
@@ -357,13 +381,14 @@ PostingCard.propTypes = {
   posting: postingPropType.isRequired,
   showMergedBadge: PropTypes.bool,
   showSupervisor: PropTypes.bool,
+  showStudentPhone: PropTypes.bool,
   className: PropTypes.string,
 };
 
 // ============================================
 // Posting List Component (Mobile-First)
 // ============================================
-function PostingList({ postings, showSupervisor = false, className = '' }) {
+function PostingList({ postings, showSupervisor = false, showStudentPhone = false, className = '' }) {
   if (!postings || postings.length === 0) {
     return null;
   }
@@ -375,6 +400,7 @@ function PostingList({ postings, showSupervisor = false, className = '' }) {
           key={posting.posting_id || index}
           posting={posting}
           showSupervisor={showSupervisor}
+          showStudentPhone={showStudentPhone}
         />
       ))}
     </div>
@@ -384,6 +410,7 @@ function PostingList({ postings, showSupervisor = false, className = '' }) {
 PostingList.propTypes = {
   postings: PropTypes.arrayOf(postingPropType),
   showSupervisor: PropTypes.bool,
+  showStudentPhone: PropTypes.bool,
   className: PropTypes.string,
 };
 

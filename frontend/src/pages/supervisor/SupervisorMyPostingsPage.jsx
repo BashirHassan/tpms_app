@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom';
 import { postingsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { useFeature } from '../../context';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
@@ -36,6 +37,7 @@ import {
 function SupervisorMyPostingsPage() {
   const { user, institution } = useAuth();
   const { toast } = useToast();
+  const showStudentPhone = useFeature('show_student_phone');
 
   // State
   const [loading, setLoading] = useState(true);
@@ -283,7 +285,7 @@ function SupervisorMyPostingsPage() {
           </div>
 
           {/* Postings List - postings now have merged_groups nested structure */}
-          <PostingList postings={postings} />
+          <PostingList postings={postings} showStudentPhone={showStudentPhone} />
 
           {/* Document Footer */}
           <DocumentFooter institution={institution} session={session} />

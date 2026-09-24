@@ -9,6 +9,7 @@ const { z } = require('zod');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 const { calculateAllowances } = require('../services/allowanceCalculator');
+const { isFeatureEnabled } = require('../middleware/featureToggle');
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -1237,6 +1238,7 @@ const getMyPostingsPrintable = async (req, res, next) => {
     const primaryStudents = await query(
       `SELECT sa.institution_school_id, sa.group_number,
               s.id as student_id, s.registration_number, s.full_name,
+              sa.phone as student_phone,
               p.name as program_name
        FROM student_acceptances sa
        JOIN students s ON sa.student_id = s.id
@@ -1246,7 +1248,7 @@ const getMyPostingsPrintable = async (req, res, next) => {
        ORDER BY s.full_name`,
       [parseInt(institutionId), parseInt(activeSessionId), ...studentParams]
     );
-    
+
     primaryStudents.forEach(s => {
       const key = `${s.institution_school_id}-${s.group_number}`;
       if (!studentsMap[key]) studentsMap[key] = [];
@@ -1282,6 +1284,7 @@ const getMyPostingsPrintable = async (req, res, next) => {
       const mergedStudents = await query(
         `SELECT sa.institution_school_id, sa.group_number,
                 s.id as student_id, s.registration_number, s.full_name,
+                sa.phone as student_phone,
                 p.name as program_name
          FROM student_acceptances sa
          JOIN students s ON sa.student_id = s.id
@@ -1291,12 +1294,18 @@ const getMyPostingsPrintable = async (req, res, next) => {
          ORDER BY s.full_name`,
         [parseInt(institutionId), parseInt(activeSessionId), ...mergedStudentParams]
       );
-      
+
       mergedStudents.forEach(s => {
         const key = `${s.institution_school_id}-${s.group_number}`;
         if (!studentsMap[key]) studentsMap[key] = [];
         studentsMap[key].push(s);
       });
+    }
+
+    // Strip student phone numbers unless the institution has opted in via feature toggle
+    const showStudentPhone = await isFeatureEnabled('show_student_phone', parseInt(institutionId));
+    if (!showStudentPhone) {
+      Object.values(studentsMap).forEach(list => list.forEach(s => { delete s.student_phone; }));
     }
 
     // Group merged postings by their parent posting ID
