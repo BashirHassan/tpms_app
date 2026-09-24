@@ -68,10 +68,13 @@ export function createPostingsApi(institutionId) {
     getMyPostings: (params = {}) => 
       apiClient.get(`${basePath}/my-postings`, { params }),
     
-    getMyPostingsPrintable: (params = {}) => 
+    getMyPostingsPrintable: (params = {}) =>
       apiClient.get(`${basePath}/my-postings-printable`, { params }),
 
-    getMyInvitationLetter: () => 
+    getFieldMap: (params = {}) =>
+      apiClient.get(`${basePath}/field-map`, { params }),
+
+    getMyInvitationLetter: () =>
       apiClient.get(`${basePath}/my-invitation-letter`),
 
     // Supervisor-specific (from legacy SupervisorPosting)
@@ -185,6 +188,7 @@ export const postingsApi = {
   getBySession: (sessionId, params = {}) => apiClient.get(`${getBasePath()}/session/${sessionId}`, { params }),
   getMyPostings: (params = {}) => apiClient.get(`${getBasePath()}/my-postings`, { params }),
   getMyPostingsPrintable: (params = {}) => apiClient.get(`${getBasePath()}/my-postings-printable`, { params }),
+  getFieldMap: (params = {}) => apiClient.get(`${getBasePath()}/field-map`, { params }),
   getMyInvitationLetter: () => apiClient.get(`${getBasePath()}/my-invitation-letter`),
   
   // Supervisor-specific (from legacy SupervisorPosting)

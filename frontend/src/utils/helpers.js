@@ -278,3 +278,30 @@ export function getMapViewUrl(lat, lng) {
 export function getDirectionsUrl(lat, lng) {
   return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
 }
+
+/**
+ * Generate a Google Maps multi-stop directions URL for an ordered route.
+ * @param {Array<{lat: number, lng: number}>} stops - Ordered stops (destination is the last one)
+ * @param {{lat: number, lng: number}|null} origin - Optional fixed starting point; omit to start from the device's current location
+ * @returns {string|null} Google Maps directions URL, or null if there's nowhere to go
+ */
+export function getMultiStopDirectionsUrl(stops, origin = null) {
+  const points = [...(origin ? [origin] : []), ...(stops || [])];
+  if (points.length === 0) return null;
+  if (points.length === 1) return getDirectionsUrl(points[0].lat, points[0].lng);
+
+  const [originPoint, ...rest] = points;
+  const destinationPoint = rest[rest.length - 1];
+  const waypoints = rest.slice(0, -1);
+
+  const params = new URLSearchParams({
+    api: '1',
+    origin: `${originPoint.lat},${originPoint.lng}`,
+    destination: `${destinationPoint.lat},${destinationPoint.lng}`,
+  });
+  if (waypoints.length > 0) {
+    params.set('waypoints', waypoints.map((w) => `${w.lat},${w.lng}`).join('|'));
+  }
+
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+}

@@ -63,6 +63,7 @@ router.get('/:institutionId/postings/session/:sessionId', authenticate, requireI
 // ============================================================================
 router.get('/:institutionId/postings/my-postings', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('posting_management'), postingController.getMyPostings);
 router.get('/:institutionId/postings/my-postings-printable', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('posting_management'), postingController.getMyPostingsPrintable);
+router.get('/:institutionId/postings/field-map', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('posting_management'), requireFeature('supervisor_field_map'), postingController.getFieldMap);
 router.get('/:institutionId/postings/my-invitation-letter', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('posting_management'), postingController.getMyInvitationLetter);
 
 // ============================================================================

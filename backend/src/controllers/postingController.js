@@ -10,6 +10,7 @@ const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 const { calculateAllowances } = require('../services/allowanceCalculator');
 const { isFeatureEnabled } = require('../middleware/featureToggle');
+const { nearestNeighborOrder } = require('../utils/geo');
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -1355,6 +1356,190 @@ const getMyPostingsPrintable = async (req, res, next) => {
       visit_numbers: visitNumbers,
       location_categories: locationCategories,
       statistics: stats,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get my postings as map data: school locations, workload stats, an
+ * optimized visit order (nearest-neighbor from the institution), and a
+ * per-school visit-status (visited/pending/overdue) for the current session.
+ * GET /:institutionId/postings/field-map
+ */
+const getFieldMap = async (req, res, next) => {
+  try {
+    const { institutionId } = req.params;
+    const parsedInstitutionId = parseInt(institutionId);
+    const supervisorId = req.user.id;
+
+    const emptyResponse = {
+      institution: null,
+      session: null,
+      schools: [],
+      unlocated: [],
+      optimized_order: [],
+      total_distance_km: 0,
+      route_available: false,
+      statistics: { total_schools: 0, total_students: 0, total_distance_km: 0 },
+    };
+
+    const session = await getCurrentSession(parsedInstitutionId);
+    if (!session) {
+      return res.json({ success: true, data: emptyResponse, has_postings: false });
+    }
+
+    // All active posting rows for this supervisor this session - one row per
+    // (school, group, visit_number). Grouped in JS below since a school can
+    // have several visit numbers and/or group numbers under one supervisor.
+    const postingRows = await query(
+      `SELECT sp.institution_school_id, sp.group_number, sp.visit_number
+       FROM supervisor_postings sp
+       WHERE sp.institution_id = ? AND sp.supervisor_id = ? AND sp.session_id = ? AND sp.status = 'active'`,
+      [parsedInstitutionId, supervisorId, session.id]
+    );
+
+    if (postingRows.length === 0) {
+      return res.json({ success: true, data: emptyResponse, has_postings: false });
+    }
+
+    const [institution] = await query(
+      `SELECT id, name, ST_Latitude(location) as latitude, ST_Longitude(location) as longitude
+       FROM institutions WHERE id = ?`,
+      [parsedInstitutionId]
+    );
+
+    const schoolIds = [...new Set(postingRows.map((p) => p.institution_school_id))];
+
+    // School details: address, GPS, distance-from-institution, route label
+    const schoolDetails = await query(
+      `SELECT isv.id as institution_school_id, isv.distance_km, isv.location_category,
+              ms.name as school_name, ms.address as school_address,
+              ms.principal_name, ms.principal_phone,
+              ST_Latitude(ms.location) as latitude, ST_Longitude(ms.location) as longitude,
+              r.name as route_name
+       FROM institution_schools isv
+       LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
+       LEFT JOIN routes r ON isv.route_id = r.id
+       WHERE isv.id IN (${schoolIds.map(() => '?').join(',')})`,
+      schoolIds
+    );
+    const detailsBySchool = new Map(schoolDetails.map((d) => [d.institution_school_id, d]));
+
+    // Completed (validated) visits per school, this session
+    const completedRows = await query(
+      `SELECT institution_school_id, COUNT(DISTINCT visit_number) as visits_completed
+       FROM supervision_location_logs
+       WHERE institution_id = ? AND supervisor_id = ? AND session_id = ? AND validation_status = 'validated'
+         AND institution_school_id IN (${schoolIds.map(() => '?').join(',')})
+       GROUP BY institution_school_id`,
+      [parsedInstitutionId, supervisorId, session.id, ...schoolIds]
+    );
+    const completedBySchool = new Map(completedRows.map((r) => [r.institution_school_id, r.visits_completed]));
+
+    // Student counts per school, across every group assigned to this supervisor there
+    const groupPairs = [...new Set(postingRows.map((p) => `${p.institution_school_id}:${p.group_number}`))].map(
+      (key) => key.split(':').map(Number)
+    );
+    const studentConditions = groupPairs.map(() => '(sa.institution_school_id = ? AND sa.group_number = ?)').join(' OR ');
+    const studentRows = await query(
+      `SELECT sa.institution_school_id, COUNT(*) as student_count
+       FROM student_acceptances sa
+       WHERE sa.institution_id = ? AND sa.session_id = ? AND sa.status = 'submitted'
+         AND (${studentConditions})
+       GROUP BY sa.institution_school_id`,
+      [parsedInstitutionId, session.id, ...groupPairs.flat()]
+    );
+    const studentsBySchool = new Map(studentRows.map((r) => [r.institution_school_id, r.student_count]));
+
+    // Visits required per school = distinct visit numbers this supervisor is actually assigned there
+    const requiredBySchool = new Map();
+    postingRows.forEach((p) => {
+      const current = requiredBySchool.get(p.institution_school_id) || new Set();
+      current.add(p.visit_number);
+      requiredBySchool.set(p.institution_school_id, current);
+    });
+
+    const tpEnded = session.tp_end_date ? new Date(session.tp_end_date) < new Date() : false;
+
+    const schools = [];
+    const unlocated = [];
+    let totalStudents = 0;
+
+    schoolIds.forEach((id) => {
+      const details = detailsBySchool.get(id) || {};
+      const visitsRequired = requiredBySchool.get(id)?.size || 0;
+      const visitsCompleted = Math.min(completedBySchool.get(id) || 0, visitsRequired);
+      const studentCount = studentsBySchool.get(id) || 0;
+      totalStudents += studentCount;
+
+      let visitStatus = 'pending';
+      if (visitsCompleted >= visitsRequired) visitStatus = 'visited';
+      else if (tpEnded) visitStatus = 'overdue';
+
+      const entry = {
+        institution_school_id: id,
+        school_name: details.school_name || null,
+        school_address: details.school_address || null,
+        principal_name: details.principal_name || null,
+        principal_phone: details.principal_phone || null,
+        distance_km: details.distance_km,
+        location_category: details.location_category || null,
+        route_name: details.route_name || null,
+        latitude: details.latitude ?? null,
+        longitude: details.longitude ?? null,
+        visits_required: visitsRequired,
+        visits_completed: visitsCompleted,
+        visit_status: visitStatus,
+        student_count: studentCount,
+      };
+
+      if (entry.latitude != null && entry.longitude != null) {
+        schools.push(entry);
+      } else {
+        unlocated.push(entry);
+      }
+    });
+
+    const routeStart =
+      institution?.latitude != null && institution?.longitude != null
+        ? { lat: institution.latitude, lng: institution.longitude }
+        : null;
+
+    const { order: optimizedOrder, legs, totalDistanceKm } = routeStart
+      ? nearestNeighborOrder(
+          routeStart,
+          schools.map((s) => ({ id: s.institution_school_id, lat: s.latitude, lng: s.longitude }))
+        )
+      : { order: [], legs: [], totalDistanceKm: 0 };
+
+    // Attach each school's distance from the previous stop in the optimized route
+    const distanceFromPreviousById = new Map(legs.map((leg) => [leg.id, leg.distanceKm]));
+    schools.forEach((s) => {
+      const legKm = distanceFromPreviousById.get(s.institution_school_id);
+      s.distance_from_previous_km = legKm != null ? Math.round(legKm * 100) / 100 : null;
+    });
+
+    res.json({
+      success: true,
+      has_postings: true,
+      data: {
+        institution: institution
+          ? { id: institution.id, name: institution.name, latitude: institution.latitude, longitude: institution.longitude }
+          : null,
+        session: { id: session.id, name: session.name, tp_end_date: session.tp_end_date },
+        schools,
+        unlocated,
+        optimized_order: optimizedOrder,
+        total_distance_km: Math.round(totalDistanceKm * 100) / 100,
+        route_available: routeStart != null && schools.length > 0,
+        statistics: {
+          total_schools: schools.length + unlocated.length,
+          total_students: totalStudents,
+          total_distance_km: Math.round(totalDistanceKm * 100) / 100,
+        },
+      },
     });
   } catch (error) {
     next(error);
@@ -3385,6 +3570,7 @@ module.exports = {
   getSupervisorPostings,
   getMyPostings,
   getMyPostingsPrintable,
+  getFieldMap,
   getMyInvitationLetter,
   getPrintablePostings,
   // Display methods (from legacy SupervisorPosting model)
