@@ -23,7 +23,7 @@
  */
 
 // Authentication (user, login, logout, roles)
-export { AuthProvider, useAuth, useRequiredAuth } from './AuthContext';
+export { AuthProvider, useAuth } from './AuthContext';
 
 // Institution selection (for multi-institution operations)
 // Also exports feature toggle hooks
