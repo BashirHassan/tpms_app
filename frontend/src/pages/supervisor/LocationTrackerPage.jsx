@@ -140,13 +140,13 @@ function LocationTrackerPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handleRefresh} disabled={loading}>
+          <Button variant="outline" onClick={handleRefresh} disabled={loading} className="flex-shrink-0">
             <IconRefresh className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
           <Select
             value={selectedSession}
             onChange={(e) => setSelectedSession(e.target.value)}
-            className="w-48"
+            className="flex-1 sm:w-48 sm:flex-none"
           >
             <option value="">Select Session</option>
             {sessionOptions.map((opt) => (
@@ -240,7 +240,7 @@ function LocationTrackerPage() {
               {postings.map((posting) => (
                 <div
                   key={posting.posting_id}
-                  className="flex items-center justify-between gap-4 py-4"
+                  className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start gap-3">
@@ -272,7 +272,7 @@ function LocationTrackerPage() {
                         </div>
                         {/* Map Links */}
                         {posting.has_coordinates && (
-                          <div className="flex items-center gap-3 mt-1">
+                          <div className="flex flex-wrap items-center gap-3 mt-1">
                             <a
                               href={getMapViewUrl(posting.school_latitude, posting.school_longitude)}
                               target="_blank"
@@ -299,7 +299,7 @@ function LocationTrackerPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-between gap-3 sm:flex-shrink-0 sm:justify-end">
                     {/* Status Badge */}
                     {posting.location_verified ? (
                       <Badge variant="success" className="flex items-center gap-1">
@@ -323,6 +323,7 @@ function LocationTrackerPage() {
                       size="sm"
                       variant={posting.location_verified ? 'outline' : 'primary'}
                       onClick={() => handleOpenDialog(posting)}
+                      className="flex-shrink-0"
                     >
                       {posting.location_verified ? (
                         <>
@@ -332,7 +333,12 @@ function LocationTrackerPage() {
                       ) : (
                         <>
                           <IconCurrentLocation className="h-4 w-4 mr-1" />
-                          {posting.has_coordinates ? 'Record Presence' : 'Set GPS & Record Presence'}
+                          <span className="hidden sm:inline">
+                            {posting.has_coordinates ? 'Record Presence' : 'Set GPS & Record Presence'}
+                          </span>
+                          <span className="sm:hidden">
+                            {posting.has_coordinates ? 'Record' : 'Set GPS'}
+                          </span>
                         </>
                       )}
                     </Button>
@@ -390,7 +396,7 @@ function LocationTrackerPage() {
                         School Coordinates: {selectedPosting.school_latitude.toFixed(6)},{' '}
                         {selectedPosting.school_longitude.toFixed(6)}
                       </p>
-                      <div className="mt-3 flex items-center gap-4">
+                      <div className="mt-3 flex flex-wrap items-center gap-4">
                         <a
                           href={getMapViewUrl(selectedPosting.school_latitude, selectedPosting.school_longitude)}
                           target="_blank"
@@ -409,7 +415,7 @@ function LocationTrackerPage() {
                           title="Get directions to this school"
                         >
                           <IconNavigation className="w-4 h-4" />
-                          <span>Get Get Directions</span>
+                          <span>Get Directions</span>
                         </a>
                       </div>
                     </>
