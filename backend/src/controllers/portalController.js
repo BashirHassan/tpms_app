@@ -286,14 +286,11 @@ const getStudentResults = async (req, res, next) => {
     // Get results
     const results = await query(
       `SELECT sr.*, 
-              sc.name as assessment_category,
               u.name as supervisor_name,
               ms.name as school_name
        FROM student_results sr
-       LEFT JOIN scoring_criteria sc ON sr.criteria_id = sc.id
        LEFT JOIN users u ON sr.supervisor_id = u.id
-       LEFT JOIN student_acceptances sa ON sr.student_id = sa.student_id AND sr.session_id = sa.session_id
-       LEFT JOIN institution_schools isv ON sa.institution_school_id = isv.id
+       LEFT JOIN institution_schools isv ON sr.institution_school_id = isv.id
        LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
        WHERE sr.student_id = ? AND sr.session_id = ? AND sr.institution_id = ?
        ORDER BY sr.visit_number, sr.created_at`,
@@ -306,10 +303,10 @@ const getStudentResults = async (req, res, next) => {
       total_assessments: scoredResults.length,
       absent_visits: results.length - scoredResults.length,
       average_score: scoredResults.length > 0 
-        ? scoredResults.reduce((sum, r) => sum + parseFloat(r.score || 0), 0) / scoredResults.length 
+        ? scoredResults.reduce((sum, r) => sum + parseFloat(r.total_score || 0), 0) / scoredResults.length 
         : 0,
-      max_score: scoredResults.length > 0 ? Math.max(...scoredResults.map(r => parseFloat(r.score || 0))) : 0,
-      min_score: scoredResults.length > 0 ? Math.min(...scoredResults.map(r => parseFloat(r.score || 0))) : 0,
+      max_score: scoredResults.length > 0 ? Math.max(...scoredResults.map(r => parseFloat(r.total_score || 0))) : 0,
+      min_score: scoredResults.length > 0 ? Math.min(...scoredResults.map(r => parseFloat(r.total_score || 0))) : 0,
     };
 
     // Get grade based on average
@@ -321,7 +318,8 @@ const getStudentResults = async (req, res, next) => {
     else if (averageScore >= 45) grade = 'D';
     else if (averageScore >= 40) grade = 'E';
 
-    summary.grade = grade;
+    // No scored visits (e.g. absent for all of them) means there is nothing to grade
+    summary.grade = scoredResults.length > 0 ? grade : null;
 
     res.json({
       success: true,

@@ -119,3 +119,82 @@ describe('resultController.submitBulkResults - absent students', () => {
     expect(mockQuery).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('resultController.adminBulkSubmitResults - absent students', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+  });
+
+  const adminReq = (changes) => ({
+    params: { institutionId: '1' },
+    body: { session_id: 5, changes },
+    user: { id: 2, role: 'head_of_teaching_practice' },
+  });
+
+  it('upserts an absent visit as a placeholder 0 with no breakdown', async () => {
+    mockQuery
+      .mockResolvedValueOnce([{ id: 7, school_id: 3, group_number: 1 }]) // acceptance lookup
+      .mockResolvedValueOnce({ affectedRows: 1 }); // upsert
+
+    const res = createResponse();
+    await resultController.adminBulkSubmitResults(
+      adminReq([{ student_id: 7, visit_number: 2, is_absent: true, total_score: 55, score_breakdown: { 1: 5 } }]),
+      res,
+      jest.fn()
+    );
+
+    const [sql, params] = mockQuery.mock.calls[1];
+    expect(sql).toContain('is_absent = VALUES(is_absent)');
+    // [..., scoring_type, total_score, is_absent, score_breakdown]
+    expect(params.slice(-3)).toEqual([0, 1, null]);
+    expect(res.json.mock.calls[0][0].data.successful).toEqual([{ student_id: 7, visit_number: 2 }]);
+  });
+
+  it('writes is_absent = 0 when an admin enters a score', async () => {
+    mockQuery
+      .mockResolvedValueOnce([{ id: 7, school_id: 3, group_number: 1 }])
+      .mockResolvedValueOnce({ affectedRows: 1 });
+
+    await resultController.adminBulkSubmitResults(
+      adminReq([{ student_id: 7, visit_number: 1, total_score: 64 }]),
+      createResponse(),
+      jest.fn()
+    );
+
+    expect(mockQuery.mock.calls[1][1].slice(-3)).toEqual([64, 0, null]);
+  });
+});
+
+describe('resultController.getStudentsForScoring - absent students', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+  });
+
+  it('reports absent students without a score and keeps them editable by the same supervisor', async () => {
+    mockQuery
+      .mockResolvedValueOnce([{ id: 5 }]) // session
+      .mockResolvedValueOnce([
+        { student_id: 7, group_number: 1, registration_number: 'R1', student_name: 'A', program_name: 'P' },
+        { student_id: 8, group_number: 1, registration_number: 'R2', student_name: 'B', program_name: 'P' },
+      ])
+      .mockResolvedValueOnce([
+        { id: 11, student_id: 7, supervisor_id: 9, is_absent: 1, total_score: '0.00', scoring_type: 'basic', score_breakdown: null },
+        { id: 12, student_id: 8, supervisor_id: 9, is_absent: 0, total_score: '71.50', scoring_type: 'basic', score_breakdown: null },
+      ]);
+
+    const res = createResponse();
+    await resultController.getStudentsForScoring(
+      {
+        params: { institutionId: '1' },
+        query: { school_id: '3', group_number: '1', visit_number: '2' },
+        user: { id: 9, role: 'supervisor' },
+      },
+      res,
+      jest.fn()
+    );
+
+    const [absent, scored] = res.json.mock.calls[0][0].data;
+    expect(absent).toMatchObject({ student_id: 7, has_result: true, is_absent: true, total_score: null, can_edit: true });
+    expect(scored).toMatchObject({ student_id: 8, is_absent: false, total_score: '71.50' });
+  });
+});

@@ -37,6 +37,7 @@ import {
   IconGripVertical,
   IconArrowBack,
   IconSearch,
+  IconUserOff,
 } from '@tabler/icons-react';
 import { getOrdinal } from '../../utils/helpers';
 import { createExportAllHandler } from '../../utils/exportAll';
@@ -322,6 +323,74 @@ function AdminResultsPage() {
     }));
   }, [totalMaxScore]);
 
+  // Mark a student's visit absent, or undo it. Absent visits are stored with a
+  // placeholder score and are excluded from averages on the server.
+  const handleAbsentToggle = useCallback((student, visitNumber) => {
+    const changeKey = `${student.student_id}-${visitNumber}`;
+    const visit = student[`visit_${visitNumber}`] || {};
+
+    if (!visit.is_absent) {
+      // Remember the saved values (first toggle only) so undoing can restore them
+      const prev = visit._prev || {
+        has_result: visit.has_result,
+        total_score: visit.total_score,
+        score_breakdown: visit.score_breakdown,
+      };
+      setStudents(list =>
+        list.map(s => s.student_id === student.student_id
+          ? {
+              ...s,
+              [`visit_${visitNumber}`]: {
+                ...visit,
+                _prev: prev,
+                has_result: true,
+                is_absent: true,
+                total_score: null,
+                score_breakdown: null,
+              },
+            }
+          : s
+        )
+      );
+      setPendingChanges(p => ({
+        ...p,
+        [changeKey]: {
+          student_id: student.student_id,
+          school_id: student.school_id,
+          group_number: student.group_number || 1,
+          visit_number: visitNumber,
+          scoring_type: scoringType,
+          is_absent: true,
+          total_score: 0,
+        },
+      }));
+      return;
+    }
+
+    // Undo: restore what was saved before the toggle, or blank if it was saved as absent
+    const { _prev, ...rest } = visit;
+    setStudents(list =>
+      list.map(s => s.student_id === student.student_id
+        ? {
+            ...s,
+            [`visit_${visitNumber}`]: {
+              ...rest,
+              is_absent: false,
+              has_result: _prev?.has_result ?? false,
+              total_score: _prev?.total_score ?? null,
+              score_breakdown: _prev?.score_breakdown ?? null,
+            },
+          }
+        : s
+      )
+    );
+    setPendingChanges(p => {
+      const next = { ...p };
+      delete next[changeKey];
+      return next;
+    });
+  }, [scoringType]);
+
 
   // ============================================================
   // SAVE & DISCARD
@@ -337,7 +406,7 @@ function AdminResultsPage() {
     // Validate advanced scoring
     if (scoringType === 'advanced' && scoringCriteria.length > 0) {
       const incompleteChanges = changes.filter(change => {
-        if (change.scoring_type !== 'advanced') return false;
+        if (change.scoring_type !== 'advanced' || change.is_absent) return false;
         const breakdown = change.score_breakdown || {};
         return scoringCriteria.some(c => 
           breakdown[c.id] === undefined || breakdown[c.id] === '' || breakdown[c.id] === null
@@ -387,7 +456,7 @@ function AdminResultsPage() {
   const allAdvancedCriteriaFilled = useMemo(() => {
     if (scoringType !== 'advanced' || scoringCriteria.length === 0) return true;
     
-    const advancedChanges = Object.values(pendingChanges).filter(c => c.scoring_type === 'advanced');
+    const advancedChanges = Object.values(pendingChanges).filter(c => c.scoring_type === 'advanced' && !c.is_absent);
     if (advancedChanges.length === 0) return true;
     
     return advancedChanges.every(change => {
@@ -825,7 +894,9 @@ function AdminResultsPage() {
           render: (visitData, row) => {
             const changeKey = `${row.student_id}-${v}`;
             const hasPending = pendingChanges[changeKey] !== undefined;
-            const displayValue = pendingChanges[changeKey]?.total_score ?? visitData?.total_score;
+            const displayValue = visitData?.is_absent
+              ? null
+              : (pendingChanges[changeKey]?.total_score ?? visitData?.total_score);
 
             return (
               <div className="flex items-center gap-1">
@@ -889,12 +960,28 @@ function AdminResultsPage() {
                       e.target.blur();
                     }
                   }}
-                  placeholder={visitData?.is_absent && !hasPending ? 'Absent' : `0-${totalMaxScore}`}
+                  placeholder={visitData?.is_absent ? 'Absent' : `0-${totalMaxScore}`}
                   className={`w-20 h-8 text-center text-sm ${
                     hasPending ? 'border-amber-400 bg-amber-50' : visitData?.is_absent ? 'bg-amber-50' : ''
                   } ${!canEdit ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                   disabled={savingChanges || !canEdit}
                 />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handleAbsentToggle(row, v)}
+                  disabled={savingChanges || !canEdit}
+                  className={`p-1.5 h-auto w-auto rounded-md ${
+                    visitData?.is_absent
+                      ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                      : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                  } ${!canEdit ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                  title={visitData?.is_absent ? 'Marked absent - click to undo' : 'Mark absent for this visit'}
+                  aria-label={visitData?.is_absent ? 'Undo absent' : 'Mark absent'}
+                  aria-pressed={!!visitData?.is_absent}
+                >
+                  <IconUserOff className="w-4 h-4" />
+                </Button>
                 {hasPending && (
                   <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" title="Unsaved" />
                 )}
@@ -930,7 +1017,7 @@ function AdminResultsPage() {
               breakdown[c.id] !== undefined && breakdown[c.id] !== '' && breakdown[c.id] !== null
             );
 
-            const showAbsent = visitData?.is_absent && !hasPending;
+            const showAbsent = !!visitData?.is_absent;
 
             return (
               <div className="flex items-center gap-2">
@@ -942,7 +1029,7 @@ function AdminResultsPage() {
                       {Number(displayTotal).toFixed(1)} / {totalMaxScore}
                     </span>
                   )}
-                  {hasPending && !isComplete && (
+                  {hasPending && !isComplete && !showAbsent && (
                     <span className="text-[10px] text-red-500">Incomplete</span>
                   )}
                 </div>
@@ -965,6 +1052,22 @@ function AdminResultsPage() {
                   ) : (
                     <IconListDetails className="w-4 h-4" />
                   )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handleAbsentToggle(row, v)}
+                  disabled={savingChanges || !canEdit}
+                  className={`p-1.5 h-auto w-auto rounded-md ${
+                    showAbsent
+                      ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                      : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                  } ${!canEdit ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                  title={showAbsent ? 'Marked absent - click to undo' : 'Mark absent for this visit'}
+                  aria-label={showAbsent ? 'Undo absent' : 'Mark absent'}
+                  aria-pressed={showAbsent}
+                >
+                  <IconUserOff className="w-4 h-4" />
                 </Button>
                 {hasPending && (
                   <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" title="Unsaved" />
@@ -992,8 +1095,10 @@ function AdminResultsPage() {
           
           // Check pending changes first, then existing data
           if (pendingChanges[changeKey]) {
-            total += parseFloat(pendingChanges[changeKey].total_score) || 0;
-            count++;
+            if (!pendingChanges[changeKey].is_absent) {
+              total += parseFloat(pendingChanges[changeKey].total_score) || 0;
+              count++;
+            }
           } else if (visitData?.has_result && !visitData.is_absent && visitData?.total_score !== null && visitData?.total_score !== undefined) {
             total += parseFloat(visitData.total_score) || 0;
             count++;
@@ -1018,7 +1123,7 @@ function AdminResultsPage() {
     });
 
     return baseColumns;
-  }, [maxVisits, scoringType, totalMaxScore, pendingChanges, savingChanges, canEdit, handleScoreChange, toast, openAdvancedDialog, scoringCriteria, pagination.page, pagination.limit]);
+  }, [maxVisits, scoringType, totalMaxScore, pendingChanges, savingChanges, canEdit, handleScoreChange, handleAbsentToggle, toast, openAdvancedDialog, scoringCriteria, pagination.page, pagination.limit]);
 
   // Table header actions
   const saveDisabled = savingChanges || (scoringType === 'advanced' && !allAdvancedCriteriaFilled);
