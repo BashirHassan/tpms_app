@@ -247,8 +247,9 @@ const getInstitutionStats = async (req, res, next) => {
       SELECT 
         COUNT(*) as total_results,
         COUNT(DISTINCT student_id) as students_assessed,
-        MAX(total_score) as highest_score,
-        MIN(total_score) as lowest_score
+        SUM(is_absent) as absent_results,
+        MAX(CASE WHEN is_absent = 0 THEN total_score END) as highest_score,
+        MIN(CASE WHEN is_absent = 0 THEN total_score END) as lowest_score
       FROM student_results
       WHERE institution_id = ? AND session_id = ?
     `, [parsedInstitutionId, sessionId]);
@@ -407,6 +408,7 @@ const getSupervisorStats = async (req, res, next) => {
           sr.group_number,
           sr.visit_number,
           sr.total_score,
+          sr.is_absent,
           sr.created_at
         FROM student_results sr
         JOIN students s ON sr.student_id = s.id
@@ -507,7 +509,8 @@ const getSupervisorStats = async (req, res, next) => {
         SELECT 
           COUNT(*) as total_results,
           COUNT(DISTINCT student_id) as students_assessed,
-          ROUND(AVG(total_score), 2) as average_score
+          SUM(is_absent) as absent_results,
+          ROUND(AVG(CASE WHEN is_absent = 0 THEN total_score END), 2) as average_score
         FROM student_results
         WHERE institution_id = ? AND session_id = ? AND supervisor_id = ?
       `, [parsedInstitutionId, sessionId, userId]);

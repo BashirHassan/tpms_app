@@ -219,8 +219,11 @@ function AdminResultsPage() {
           const visitData = s[`visit_${v}`];
           if (visitData?.has_result) {
             totalScored++;
-            totalScoreSum += parseFloat(visitData.total_score) || 0;
-            scoredCount++;
+            // Absent visits are recorded but carry no score, so keep them out of the average
+            if (!visitData.is_absent) {
+              totalScoreSum += parseFloat(visitData.total_score) || 0;
+              scoredCount++;
+            }
           }
         }
       });
@@ -296,6 +299,7 @@ function AdminResultsPage() {
             ...s,
             [`visit_${visitNumber}`]: {
               ...s[`visit_${visitNumber}`],
+              is_absent: false,
               total_score: clampedScore,
             },
           };
@@ -467,6 +471,7 @@ function AdminResultsPage() {
             ...s,
             [`visit_${visitNumber}`]: {
               ...s[`visit_${visitNumber}`],
+              is_absent: false,
               total_score: newTotal,
               score_breakdown: { ...dialogBreakdown },
             },
@@ -811,6 +816,7 @@ function AdminResultsPage() {
           exportable: true,
           exportFormatter: (visitData) => {
             // Export the numeric score, not the object
+            if (visitData?.is_absent) return 'Absent';
             if (visitData?.total_score !== null && visitData?.total_score !== undefined) {
               return Number(visitData.total_score).toFixed(1);
             }
@@ -883,9 +889,9 @@ function AdminResultsPage() {
                       e.target.blur();
                     }
                   }}
-                  placeholder={`0-${totalMaxScore}`}
+                  placeholder={visitData?.is_absent && !hasPending ? 'Absent' : `0-${totalMaxScore}`}
                   className={`w-20 h-8 text-center text-sm ${
-                    hasPending ? 'border-amber-400 bg-amber-50' : ''
+                    hasPending ? 'border-amber-400 bg-amber-50' : visitData?.is_absent ? 'bg-amber-50' : ''
                   } ${!canEdit ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                   disabled={savingChanges || !canEdit}
                 />
@@ -905,6 +911,7 @@ function AdminResultsPage() {
           exportable: true,
           exportFormatter: (visitData) => {
             // Export the numeric score, not the object
+            if (visitData?.is_absent) return 'Absent';
             if (visitData?.total_score !== null && visitData?.total_score !== undefined) {
               return Number(visitData.total_score).toFixed(1);
             }
@@ -923,12 +930,18 @@ function AdminResultsPage() {
               breakdown[c.id] !== undefined && breakdown[c.id] !== '' && breakdown[c.id] !== null
             );
 
+            const showAbsent = visitData?.is_absent && !hasPending;
+
             return (
               <div className="flex items-center gap-2">
                 <div className="flex flex-col">
-                  <span className={`font-semibold text-sm ${hasPending ? 'text-amber-600' : 'text-gray-900'}`}>
-                    {Number(displayTotal).toFixed(1)} / {totalMaxScore}
-                  </span>
+                  {showAbsent ? (
+                    <Badge variant="warning" className="w-fit">Absent</Badge>
+                  ) : (
+                    <span className={`font-semibold text-sm ${hasPending ? 'text-amber-600' : 'text-gray-900'}`}>
+                      {Number(displayTotal).toFixed(1)} / {totalMaxScore}
+                    </span>
+                  )}
                   {hasPending && !isComplete && (
                     <span className="text-[10px] text-red-500">Incomplete</span>
                   )}
@@ -981,7 +994,7 @@ function AdminResultsPage() {
           if (pendingChanges[changeKey]) {
             total += parseFloat(pendingChanges[changeKey].total_score) || 0;
             count++;
-          } else if (visitData?.has_result && visitData?.total_score !== null && visitData?.total_score !== undefined) {
+          } else if (visitData?.has_result && !visitData.is_absent && visitData?.total_score !== null && visitData?.total_score !== undefined) {
             total += parseFloat(visitData.total_score) || 0;
             count++;
           }

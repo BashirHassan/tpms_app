@@ -25,6 +25,7 @@ const schemas = {
       visit_number: z.number().int().min(1).max(5).optional(),
       scoring_type: z.enum(['basic', 'advanced']).default('basic'),
       total_score: z.number().min(0).max(100),
+      is_absent: z.boolean().optional(),
       score_breakdown: z.record(z.any()).optional(),
       meta: z.record(z.any()).optional(),
     }),
@@ -36,6 +37,7 @@ const schemas = {
       visit_number: z.number().int().min(1).max(5).optional(),
       scoring_type: z.enum(['basic', 'advanced']).optional(),
       total_score: z.number().min(0).max(100).optional(),
+      is_absent: z.boolean().optional(),
       score_breakdown: z.record(z.any()).optional(),
       meta: z.record(z.any()).optional(),
     }),
@@ -226,7 +228,7 @@ const create = async (req, res, next) => {
     const { 
       session_id, student_id, supervisor_id, school_id, 
       group_number, visit_number, scoring_type, total_score, 
-      score_breakdown, meta 
+      score_breakdown, meta, is_absent 
     } = req.body;
 
     // Verify student belongs to institution
@@ -285,12 +287,12 @@ const create = async (req, res, next) => {
     const result = await query(
       `INSERT INTO student_results 
        (institution_id, session_id, student_id, supervisor_id, institution_school_id, group_number, 
-        visit_number, scoring_type, total_score, score_breakdown, meta)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        visit_number, scoring_type, total_score, is_absent, score_breakdown, meta)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         parseInt(institutionId), session_id, student_id, supervisor_id || null, 
         school_id || null, group_number || null, visit_number || null,
-        scoring_type || 'basic', total_score,
+        scoring_type || 'basic', is_absent ? 0 : total_score, is_absent ? 1 : 0,
         score_breakdown ? JSON.stringify(score_breakdown) : null,
         meta ? JSON.stringify(meta) : null
       ]
@@ -321,7 +323,7 @@ const create = async (req, res, next) => {
 const update = async (req, res, next) => {
   try {
     const { institutionId, id } = req.params;
-    const { supervisor_id, visit_number, scoring_type, total_score, score_breakdown, meta } = req.body;
+    const { supervisor_id, visit_number, scoring_type, total_score, score_breakdown, meta, is_absent } = req.body;
 
     // Get existing
     const existing = await query(
@@ -349,13 +351,22 @@ const update = async (req, res, next) => {
       updates.push('scoring_type = ?');
       params.push(scoring_type);
     }
-    if (total_score !== undefined) {
-      updates.push('total_score = ?');
-      params.push(total_score);
-    }
-    if (score_breakdown !== undefined) {
-      updates.push('score_breakdown = ?');
-      params.push(JSON.stringify(score_breakdown));
+    if (is_absent === true) {
+      // Absent: total_score is a placeholder 0 that statistics ignore
+      updates.push('is_absent = 1', 'total_score = 0', 'score_breakdown = NULL');
+    } else {
+      if (total_score !== undefined) {
+        updates.push('total_score = ?');
+        params.push(total_score);
+        // Entering a real score means the student was present
+        updates.push('is_absent = 0');
+      } else if (is_absent === false) {
+        updates.push('is_absent = 0');
+      }
+      if (score_breakdown !== undefined) {
+        updates.push('score_breakdown = ?');
+        params.push(JSON.stringify(score_breakdown));
+      }
     }
     if (meta !== undefined) {
       updates.push('meta = ?');
@@ -626,7 +637,7 @@ const exportResults = async (req, res, next) => {
       SELECT sr.id, st.registration_number, st.full_name as student_name,
              p.name as program_name, ms.name as school_name,
              sup.name as supervisor_name,
-             sr.visit_number, sr.scoring_type, sr.total_score,
+             sr.visit_number, sr.scoring_type, sr.total_score, sr.is_absent,
              sr.score_breakdown, sr.created_at
       FROM student_results sr
       LEFT JOIN students st ON sr.student_id = st.id
@@ -676,7 +687,8 @@ const exportResults = async (req, res, next) => {
         supervisor: r.supervisor_name || '',
         visit_number: r.visit_number || '',
         scoring_type: r.scoring_type,
-        total_score: r.total_score,
+        attendance: r.is_absent ? 'Absent' : 'Present',
+        total_score: r.is_absent ? '' : r.total_score,
         ...breakdown,
         date: r.created_at ? new Date(r.created_at).toLocaleDateString() : '',
       };
@@ -720,11 +732,12 @@ const getStats = async (req, res, next) => {
       `SELECT 
          COUNT(*) as total_results,
          COUNT(DISTINCT student_id) as students_with_results,
-         AVG(total_score) as average_score,
-         MIN(total_score) as min_score,
-         MAX(total_score) as max_score,
-         SUM(CASE WHEN total_score >= 70 THEN 1 ELSE 0 END) as passed,
-         SUM(CASE WHEN total_score < 70 THEN 1 ELSE 0 END) as failed
+         SUM(is_absent) as absent_count,
+         AVG(CASE WHEN is_absent = 0 THEN total_score END) as average_score,
+         MIN(CASE WHEN is_absent = 0 THEN total_score END) as min_score,
+         MAX(CASE WHEN is_absent = 0 THEN total_score END) as max_score,
+         SUM(CASE WHEN is_absent = 0 AND total_score >= 70 THEN 1 ELSE 0 END) as passed,
+         SUM(CASE WHEN is_absent = 0 AND total_score < 70 THEN 1 ELSE 0 END) as failed
        FROM student_results
        WHERE institution_id = ?${sessionFilter}`,
       params
@@ -743,7 +756,7 @@ const getStats = async (req, res, next) => {
          END as grade,
          COUNT(*) as count
        FROM student_results
-       WHERE institution_id = ?${sessionFilter}
+       WHERE institution_id = ?${sessionFilter} AND is_absent = 0
        GROUP BY grade
        ORDER BY MIN(total_score) DESC`,
       params
@@ -753,7 +766,7 @@ const getStats = async (req, res, next) => {
     const bySchool = await query(
       `SELECT ms.name as school_name, 
               COUNT(*) as result_count,
-              AVG(sr.total_score) as average_score
+              AVG(CASE WHEN sr.is_absent = 0 THEN sr.total_score END) as average_score
        FROM student_results sr
        LEFT JOIN institution_schools isv ON sr.institution_school_id = isv.id
        LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
@@ -768,14 +781,15 @@ const getStats = async (req, res, next) => {
       data: {
         summary: {
           total_results: stats.total_results || 0,
+          absent_count: Number(stats.absent_count) || 0,
           students_with_results: stats.students_with_results || 0,
           average_score: stats.average_score ? parseFloat(stats.average_score).toFixed(2) : 0,
           min_score: stats.min_score || 0,
           max_score: stats.max_score || 0,
           passed: stats.passed || 0,
           failed: stats.failed || 0,
-          pass_rate: stats.total_results > 0 
-            ? ((stats.passed / stats.total_results) * 100).toFixed(1) + '%'
+          pass_rate: (stats.total_results - (stats.absent_count || 0)) > 0 
+            ? ((stats.passed / (stats.total_results - stats.absent_count)) * 100).toFixed(1) + '%'
             : '0%',
         },
         distribution,
@@ -854,7 +868,7 @@ const getAdminStudentsWithResults = async (req, res, next) => {
     if (students.length > 0) {
       const studentIds = students.map(s => s.student_id);
       const results = await query(
-        `SELECT student_id, visit_number, total_score, score_breakdown, supervisor_id,
+        `SELECT student_id, visit_number, total_score, is_absent, score_breakdown, supervisor_id,
                 sup.name as supervisor_name
          FROM student_results sr
          LEFT JOIN users sup ON sr.supervisor_id = sup.id
@@ -878,7 +892,8 @@ const getAdminStudentsWithResults = async (req, res, next) => {
             }
             student[`visit_${v}`] = {
               has_result: true,
-              total_score: result.total_score,
+              is_absent: !!result.is_absent,
+              total_score: result.is_absent ? null : result.total_score,
               score_breakdown: scoreBreakdown,
               supervisor_name: result.supervisor_name,
             };
@@ -1119,6 +1134,7 @@ const adminBulkSubmitResults = async (req, res, next) => {
     for (const change of changes) {
       try {
         const { student_id, visit_number, total_score, scoring_type, score_breakdown } = change;
+        const isAbsent = change.is_absent === true;
 
         if (!student_id || !visit_number) {
           failed.push({ student_id, visit_number, reason: 'Missing student_id or visit_number' });
@@ -1145,11 +1161,12 @@ const adminBulkSubmitResults = async (req, res, next) => {
         // Upsert the result
         await query(
           `INSERT INTO student_results 
-           (institution_id, session_id, student_id, supervisor_id, institution_school_id, group_number, visit_number, scoring_type, total_score, score_breakdown)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (institution_id, session_id, student_id, supervisor_id, institution_school_id, group_number, visit_number, scoring_type, total_score, is_absent, score_breakdown)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON DUPLICATE KEY UPDATE
              scoring_type = VALUES(scoring_type),
              total_score = VALUES(total_score),
+             is_absent = VALUES(is_absent),
              score_breakdown = VALUES(score_breakdown),
              updated_at = CURRENT_TIMESTAMP`,
           [
@@ -1161,8 +1178,9 @@ const adminBulkSubmitResults = async (req, res, next) => {
             student.group_number || 1,
             visit_number,
             scoring_type || 'basic',
-            total_score,
-            scoreBreakdownJson,
+            isAbsent ? 0 : total_score,
+            isAbsent ? 1 : 0,
+            isAbsent ? null : scoreBreakdownJson,
           ]
         );
 
@@ -1344,8 +1362,9 @@ const getStudentsForScoring = async (req, res, next) => {
         // Existing result data (if any)
         result_id: existingResult?.id || null,
         has_result: !!existingResult,
+        is_absent: !!existingResult?.is_absent,
         scoring_type: existingResult?.scoring_type || null,
-        total_score: existingResult?.total_score || null,
+        total_score: existingResult && !existingResult.is_absent ? existingResult.total_score : null,
         score_breakdown: existingResult?.score_breakdown ? JSON.parse(existingResult.score_breakdown) : null,
         result_supervisor_id: existingResult?.supervisor_id || null,
         result_supervisor_name: existingResult?.supervisor_name || null,
@@ -1459,28 +1478,40 @@ const submitBulkResults = async (req, res, next) => {
           total_score,
           score_breakdown,
         } = result;
+        // Absent students are stored with a placeholder 0 and no breakdown; statistics skip them
+        const isAbsent = result.is_absent === true;
 
         // Validate required fields
-        if (!student_id || !school_id || !group_number || !visit_number || total_score === undefined) {
+        if (!student_id || !school_id || !group_number || !visit_number || (!isAbsent && total_score === undefined)) {
           throw new Error('Missing required fields');
         }
 
         // Calculate total score for advanced scoring
-        let finalTotalScore = total_score;
-        if (scoring_type === 'advanced' && score_breakdown) {
+        let finalTotalScore = isAbsent ? 0 : total_score;
+        if (!isAbsent && scoring_type === 'advanced' && score_breakdown) {
           finalTotalScore = Object.values(score_breakdown).reduce((sum, score) => sum + (parseFloat(score) || 0), 0);
         }
+        const breakdownJson = !isAbsent && score_breakdown ? JSON.stringify(score_breakdown) : null;
 
         // Validate score range
         if (finalTotalScore < 0 || finalTotalScore > 100) {
           throw new Error('Total score must be between 0 and 100');
         }
 
+        // The student must belong to this institution
+        const [studentRow] = await query(
+          'SELECT id FROM students WHERE id = ? AND institution_id = ?',
+          [student_id, parseInt(institutionId)]
+        );
+        if (!studentRow) {
+          throw new Error('Student not found');
+        }
+
         // Check if result already exists for this student/visit
         const existing = await query(
           `SELECT id FROM student_results 
-           WHERE student_id = ? AND session_id = ? AND visit_number = ?`,
-          [student_id, session.id, visit_number]
+           WHERE student_id = ? AND session_id = ? AND visit_number = ? AND institution_id = ?`,
+          [student_id, session.id, visit_number, parseInt(institutionId)]
         );
 
         if (existing.length > 0) {
@@ -1490,6 +1521,7 @@ const submitBulkResults = async (req, res, next) => {
               supervisor_id = ?, 
               scoring_type = ?, 
               total_score = ?, 
+              is_absent = ?,
               score_breakdown = ?,
               updated_at = NOW()
              WHERE id = ?`,
@@ -1497,7 +1529,8 @@ const submitBulkResults = async (req, res, next) => {
               supervisorId,
               scoring_type,
               finalTotalScore,
-              score_breakdown ? JSON.stringify(score_breakdown) : null,
+              isAbsent ? 1 : 0,
+              breakdownJson,
               existing[0].id,
             ]
           );
@@ -1507,8 +1540,8 @@ const submitBulkResults = async (req, res, next) => {
           const insertResult = await query(
             `INSERT INTO student_results 
               (institution_id, session_id, student_id, supervisor_id, institution_school_id, 
-               group_number, visit_number, scoring_type, total_score, score_breakdown)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               group_number, visit_number, scoring_type, total_score, is_absent, score_breakdown)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               parseInt(institutionId),
               session.id,
@@ -1519,7 +1552,8 @@ const submitBulkResults = async (req, res, next) => {
               visit_number,
               scoring_type,
               finalTotalScore,
-              score_breakdown ? JSON.stringify(score_breakdown) : null,
+              isAbsent ? 1 : 0,
+              breakdownJson,
             ]
           );
           successful.push({ student_id, result_id: insertResult.insertId, action: 'created' });

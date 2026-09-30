@@ -300,14 +300,16 @@ const getStudentResults = async (req, res, next) => {
       [studentId, session.id, parseInt(institutionId)]
     );
 
-    // Calculate summary
+    // Calculate summary (absent visits carry a placeholder score and are not assessments)
+    const scoredResults = results.filter(r => !r.is_absent);
     const summary = {
-      total_assessments: results.length,
-      average_score: results.length > 0 
-        ? results.reduce((sum, r) => sum + parseFloat(r.score || 0), 0) / results.length 
+      total_assessments: scoredResults.length,
+      absent_visits: results.length - scoredResults.length,
+      average_score: scoredResults.length > 0 
+        ? scoredResults.reduce((sum, r) => sum + parseFloat(r.score || 0), 0) / scoredResults.length 
         : 0,
-      max_score: results.length > 0 ? Math.max(...results.map(r => parseFloat(r.score || 0))) : 0,
-      min_score: results.length > 0 ? Math.min(...results.map(r => parseFloat(r.score || 0))) : 0,
+      max_score: scoredResults.length > 0 ? Math.max(...scoredResults.map(r => parseFloat(r.score || 0))) : 0,
+      min_score: scoredResults.length > 0 ? Math.min(...scoredResults.map(r => parseFloat(r.score || 0))) : 0,
     };
 
     // Get grade based on average

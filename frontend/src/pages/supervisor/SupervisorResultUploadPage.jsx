@@ -27,6 +27,7 @@ import {
   IconCurrentLocation,
   IconCheck,
   IconX,
+  IconUserOff,
 } from '@tabler/icons-react';
 import { getOrdinal } from '../../utils/helpers';
 
@@ -151,7 +152,10 @@ function SupervisorResultUploadPage() {
       setStudents(studentsData);
       
       // Calculate statistics
-      const scoredStudents = studentsData.filter(s => s.has_result);
+      // Absent students are recorded but carry no score, so they stay out of
+      // the scored count and the average
+      const absent = studentsData.filter(s => s.has_result && s.is_absent).length;
+      const scoredStudents = studentsData.filter(s => s.has_result && !s.is_absent);
       const scored = scoredStudents.length;
       const totalScore = scoredStudents.reduce((sum, s) => sum + (parseFloat(s.total_score) || 0), 0);
       const avgScore = scored > 0 ? (totalScore / scored).toFixed(1) : '0';
@@ -159,7 +163,8 @@ function SupervisorResultUploadPage() {
       setStatistics({
         total_students: studentsData.length,
         scored_students: scored,
-        pending_students: studentsData.length - scored,
+        absent_students: absent,
+        pending_students: studentsData.length - scored - absent,
         average_score: avgScore,
       });
     } catch (err) {
@@ -252,7 +257,7 @@ function SupervisorResultUploadPage() {
     // Update students state optimistically
     setStudents(prev =>
       prev.map(s => s.student_id === studentId
-        ? { ...s, total_score: numScore }
+        ? { ...s, total_score: numScore, is_absent: false }
         : s
       )
     );
@@ -264,9 +269,55 @@ function SupervisorResultUploadPage() {
         ...(prev[studentId] || {}),
         total_score: numScore,
         scoring_type: 'basic',
+        is_absent: false,
       },
     }));
   }, []);
+
+  // Mark a student absent for this visit, or undo it
+  const handleAbsentToggle = useCallback((studentId, absent) => {
+    const student = students.find(s => s.student_id === studentId);
+    if (!student) return;
+
+    if (absent) {
+      // Remember the saved values (first toggle only) so unticking can restore them
+      const prev = student._prev || {
+        total_score: student.total_score,
+        score_breakdown: student.score_breakdown,
+        has_result: student.has_result,
+        is_absent: student.is_absent,
+      };
+      setStudents(list =>
+        list.map(s => s.student_id === studentId
+          ? { ...s, _prev: prev, is_absent: true, total_score: null, score_breakdown: null }
+          : s
+        )
+      );
+      setPendingChanges(p => ({
+        ...p,
+        [studentId]: { is_absent: true, total_score: 0, scoring_type: scoringType },
+      }));
+      return;
+    }
+
+    const prev = student._prev;
+    const restore = prev && !prev.is_absent;
+    setStudents(list =>
+      list.map(s => {
+        if (s.student_id !== studentId) return s;
+        const { _prev, ...rest } = s;
+        return restore
+          ? { ...rest, ...prev }
+          // Saved as absent (or never scored): needs a score entered before it can be saved
+          : { ...rest, is_absent: false, has_result: false, total_score: null, score_breakdown: null };
+      })
+    );
+    setPendingChanges(p => {
+      const next = { ...p };
+      delete next[studentId];
+      return next;
+    });
+  }, [students, scoringType]);
 
   // Handle advanced scoring change
   const handleAdvancedScoreChange = useCallback((studentId, criterionId, score, maxScore) => {
@@ -293,7 +344,7 @@ function SupervisorResultUploadPage() {
     // Update students state
     setStudents(prev =>
       prev.map(s => s.student_id === studentId
-        ? { ...s, total_score: newTotal, score_breakdown: newBreakdown }
+        ? { ...s, total_score: newTotal, score_breakdown: newBreakdown, is_absent: false }
         : s
       )
     );
@@ -305,6 +356,7 @@ function SupervisorResultUploadPage() {
         score_breakdown: newBreakdown,
         total_score: newTotal,
         scoring_type: 'advanced',
+        is_absent: false,
       },
     }));
   }, [students, pendingChanges]);
@@ -329,6 +381,7 @@ function SupervisorResultUploadPage() {
     if (scoringType === 'advanced' && scoringCriteria.length > 0) {
       const incompleteStudents = [];
       for (const [studentId, scoreData] of changes) {
+        if (scoreData.is_absent) continue;
         const breakdown = scoreData.score_breakdown || {};
         const missingCriteria = scoringCriteria.filter(
           c => breakdown[c.id] === undefined || breakdown[c.id] === '' || breakdown[c.id] === null
@@ -352,8 +405,9 @@ function SupervisorResultUploadPage() {
       group_number: currentGroup.group_number,
       visit_number: currentGroup.visit_number,
       scoring_type: scoreData.scoring_type || scoringType,
-      total_score: scoreData.total_score,
-      score_breakdown: scoreData.score_breakdown || null,
+      is_absent: !!scoreData.is_absent,
+      total_score: scoreData.is_absent ? 0 : scoreData.total_score,
+      score_breakdown: scoreData.is_absent ? null : (scoreData.score_breakdown || null),
     }));
 
     try {
@@ -417,6 +471,14 @@ function SupervisorResultUploadPage() {
               </Badge>
             );
           }
+          if (row.is_absent) {
+            return (
+              <Badge variant="warning" className="flex items-center gap-1 w-24">
+                <IconUserOff className="w-3 h-3" />
+                Absent
+              </Badge>
+            );
+          }
           return value ? (
             <Badge variant="success" className="flex items-center gap-1 w-24">
               <IconCheck className="w-3 h-3" />
@@ -430,6 +492,34 @@ function SupervisorResultUploadPage() {
           );
         },
       },
+      {
+        accessor: 'is_absent',
+        header: 'Absent',
+        sortable: false,
+        exportable: true,
+        exportFormatter: (value) => (value ? 'Absent' : ''),
+        render: (value, row) => {
+          const canEdit = row.can_edit !== false;
+          const disabled = savingChanges || !canEdit || scoringLocked;
+          return (
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+              checked={!!value}
+              onChange={(e) => handleAbsentToggle(row.student_id, e.target.checked)}
+              disabled={disabled}
+              aria-label={`Mark ${row.student_name || row.registration_number} absent`}
+              title={
+                scoringLocked
+                  ? 'Verify your location at this school before recording attendance'
+                  : !canEdit
+                    ? 'You cannot edit results submitted by another supervisor'
+                    : 'Student was not present for this visit'
+              }
+            />
+          );
+        },
+      },
     ];
 
     // Basic scoring column
@@ -439,6 +529,7 @@ function SupervisorResultUploadPage() {
         header: 'Score (0-100)',
         sortable: false,
         exportable: true,
+        exportFormatter: (value, row) => (row?.is_absent ? 'Absent' : (value ?? '')),
         render: (value, row) => {
           const hasPending = pendingChanges[row.student_id] !== undefined;
           const canEdit = row.can_edit !== false;
@@ -499,13 +590,15 @@ function SupervisorResultUploadPage() {
                     e.target.blur();
                   }
                 }}
-                placeholder="0-100"
+                placeholder={row.is_absent ? 'Absent' : '0-100'}
                 className={`w-24 h-8 text-center ${
                   hasPending ? 'border-amber-400 bg-amber-50' : ''
-                } ${(!canEdit || scoringLocked) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                disabled={savingChanges || !canEdit || scoringLocked}
+                } ${(!canEdit || scoringLocked || row.is_absent) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                disabled={savingChanges || !canEdit || scoringLocked || row.is_absent}
                 title={
-                  scoringLocked
+                  row.is_absent
+                    ? 'Marked absent - untick Absent to enter a score'
+                    : scoringLocked
                     ? 'Verify your location at this school before entering scores'
                     : !canEdit
                       ? 'You cannot edit scores submitted by another supervisor'
@@ -528,6 +621,7 @@ function SupervisorResultUploadPage() {
         header: `Total Score (max: ${Number(totalMaxScore).toFixed(2)})`,
         sortable: true,
         exportable: true,
+        exportFormatter: (value, row) => (row?.is_absent ? 'Absent' : (value ?? '')),
         render: (value, row) => {
           const hasPending = pendingChanges[row.student_id] !== undefined;
           // Compute total from breakdown in real-time
@@ -537,9 +631,13 @@ function SupervisorResultUploadPage() {
           
           return (
             <div className="flex items-center gap-2">
-              <span className={`font-semibold ${hasPending ? 'text-amber-600' : 'text-gray-900'}`}>
-                {Number(displayTotal).toFixed(2)} / {Number(totalMaxScore).toFixed(2)}
-              </span>
+              {row.is_absent ? (
+                <span className="font-semibold text-amber-600">Absent</span>
+              ) : (
+                <span className={`font-semibold ${hasPending ? 'text-amber-600' : 'text-gray-900'}`}>
+                  {Number(displayTotal).toFixed(2)} / {Number(totalMaxScore).toFixed(2)}
+                </span>
+              )}
               {hasPending && (
                 <span className="w-2 h-2 rounded-full bg-amber-400" title="Unsaved change" />
               )}
@@ -616,9 +714,13 @@ function SupervisorResultUploadPage() {
                   }
                 }}
                 placeholder={`0-${criterion.max_score}`}
-                className={`w-24 h-8 text-center ${scoringLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                disabled={savingChanges || !canEdit || scoringLocked}
-                title={scoringLocked ? 'Verify your location at this school before entering scores' : ''}
+                className={`w-24 h-8 text-center ${(scoringLocked || row.is_absent) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                disabled={savingChanges || !canEdit || scoringLocked || row.is_absent}
+                title={
+                  row.is_absent
+                    ? 'Marked absent - untick Absent to enter scores'
+                    : scoringLocked ? 'Verify your location at this school before entering scores' : ''
+                }
               />
             );
           },
@@ -627,7 +729,7 @@ function SupervisorResultUploadPage() {
     }
 
     return baseColumns;
-  }, [scoringType, scoringCriteria, totalMaxScore, pendingChanges, savingChanges, scoringLocked, handleScoreChange, handleAdvancedScoreChange, students, toast]);
+  }, [scoringType, scoringCriteria, totalMaxScore, pendingChanges, savingChanges, scoringLocked, handleScoreChange, handleAdvancedScoreChange, handleAbsentToggle, students, toast]);
 
   // Check if at least one student has complete criteria in advanced mode
   const hasCompleteAdvancedScoring = useMemo(() => {
@@ -637,6 +739,7 @@ function SupervisorResultUploadPage() {
     if (changes.length === 0) return false;
     
     return changes.some(([_, scoreData]) => {
+      if (scoreData.is_absent) return true;
       const breakdown = scoreData.score_breakdown || {};
       return scoringCriteria.every(
         c => breakdown[c.id] !== undefined && breakdown[c.id] !== '' && breakdown[c.id] !== null
@@ -733,7 +836,7 @@ function SupervisorResultUploadPage() {
 
       {/* Statistics */}
       {statistics && selectedGroup && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-4">
           <Card>
             <CardContent className="p-3 sm:p-4">
               <div className="flex items-center gap-2 sm:gap-3">
@@ -756,6 +859,19 @@ function SupervisorResultUploadPage() {
                 <div className="min-w-0 flex-1">
                   <p className="text-lg sm:text-2xl font-bold">{statistics.scored_students}</p>
                   <p className="text-[10px] sm:text-sm text-gray-500 truncate">Scored</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <IconUserOff className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-lg sm:text-2xl font-bold">{statistics.absent_students}</p>
+                  <p className="text-[10px] sm:text-sm text-gray-500 truncate">Absent</p>
                 </div>
               </div>
             </CardContent>

@@ -299,7 +299,11 @@ function SupervisorDashboard() {
                             <td className="py-2 text-gray-700 whitespace-nowrap">{result.school_name}</td>
                             <td className="py-2 text-gray-700 whitespace-nowrap pr-2">Group {result.group_number}</td>
                             <td className="py-2">
-                              <span className="font-medium text-primary-600">{result.total_score}</span>
+                              {result.is_absent ? (
+                                <span className="font-medium text-amber-600">Absent</span>
+                              ) : (
+                                <span className="font-medium text-primary-600">{result.total_score}</span>
+                              )}
                             </td>
                             <td className="py-2 text-gray-500 whitespace-nowrap">{formatTimeAgo(result.created_at)}</td>
                           </tr>
