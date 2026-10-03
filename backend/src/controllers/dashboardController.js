@@ -429,10 +429,8 @@ const getSupervisorStats = async (req, res, next) => {
           ma.institution_school_id,
           ms.name as school_name,
           ma.monitoring_type,
-          ma.priority,
           ma.status,
-          ma.notes,
-          ma.assigned_at
+          ma.created_at
         FROM monitor_assignments ma
         JOIN institution_schools isv ON ma.institution_school_id = isv.id
         JOIN master_schools ms ON isv.master_school_id = ms.id
@@ -440,7 +438,7 @@ const getSupervisorStats = async (req, res, next) => {
           AND ma.session_id = ? 
           AND ma.monitor_id = ?
           AND ma.status != 'cancelled'
-        ORDER BY ma.assigned_at DESC
+        ORDER BY ma.created_at DESC
         LIMIT 20
       `, [parsedInstitutionId, sessionId, userId]);
 
@@ -450,15 +448,12 @@ const getSupervisorStats = async (req, res, next) => {
           mr.id,
           mr.institution_school_id,
           ms.name as school_name,
-          mr.visit_date,
-          mr.supervisor_present,
-          mr.students_observed,
-          mr.overall_rating,
-          mr.status,
+          ma.monitoring_type,
           mr.created_at
         FROM monitoring_reports mr
         JOIN institution_schools isv ON mr.institution_school_id = isv.id
         JOIN master_schools ms ON isv.master_school_id = ms.id
+        LEFT JOIN monitor_assignments ma ON mr.assignment_id = ma.id
         WHERE mr.institution_id = ? 
           AND mr.session_id = ? 
           AND mr.monitor_id = ?
@@ -526,18 +521,14 @@ const getSupervisorStats = async (req, res, next) => {
       const [assignmentsSummary] = await query(`
         SELECT 
           COUNT(*) as total_assignments,
-          SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_assignments,
-          SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+          SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_assignments,
           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_assignments
         FROM monitor_assignments
-        WHERE institution_id = ? AND session_id = ? AND monitor_id = ?
+        WHERE institution_id = ? AND session_id = ? AND monitor_id = ? AND status != 'cancelled'
       `, [parsedInstitutionId, sessionId, userId]);
 
       const [reportsSummary] = await query(`
-        SELECT 
-          COUNT(*) as total_reports,
-          SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft_reports,
-          SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) as submitted_reports
+        SELECT COUNT(*) as total_reports
         FROM monitoring_reports
         WHERE institution_id = ? AND session_id = ? AND monitor_id = ?
       `, [parsedInstitutionId, sessionId, userId]);

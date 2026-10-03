@@ -5,7 +5,7 @@ const express = require('express');
 const router = express.Router();
 const monitoringController = require('../controllers/monitoringController');
 const { authenticate } = require('../middleware/auth');
-const { requireInstitutionAccess, staffOnly } = require('../middleware/rbac');
+const { requireInstitutionAccess, staffOnly, isHeadOfTP } = require('../middleware/rbac');
 const { requireFeature } = require('../middleware/featureToggle');
 const validate = require('../middleware/validate');
 
@@ -16,16 +16,16 @@ router.get('/:institutionId/monitoring/dashboard', authenticate, requireInstitut
 router.get('/:institutionId/monitoring/my-assignments', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('monitoring'), monitoringController.getMyAssignments);
 
 // Available monitors and unassigned schools
-router.get('/:institutionId/monitoring/available-monitors', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('monitoring'), monitoringController.getAvailableMonitors);
-router.get('/:institutionId/monitoring/unassigned-schools', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('monitoring'), monitoringController.getUnassignedSchools);
+router.get('/:institutionId/monitoring/available-monitors', authenticate, requireInstitutionAccess(), isHeadOfTP, requireFeature('monitoring'), monitoringController.getAvailableMonitors);
+router.get('/:institutionId/monitoring/unassigned-schools', authenticate, requireInstitutionAccess(), isHeadOfTP, requireFeature('monitoring'), monitoringController.getUnassignedSchools);
 
 // Assignments
 router.get('/:institutionId/monitoring/assignments', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('monitoring'), monitoringController.getAllAssignments);
 router.get('/:institutionId/monitoring/assignments/:id', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('monitoring'), monitoringController.getAssignment);
-router.post('/:institutionId/monitoring/assignments', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('monitoring'), validate(monitoringController.schemas.createAssignment), monitoringController.createAssignment);
-router.post('/:institutionId/monitoring/assignments/bulk', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('monitoring'), monitoringController.createAssignments);
-router.put('/:institutionId/monitoring/assignments/:id', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('monitoring'), validate(monitoringController.schemas.updateAssignment), monitoringController.updateAssignment);
-router.delete('/:institutionId/monitoring/assignments/:id', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('monitoring'), monitoringController.removeAssignment);
+router.post('/:institutionId/monitoring/assignments', authenticate, requireInstitutionAccess(), isHeadOfTP, requireFeature('monitoring'), validate(monitoringController.schemas.createAssignment), monitoringController.createAssignment);
+router.post('/:institutionId/monitoring/assignments/bulk', authenticate, requireInstitutionAccess(), isHeadOfTP, requireFeature('monitoring'), monitoringController.createAssignments);
+router.put('/:institutionId/monitoring/assignments/:id', authenticate, requireInstitutionAccess(), isHeadOfTP, requireFeature('monitoring'), validate(monitoringController.schemas.updateAssignment), monitoringController.updateAssignment);
+router.delete('/:institutionId/monitoring/assignments/:id', authenticate, requireInstitutionAccess(), isHeadOfTP, requireFeature('monitoring'), monitoringController.removeAssignment);
 
 // Reports
 router.get('/:institutionId/monitoring/reports', authenticate, requireInstitutionAccess(), staffOnly, requireFeature('monitoring'), monitoringController.getAllReports);

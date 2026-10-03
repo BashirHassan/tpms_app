@@ -27,7 +27,6 @@ import {
   IconReport,
   IconChecklist,
   IconStar,
-  IconTrendingUp,
   IconBuildingBank,
   IconRoute,
   IconCar,
@@ -328,9 +327,9 @@ function SupervisorDashboard() {
           {/* Summary Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             <StatsCard index={0} title="Total Assignments" value={formatNumber(summary?.assignments?.total_assignments ?? 0)} icon={IconChecklist} tone="blue" />
-            <StatsCard index={1} title="Pending" value={formatNumber(summary?.assignments?.pending_assignments ?? 0)} icon={IconClock} tone="amber" />
-            <StatsCard index={2} title="In Progress" value={formatNumber(summary?.assignments?.in_progress ?? 0)} icon={IconTrendingUp} tone="purple" />
-            <StatsCard index={3} title="Completed" value={formatNumber(summary?.assignments?.completed_assignments ?? 0)} icon={IconCheck} tone="green" />
+            <StatsCard index={1} title="Active" value={formatNumber(summary?.assignments?.active_assignments ?? 0)} icon={IconClock} tone="amber" />
+            <StatsCard index={2} title="Completed" value={formatNumber(summary?.assignments?.completed_assignments ?? 0)} icon={IconCheck} tone="green" />
+            <StatsCard index={3} title="Reports Submitted" value={formatNumber(summary?.reports?.total_reports ?? 0)} icon={IconReport} tone="purple" />
           </div>
 
           {/* My Assignments */}
@@ -363,8 +362,8 @@ function SupervisorDashboard() {
                         <div className="min-w-0 flex-1">
                           <p className="font-medium text-gray-900 truncate">{assignment.school_name}</p>
                           <p className="text-xs text-gray-500">
-                            {assignment.monitoring_type?.replace(/_/g, ' ')} • 
-                            Priority: {assignment.priority}
+                            {assignment.monitoring_type?.replace(/_/g, ' ')} •{' '}
+                            Assigned {formatTimeAgo(assignment.created_at)}
                           </p>
                         </div>
                       </div>
@@ -401,13 +400,11 @@ function SupervisorDashboard() {
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-gray-900 truncate">{report.school_name}</p>
                         <p className="text-xs text-gray-500">
-                          {formatDate(report.visit_date)} •
-                          {formatNumber(report.students_observed ?? 0)} students observed •
-                          Rating: {report.overall_rating}/5
+                          {report.monitoring_type?.replace(/_/g, ' ')}
                         </p>
                       </div>
-                      <span className={`px-2 py-0.5 rounded-full text-xs ${getStatusColor(report.status)}`}>
-                        {report.status}
+                      <span className="text-xs text-gray-500 whitespace-nowrap">
+                        {formatTimeAgo(report.created_at)}
                       </span>
                     </div>
                   ))}

@@ -1001,22 +1001,16 @@ const register = async (req, res, next) => {
       throw new ValidationError('Validation failed', validation.error.flatten().fieldErrors);
     }
 
-    const { name, email, phone, role, institution_id, rank_id, faculty_id, file_number, is_dean } = validation.data.body;
+    const { name, email, phone, role, rank_id, faculty_id, file_number, is_dean } = validation.data.body;
 
     // Only super_admin can create other super_admins
     if (role === ROLES.SUPER_ADMIN && req.user.role !== ROLES.SUPER_ADMIN) {
       throw new ValidationError('Only super admins can create other super admin accounts');
     }
 
-    // Determine target institution
-    let targetInstitutionId = null;
-    if (role === ROLES.SUPER_ADMIN) {
-      targetInstitutionId = null;
-    } else if (req.user.role === ROLES.SUPER_ADMIN && institution_id) {
-      targetInstitutionId = institution_id;
-    } else {
-      targetInstitutionId = parseInt(institutionId);
-    }
+    // Target institution always comes from the URL (already resolved from the
+    // public_id by requireInstitutionAccess) - never from the request body.
+    const targetInstitutionId = role === ROLES.SUPER_ADMIN ? null : parseInt(institutionId);
 
     // Check if email already exists globally
     const [existing] = await query('SELECT id FROM users WHERE email = ?', [email.toLowerCase()]);

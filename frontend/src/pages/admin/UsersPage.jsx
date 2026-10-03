@@ -289,11 +289,6 @@ function UsersPage() {
         payload.faculty_id = formData.faculty_id ? parseInt(formData.faculty_id) : null;
         payload.file_number = formData.file_number || null;
         payload.is_dean = formData.is_dean;
-        
-        // Auto-set institution from context
-        if (isSuperAdmin && institutionId) {
-          payload.institution_id = parseInt(institutionId);
-        }
       }
 
       if (editUser) {

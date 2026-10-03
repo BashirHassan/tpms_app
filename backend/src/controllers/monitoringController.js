@@ -7,7 +7,7 @@
 
 const { z } = require('zod');
 const { query, transaction } = require('../db/database');
-const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const { NotFoundError, ValidationError, ConflictError, AuthorizationError } = require('../utils/errors');
 const emailService = require('../services/emailService');
 const emailQueueService = require('../services/emailQueueService');
 
@@ -208,6 +208,12 @@ const getAssignment = async (req, res, next) => {
     }
 
     const assignment = assignments[0];
+
+    // Non-admin roles can only view their own assignments
+    const isAdmin = ['super_admin', 'head_of_teaching_practice'].includes(req.user.role);
+    if (!isAdmin && assignment.monitor_id !== req.user.id) {
+      throw new AuthorizationError('You are not authorized to view this assignment');
+    }
 
     // Get reports for this assignment
     const reports = await query(
@@ -670,6 +676,12 @@ const getReport = async (req, res, next) => {
 
     if (reports.length === 0) {
       throw new NotFoundError('Report not found');
+    }
+
+    // Non-admin roles can only view their own reports
+    const isAdmin = ['super_admin', 'head_of_teaching_practice'].includes(req.user.role);
+    if (!isAdmin && reports[0].monitor_id !== req.user.id) {
+      throw new AuthorizationError('You are not authorized to view this report');
     }
 
     res.json({
