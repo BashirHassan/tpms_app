@@ -297,17 +297,19 @@ const verifyLocation = async (req, res, next) => {
     // 5d. Time drift between client-reported and server timestamp. Informational only,
     // not a hard-fail - clock skew is a device-configuration/environmental signal, not
     // an identity/spoofing one, so it's recorded for audit but doesn't block validation.
+    // The client sends an ISO-8601 string (trailing 'Z'), which MySQL rejects for a
+    // DATETIME column under strict mode - parse it to a Date here and bind that.
     let timeDriftSeconds = null;
+    let clientTimestamp = null;
     if (timestamp_client) {
-      try {
-        const clientTime = new Date(timestamp_client);
-        const serverTime = new Date();
-        timeDriftSeconds = Math.round((serverTime - clientTime) / 1000);
+      const clientTime = new Date(timestamp_client);
+      // An unparseable timestamp is ignored rather than failing the check-in
+      if (!Number.isNaN(clientTime.getTime())) {
+        clientTimestamp = clientTime;
+        timeDriftSeconds = Math.round((Date.now() - clientTime.getTime()) / 1000);
         if (Math.abs(timeDriftSeconds) > MAX_TIME_DRIFT_SECONDS) {
           flagReasons.push('time_drift');
         }
-      } catch {
-        // Ignore invalid timestamp
       }
     }
 
@@ -448,7 +450,7 @@ const verifyLocation = async (req, res, next) => {
             .digest('hex')
             .substring(0, 64),
           req.sessionId || null,
-          timestamp_client || null,
+          clientTimestamp,
           timeDriftSeconds,
         ]
       );
