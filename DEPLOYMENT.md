@@ -4,7 +4,7 @@
 - **IP Address:** 207.180.224.105
 - **OS:** Ubuntu 22.04.5 LTS
 - **Repository:** https://github.com/BashirHassan/tpms.git
-- **Database Panel:** https://db.kasuwapos.com/
+- **Database Panel:** https://db.sitsng.com/
 - **Domain:** sitpms.com
 
 ---
@@ -102,7 +102,7 @@ Add the following content:
 NODE_ENV=production
 PORT=5007
 
-# Database (Configure via https://db.kasuwapos.com/)
+# Database (Configure via https://db.sitsng.com/)
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=psimas
@@ -175,7 +175,7 @@ VITE_APP_NAME=DigitalTP
 ## 3. Database Setup
 
 ### Create Database
-1. Go to https://db.kasuwapos.com/
+1. Go to https://db.sitsng.com/
 2. Create a new database named `tpms`
 3. Create a user with appropriate privileges
 4. Update the `.env` file with the credentials
