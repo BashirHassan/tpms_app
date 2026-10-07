@@ -30,6 +30,15 @@ import {
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { formatDate, formatDateTime, escapeHtml } from '../../utils/helpers';
 
+const monitoringTypeLabel = (type) =>
+  (type === 'supervision_evaluation' ? 'Supervision Evaluation' : 'School Evaluation');
+
+// Everything a table cell shows, joined so the table search can match any of it
+const searchText = (...parts) => parts.filter(Boolean).join(' ');
+const schoolSearchText = (row) => searchText(
+  row.school_name, row.school_code, row.route_name, row.lga, row.ward, row.school_address
+);
+
 function MonitoringPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -300,11 +309,13 @@ function MonitoringPage() {
       accessor: 'sn',
       header: 'S/N',
       sortable: false,
+      searchable: false,
       render: (_, __, index) => index + 1,
     },
     {
       accessor: 'monitor_name',
       header: 'Monitor',
+      searchValue: (row) => searchText(row.monitor_name, row.monitor_email),
       render: (_, row) => (
         <div>
           <div className="font-medium text-gray-900">{row.monitor_name}</div>
@@ -315,6 +326,7 @@ function MonitoringPage() {
     {
       accessor: 'school_name',
       header: 'School',
+      searchValue: schoolSearchText,
       render: (_, row) => (
         <div>
           <div className="font-medium text-gray-900">{row.school_name}</div>
@@ -327,6 +339,7 @@ function MonitoringPage() {
     {
       accessor: 'monitoring_type',
       header: 'Type',
+      searchValue: (row) => monitoringTypeLabel(row.monitoring_type),
       render: (val) => (
         <Badge variant="info">
           {val === 'supervision_evaluation' ? 'Supervision Evaluation' : 'School Evaluation'}
@@ -375,11 +388,13 @@ function MonitoringPage() {
       accessor: 'sn',
       header: 'S/N',
       sortable: false,
+      searchable: false,
       render: (_, __, index) => index + 1,
     },
     {
       accessor: 'school_name',
       header: 'School',
+      searchValue: schoolSearchText,
       render: (_, row) => (
         <div>
           <div className="font-medium text-gray-900">{row.school_name}</div>
@@ -402,6 +417,7 @@ function MonitoringPage() {
     {
       accessor: 'monitoring_type',
       header: 'Type',
+      searchValue: (row) => monitoringTypeLabel(row.monitoring_type),
       render: (val) => (
         <Badge variant="info">
           {val === 'supervision_evaluation' ? 'Supervision Evaluation' : 'School Evaluation'}
@@ -627,11 +643,13 @@ function MonitoringPage() {
       accessor: 'sn',
       header: 'S/N',
       sortable: false,
+      searchable: false,
       render: (_, __, index) => index + 1,
     },
     {
       accessor: 'school_name',
       header: 'School',
+      searchValue: schoolSearchText,
       render: (_, row) => (
         <div>
           <div className="font-medium text-gray-900">{row.school_name}</div>
@@ -677,6 +695,7 @@ function MonitoringPage() {
     {
       accessor: 'created_at',
       header: 'Date',
+      searchValue: (row) => formatDate(row.created_at),
       render: (val) => formatDate(val),
     },
     {
@@ -855,6 +874,8 @@ function MonitoringPage() {
                   columns={assignmentColumns}
                   keyField="id"
                   sortable
+                  searchable
+                  searchPlaceholder="Search monitor, school, type..."
                   exportable
                   exportFilename="monitoring_assignments"
                   emptyIcon={IconClipboardList}
@@ -879,6 +900,8 @@ function MonitoringPage() {
                   columns={myAssignmentColumns}
                   keyField="id"
                   sortable
+                  searchable
+                  searchPlaceholder="Search school, code, route..."
                   emptyIcon={IconSchool}
                   emptyTitle="No schools assigned"
                   emptyDescription="You have no schools assigned to you for monitoring"
@@ -899,6 +922,8 @@ function MonitoringPage() {
                   columns={reportColumns}
                   keyField="id"
                   sortable
+                  searchable
+                  searchPlaceholder="Search school, monitor, text..."
                   exportable
                   exportFilename={`Monitoring Reports for ${selectedSessionName} Session`}
                   emptyIcon={IconFileDescription}

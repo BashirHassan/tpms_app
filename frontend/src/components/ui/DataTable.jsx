@@ -605,7 +605,13 @@ const DataTable = forwardRef(function DataTable(
     return data.filter((row) => {
       return columns.some((col) => {
         if (col.searchable === false) return false;
-        const value = col.accessor ? getNestedValue(row, col.accessor) : '';
+        // `searchValue` lets a column match on text its cell renders beyond the
+        // raw accessor (a second line, a formatted label).
+        const value = col.searchValue
+          ? col.searchValue(row)
+          : col.accessor ? getNestedValue(row, col.accessor) : '';
+        // An empty cell must not match as the text "undefined" / "null"
+        if (value === undefined || value === null) return false;
         return String(value).toLowerCase().includes(query);
       });
     });
@@ -882,13 +888,29 @@ const DataTable = forwardRef(function DataTable(
   };
 
   // Render empty state
-  const renderEmptyState = () => (
-    <div className="flex flex-col items-center justify-center py-12 text-gray-500">
-      {EmptyIcon && <EmptyIcon className="w-12 h-12 mb-4 text-gray-300" />}
-      <p className="font-medium">{emptyTitle}</p>
-      {emptyDescription && <p className="text-sm mt-1">{emptyDescription}</p>}
-    </div>
-  );
+  const renderEmptyState = () => {
+    // Rows exist but the search hid them all - say so instead of "nothing here yet"
+    const noSearchMatches = searchable && searchQuery.trim() && data.length > 0;
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+        {EmptyIcon && <EmptyIcon className="w-12 h-12 mb-4 text-gray-300" />}
+        <p className="font-medium">
+          {noSearchMatches ? `No results for "${searchQuery.trim()}"` : emptyTitle}
+        </p>
+        {noSearchMatches ? (
+          <button
+            type="button"
+            className="text-sm mt-1 font-medium text-primary-600 hover:underline"
+            onClick={() => setSearchQuery('')}
+          >
+            Clear search
+          </button>
+        ) : (
+          emptyDescription && <p className="text-sm mt-1">{emptyDescription}</p>
+        )}
+      </div>
+    );
+  };
 
   // Render loading state with skeleton rows
   const renderLoadingState = () => {
