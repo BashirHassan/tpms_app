@@ -12,7 +12,7 @@
 const { z } = require('zod');
 const { query, queryOne, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, AuthorizationError } = require('../utils/errors');
-const { normalizeLocationValue, normalizeOptionalLocationValue } = require('../utils/locationNormalizer');
+const { normalizeLocationValue, normalizeOptionalLocationValue, normalizeSchoolName } = require('../utils/locationNormalizer');
 
 const schemas = {
   submit: z.object({
@@ -123,8 +123,9 @@ const submitRequest = async (req, res, next) => {
       throw new AuthorizationError('Student authentication required');
     }
 
-    const { name, official_code, school_type, category, state: rawState, lga: rawLga, ward: rawWard, address } = req.body;
+    const { name: rawName, official_code, school_type, category, state: rawState, lga: rawLga, ward: rawWard, address } = req.body;
 
+    const name = normalizeSchoolName(rawName);
     const state = normalizeLocationValue(rawState);
     const lga = normalizeLocationValue(rawLga);
     const ward = normalizeOptionalLocationValue(rawWard);
@@ -342,6 +343,8 @@ const approve = async (req, res, next) => {
       if (request.status !== 'pending') {
         throw new ValidationError(`Request is already ${request.status}`);
       }
+      // Requests filed before names were normalised on submit may be mixed-case
+      request.name = normalizeSchoolName(request.name);
 
       let masterSchoolId;
       const [existingMaster] = await conn.execute(

@@ -11,7 +11,7 @@ const { z } = require('zod');
 const XLSX = require('xlsx');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
-const { normalizeLocationValue, normalizeOptionalLocationValue } = require('../utils/locationNormalizer');
+const { normalizeLocationValue, normalizeOptionalLocationValue, normalizeSchoolName } = require('../utils/locationNormalizer');
 
 // Tables carrying an institution_school_id FK that must be repointed to the
 // surviving link when a merge deletes a conflicting institution_schools row
@@ -246,11 +246,12 @@ const getById = async (req, res, next) => {
 const create = async (req, res, next) => {
   try {
     const {
-      name, official_code, school_type, category,
+      name: rawName, official_code, school_type, category,
       state: rawState, lga: rawLga, ward: rawWard, address,
       principal_name, principal_phone,
       latitude, longitude, is_verified
     } = req.body;
+    const name = normalizeSchoolName(rawName);
     const state = normalizeLocationValue(rawState);
     const lga = normalizeLocationValue(rawLga);
     const ward = normalizeOptionalLocationValue(rawWard);
@@ -343,6 +344,9 @@ const update = async (req, res, next) => {
     for (const field of allowedFields) {
       if (updates[field] !== undefined) {
         let value = updates[field];
+        if (field === 'name') {
+          value = normalizeSchoolName(value);
+        }
         if (field === 'state' || field === 'lga') {
           value = normalizeLocationValue(value);
         }

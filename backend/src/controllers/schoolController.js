@@ -14,7 +14,7 @@ const fs = require('fs');
 const XLSX = require('xlsx');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
-const { normalizeLocationValue, normalizeOptionalLocationValue } = require('../utils/locationNormalizer');
+const { normalizeLocationValue, normalizeOptionalLocationValue, normalizeSchoolName } = require('../utils/locationNormalizer');
 
 // Tables carrying a plain institution_school_id FK with no unique constraint on
 // that column - safe to repoint with a single bulk UPDATE during a merge.
@@ -398,7 +398,7 @@ const create = async (req, res, next) => {
     const { institutionId } = req.params;
     const {
       // Master school data
-      name, school_type, category, state: rawState, lga: rawLga, ward: rawWard, address,
+      name: rawName, school_type, category, state: rawState, lga: rawLga, ward: rawWard, address,
       principal_name, principal_phone, latitude, longitude,
       // Institution-specific data
       location_category, distance_km, student_capacity,
@@ -406,6 +406,7 @@ const create = async (req, res, next) => {
       // Optional: link to existing master school
       master_school_id
     } = req.body;
+    const name = normalizeSchoolName(rawName);
     const state = normalizeLocationValue(rawState) || 'UNKNOWN';
     const lga = normalizeLocationValue(rawLga) || 'UNKNOWN';
     const ward = normalizeOptionalLocationValue(rawWard);
@@ -1081,7 +1082,7 @@ const uploadFromExcel = async (req, res, next) => {
         const rowNum = i + 2;
 
         try {
-          const name = row.name || row.Name || row.SCHOOL_NAME || row['School Name'];
+          const name = normalizeSchoolName(row.name || row.Name || row.SCHOOL_NAME || row['School Name']);
           const code = row.code || row.Code || row.SCHOOL_CODE || row['School Code'];
           const state = normalizeLocationValue(row.state || row.State) || 'UNKNOWN';
           const lga = normalizeLocationValue(row.lga || row.LGA) || 'UNKNOWN';
