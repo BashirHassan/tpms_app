@@ -9,6 +9,7 @@ const { z } = require('zod');
 const { query, transaction } = require('../db/database');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 const { distanceMeters } = require('../utils/geo');
+const { normalizeOptionalLocationValue } = require('../utils/locationNormalizer');
 
 /**
  * How recently another institution must have moved the shared point for it to be
@@ -151,9 +152,12 @@ async function applyLocationApproval(conn, request, institutionId, userId, admin
       `POINT(${request.proposed_latitude} ${request.proposed_longitude})`,
     ];
 
-    if (request.proposed_ward) {
+    // Students type the ward freehand - store it in the same upper-case form as
+    // every other writer, or filters list the same place twice (GOMBE / Gombe).
+    const proposedWard = normalizeOptionalLocationValue(request.proposed_ward);
+    if (proposedWard) {
       updates.push('ward = ?');
-      updateParams.push(request.proposed_ward);
+      updateParams.push(proposedWard);
     }
     if (request.proposed_address) {
       updates.push('address = ?');
