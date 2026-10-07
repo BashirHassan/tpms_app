@@ -378,10 +378,10 @@ const createAssignments = async (req, res, next) => {
           continue;
         }
 
-        // Check if school already has an assignment for this monitoring_type in this session
+        // Check if school already has a live assignment for this monitoring_type in this session
         const existing = await query(
-          `SELECT id, monitor_id FROM monitor_assignments 
-           WHERE institution_id = ? AND session_id = ? AND institution_school_id = ? AND monitoring_type = ? AND status = 'active'`,
+          `SELECT id, monitor_id FROM monitor_assignments
+           WHERE institution_id = ? AND session_id = ? AND institution_school_id = ? AND monitoring_type = ? AND status <> 'cancelled'`,
           [parseInt(institutionId), session_id, school_id, monitoring_type]
         );
 
@@ -1036,8 +1036,12 @@ const getAvailableMonitors = async (req, res, next) => {
 };
 
 /**
- * Get unassigned schools
+ * Get schools that can still be assigned a monitor
  * GET /:institutionId/monitoring/unassigned-schools
+ *
+ * A school is assignable when it has at least one student this session and no
+ * live (non-cancelled) assignment for the requested monitoring type. `meta`
+ * reports how many schools each rule left out, so the UI can explain the gap.
  */
 const getUnassignedSchools = async (req, res, next) => {
   try {
@@ -1045,13 +1049,18 @@ const getUnassignedSchools = async (req, res, next) => {
     const { session_id, monitoring_type = 'supervision_evaluation' } = req.query;
 
     if (!session_id) {
-      return res.json({ success: true, data: [] });
+      return res.json({ success: true, data: [], meta: { already_assigned: 0, no_students: 0 } });
     }
 
-    const schools = await query(
+    const rows = await query(
       `SELECT isv.id, ms.name, ms.official_code as code, ms.ward, ms.lga, ms.state, ms.address, ms.principal_name,
               r.name as route_name,
-              COALESCE(sc.student_count, 0) AS student_count
+              COALESCE(sc.student_count, 0) AS student_count,
+              EXISTS (
+                SELECT 1 FROM monitor_assignments ma
+                WHERE ma.institution_school_id = isv.id AND ma.institution_id = ?
+                  AND ma.session_id = ? AND ma.monitoring_type = ? AND ma.status <> 'cancelled'
+              ) AS is_assigned
        FROM institution_schools isv
        JOIN master_schools ms ON isv.master_school_id = ms.id
        LEFT JOIN routes r ON isv.route_id = r.id
@@ -1062,21 +1071,31 @@ const getUnassignedSchools = async (req, res, next) => {
          GROUP BY institution_school_id
        ) sc ON sc.institution_school_id = isv.id
        WHERE isv.institution_id = ? AND isv.status = 'active'
-         AND isv.id NOT IN (
-           SELECT institution_school_id FROM monitor_assignments
-           WHERE institution_id = ? AND session_id = ? AND monitoring_type = ? AND status = 'active'
-         )
        ORDER BY ms.name`,
       [
+        parseInt(institutionId), parseInt(session_id), monitoring_type,
         parseInt(institutionId), parseInt(session_id),
         parseInt(institutionId),
-        parseInt(institutionId), parseInt(session_id), monitoring_type,
       ]
     );
+
+    const schools = [];
+    const meta = { already_assigned: 0, no_students: 0 };
+    for (const { is_assigned, ...school } of rows) {
+      school.student_count = Number(school.student_count) || 0;
+      if (Number(is_assigned)) {
+        meta.already_assigned += 1;
+      } else if (school.student_count === 0) {
+        meta.no_students += 1;
+      } else {
+        schools.push(school);
+      }
+    }
 
     res.json({
       success: true,
       data: schools,
+      meta,
     });
   } catch (error) {
     next(error);

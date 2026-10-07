@@ -13,7 +13,7 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
 import { DataTable } from '../../components/ui/DataTable';
-import { SearchableSelect } from '../../components/ui/SearchableSelect';
+import { AssignMonitoringDialog } from '../../components/monitoring/AssignMonitoringDialog';
 import {
   IconMapPin,
   IconUsers,
@@ -46,8 +46,6 @@ function MonitoringPage() {
   const [assignments, setAssignments] = useState([]);
   const [myAssignments, setMyAssignments] = useState([]);
   const [reports, setReports] = useState([]);
-  const [unassignedSchools, setUnassignedSchools] = useState([]);
-  const [monitors, setMonitors] = useState([]);
 
   // Modals
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -56,17 +54,8 @@ function MonitoringPage() {
   const [selectedAssignment, setSelectedAssignment] = useState(null);
   const [selectedReport, setSelectedReport] = useState(null);
   const [processing, setProcessing] = useState(false);
-  const [schoolSearch, setSchoolSearch] = useState('');
-  const [schoolStateFilter, setSchoolStateFilter] = useState('');
-  const [loadingSchools, setLoadingSchools] = useState(false);
 
   // Forms
-  const [assignForm, setAssignForm] = useState({
-    monitor_id: '',
-    school_ids: [],
-    monitoring_type: 'supervision_evaluation',
-  });
-
   const [reportForm, setReportForm] = useState({
     observations: '',
     recommendations: '',
@@ -84,53 +73,6 @@ function MonitoringPage() {
   // Effects live below the callbacks they depend on - a dep array is evaluated
   // during render, so referencing a `const` declared later would throw.
 
-
-  // Fetch unassigned schools when monitoring_type changes in the assign form
-  const fetchUnassignedSchools = useCallback(async (monitoringType) => {
-    if (!selectedSession) return;
-    setLoadingSchools(true);
-    try {
-      const res = await monitoringApi.getUnassignedSchools(selectedSession, monitoringType);
-      setUnassignedSchools(res.data.data || []);
-      // Clear selected schools when type changes since available schools changed
-      setAssignForm(prev => ({ ...prev, school_ids: [] }));
-      setSchoolSearch('');
-      setSchoolStateFilter('');
-    } catch (err) {
-      console.error('Failed to fetch unassigned schools:', err);
-      toast.error('Failed to load available schools');
-    } finally {
-      setLoadingSchools(false);
-    }
-  }, [selectedSession, toast]);
-
-  // Open the assign dialog with a clean form. The Assign button lives in the page
-  // header so it can be pressed from any tab, but fetchData only loads monitors and
-  // unassigned schools on the assignments tab - load them here so the dialog is never
-  // empty.
-  const openAssignModal = useCallback(async () => {
-    const monitoringType = 'supervision_evaluation';
-    setAssignForm({ monitor_id: '', school_ids: [], monitoring_type: monitoringType });
-    setSchoolSearch('');
-    setSchoolStateFilter('');
-    setShowAssignModal(true);
-
-    if (!selectedSession) return;
-    setLoadingSchools(true);
-    try {
-      const [monitorsRes, schoolsRes] = await Promise.all([
-        monitoringApi.getAvailableMonitors(selectedSession),
-        monitoringApi.getUnassignedSchools(selectedSession, monitoringType),
-      ]);
-      setMonitors(monitorsRes.data.data || []);
-      setUnassignedSchools(schoolsRes.data.data || []);
-    } catch (err) {
-      console.error('Failed to load assignment options:', err);
-      toast.error('Failed to load available monitors and schools');
-    } finally {
-      setLoadingSchools(false);
-    }
-  }, [selectedSession, toast]);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -150,16 +92,12 @@ function MonitoringPage() {
       if (isTPHead) {
         // TP Head can see everything - always fetch stats
         if (activeTab === 'assignments') {
-          const [statsRes, assignmentsRes, monitorsRes, schoolsRes] = await Promise.all([
+          const [statsRes, assignmentsRes] = await Promise.all([
             monitoringApi.getDashboard(selectedSession),
             monitoringApi.getAssignments({ session_id: selectedSession }),
-            monitoringApi.getAvailableMonitors(selectedSession),
-            monitoringApi.getUnassignedSchools(selectedSession, assignForm.monitoring_type),
           ]);
           setStatistics(statsRes.data.data);
           setAssignments(assignmentsRes.data.data);
-          setMonitors(monitorsRes.data.data || []);
-          setUnassignedSchools(schoolsRes.data.data || []);
         } else if (activeTab === 'reports') {
           const [statsRes, reportsRes] = await Promise.all([
             monitoringApi.getDashboard(selectedSession),
@@ -191,7 +129,7 @@ function MonitoringPage() {
     } finally {
       setLoading(false);
     }
-  }, [isTPHead, activeTab, selectedSession, assignForm.monitoring_type, toast]);
+  }, [isTPHead, activeTab, selectedSession, toast]);
 
   // Fetch sessions on mount
   useEffect(() => {
@@ -204,45 +142,6 @@ function MonitoringPage() {
       fetchData();
     }
   }, [selectedSession, fetchData]);
-
-  // Handle create assignment
-  const handleCreateAssignment = async () => {
-    if (!assignForm.monitor_id || assignForm.school_ids.length === 0) {
-      toast.error('Please select a monitor and at least one school');
-      return;
-    }
-
-    setProcessing(true);
-    try {
-      const response = await monitoringApi.createAssignments({
-        session_id: selectedSession,
-        monitor_id: assignForm.monitor_id,
-        school_ids: assignForm.school_ids,
-        monitoring_type: assignForm.monitoring_type,
-      });
-
-      const responseData = response.data.data || response.data || {};
-      const { successful = [], failed = [] } = responseData;
-
-      if (successful.length > 0) {
-        toast.success(`Created ${successful.length} assignment(s)`);
-      }
-      if (failed.length > 0) {
-        toast.warning(`${failed.length} assignment(s) failed: ${failed.map(f => f.reason).join(', ')}`);
-      }
-
-      setShowAssignModal(false);
-      setAssignForm({ monitor_id: '', school_ids: [], monitoring_type: 'supervision_evaluation' });
-      setSchoolSearch('');
-      setSchoolStateFilter('');
-      fetchData();
-    } catch (err) {
-      console.error('Create assignment error:', err);
-      toast.error(err.response?.data?.message || 'Failed to create assignment');
-    } finally {
-      setProcessing(false);
-    }
-  };
 
   // Handle delete assignment
   const handleDeleteAssignment = (id) => {
@@ -825,26 +724,6 @@ function MonitoringPage() {
         { id: 'reports', label: 'My Reports', icon: IconFileDescription },
       ];
 
-  // States that actually have unassigned schools (for the assignment modal filter)
-  const availableStates = useMemo(
-    () => [...new Set(unassignedSchools.map(s => s.state).filter(Boolean))].sort(),
-    [unassignedSchools]
-  );
-
-  // Filter schools for assignment modal
-  const filteredSchools = useMemo(() => {
-    const search = schoolSearch.trim().toLowerCase();
-    return unassignedSchools.filter(s => {
-      if (schoolStateFilter && s.state !== schoolStateFilter) return false;
-      if (!search) return true;
-      return [s.name, s.code, s.route_name, s.lga, s.state, s.ward]
-        .some(field => field?.toLowerCase().includes(search));
-    });
-  }, [unassignedSchools, schoolSearch, schoolStateFilter]);
-
-  // Only the first 50 matches are rendered; the full count drives the truncation hint
-  const visibleSchools = useMemo(() => filteredSchools.slice(0, 50), [filteredSchools]);
-
   return (
     <div className="space-y-4 sm:space-y-4">
       {/* Header */}
@@ -869,7 +748,7 @@ function MonitoringPage() {
             ))}
           </Select>
           {isTPHead && (
-            <Button onClick={openAssignModal} className="active:scale-95 flex-shrink-0">
+            <Button onClick={() => setShowAssignModal(true)} className="active:scale-95 flex-shrink-0">
               <IconPlus className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">Assign</span>
             </Button>
@@ -1033,205 +912,15 @@ function MonitoringPage() {
       )}
 
       {/* Assign Monitoring Dialog */}
-      <Dialog
-        isOpen={showAssignModal}
-        onClose={() => setShowAssignModal(false)}
-        title="Assign Monitoring"
-        width="xl"
-      >
-        <div className="space-y-4">
-          {/* Monitoring Type - First, to filter available schools */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Monitoring Type *
-            </label>
-            <Select
-              value={assignForm.monitoring_type}
-              onChange={(e) => {
-                const newType = e.target.value;
-                setAssignForm({ ...assignForm, monitoring_type: newType, school_ids: [] });
-                fetchUnassignedSchools(newType);
-              }}
-            >
-              <option value="school_evaluation">School Evaluation</option>
-              <option value="supervision_evaluation">Supervision Evaluation</option>
-            </Select>
-            <p className="text-xs text-gray-500 mt-1">
-              Schools can have one assignment per monitoring type. Changing this will update available schools.
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Select Monitor *
-            </label>
-            <SearchableSelect
-              options={monitors}
-              value={assignForm.monitor_id}
-              onChange={(val) => setAssignForm({ ...assignForm, monitor_id: val })}
-              placeholder="Select a monitor..."
-              searchPlaceholder="Search monitors..."
-              getOptionValue={(opt) => opt.id.toString()}
-              getOptionLabel={(opt) => opt.name}
-              renderOption={(opt, { isSelected }) => (
-                <div>
-                  <div className={`font-medium ${isSelected ? 'text-primary-700' : 'text-gray-900'}`}>
-                    {opt.name}
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {opt.rank_name || 'No rank'} • {opt.current_assignments || 0} assignments
-                  </div>
-                </div>
-              )}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Select Schools * ({assignForm.school_ids.length} selected)
-            </label>
-            {loadingSchools ? (
-              <div className="border rounded-lg p-6 text-center bg-gray-50">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600 mx-auto mb-2" />
-                <p className="text-sm text-gray-500">Loading available schools...</p>
-              </div>
-            ) : unassignedSchools.length === 0 ? (
-              <div className="border rounded-lg p-6 text-center bg-gray-50">
-                <IconSchool className="w-10 h-10 mx-auto text-gray-400 mb-2" />
-                <p className="text-gray-600 font-medium">All schools are assigned</p>
-                <p className="text-sm text-gray-500">
-                  Every school has already been assigned for {assignForm.monitoring_type === 'supervision_evaluation' ? 'Supervision Evaluation' : 'School Evaluation'} this session.
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 mb-2">
-                  <input
-                    type="text"
-                    className="w-full border rounded-lg px-3 py-2"
-                    placeholder="Search by name, code, route, LGA or state..."
-                    value={schoolSearch}
-                    onChange={(e) => setSchoolSearch(e.target.value)}
-                  />
-                  {availableStates.length > 1 && (
-                    <Select
-                      className="sm:w-48"
-                      value={schoolStateFilter}
-                      onChange={(e) => setSchoolStateFilter(e.target.value)}
-                    >
-                      <option value="">All States ({availableStates.length})</option>
-                      {availableStates.map(state => (
-                        <option key={state} value={state}>{state}</option>
-                      ))}
-                    </Select>
-                  )}
-                </div>
-                <div className="border rounded-lg max-h-48 overflow-y-auto">
-                  {visibleSchools.map(school => (
-                    <label
-                      key={school.id}
-                      className={`flex items-start gap-3 p-3 border-b last:border-b-0 cursor-pointer hover:bg-gray-50 ${
-                        assignForm.school_ids.includes(school.id.toString()) ? 'bg-primary-50' : ''
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        checked={assignForm.school_ids.includes(school.id.toString())}
-                        onChange={(e) => {
-                          const id = school.id.toString();
-                          if (e.target.checked) {
-                            setAssignForm({ ...assignForm, school_ids: [...assignForm.school_ids, id] });
-                          } else {
-                            setAssignForm({ ...assignForm, school_ids: assignForm.school_ids.filter(s => s !== id) });
-                          }
-                        }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="font-medium text-gray-900">{school.name}</div>
-                          <span
-                            className={`inline-flex items-center gap-1 shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                              school.student_count > 0
-                                ? 'bg-primary-50 text-primary-700'
-                                : 'bg-gray-100 text-gray-400'
-                            }`}
-                            title="Students posted to this school this session"
-                          >
-                            <IconUsers className="w-3.5 h-3.5" />
-                            {school.student_count || 0}
-                          </span>
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {school.code && <span className="font-semibold text-primary-800">{school.code}</span>}
-                          {school.code && ' • '}
-                          {school.route_name || 'No route'}
-                          {(school.lga || school.state) && ' • '}
-                          {school.lga}{school.lga && school.state && ', '}{school.state}
-                          <br />
-                          {school.address || 'No address'}
-                        </div>
-                      </div>
-                    </label>
-                  ))}
-                  {filteredSchools.length === 0 && (schoolSearch || schoolStateFilter) && (
-                    <div className="p-4 text-center text-gray-500">
-                      <p>No schools match your filters</p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="mt-1"
-                        onClick={() => { setSchoolSearch(''); setSchoolStateFilter(''); }}
-                      >
-                        Clear filters
-                      </Button>
-                    </div>
-                  )}
-                </div>
-                {filteredSchools.length > visibleSchools.length && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Showing {visibleSchools.length} of {filteredSchools.length} matches - refine your search to narrow the list.
-                  </p>
-                )}
-                {assignForm.school_ids.length > 0 && (
-                  <div className="flex items-center justify-between mt-2">
-                    <span className="text-sm text-gray-500">
-                      {assignForm.school_ids.length} school(s) selected
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-sm text-red-500 hover:text-red-700"
-                      onClick={() => setAssignForm({ ...assignForm, school_ids: [] })}
-                    >
-                      Clear all
-                    </Button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button
-              variant="outline"
-              onClick={() => setShowAssignModal(false)}
-              disabled={processing}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleCreateAssignment}
-              loading={processing}
-              disabled={unassignedSchools.length === 0 || loadingSchools}
-            >
-              Create Assignments
-            </Button>
-          </div>
-        </div>
-      </Dialog>
+      {isTPHead && (
+        <AssignMonitoringDialog
+          isOpen={showAssignModal}
+          onClose={() => setShowAssignModal(false)}
+          sessionId={selectedSession}
+          sessionName={selectedSessionName}
+          onAssigned={fetchData}
+        />
+      )}
 
       {/* Add Report Dialog */}
       <Dialog

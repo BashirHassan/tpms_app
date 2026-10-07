@@ -104,3 +104,35 @@ describe('monitoringController - field monitor ownership', () => {
     expect(next.mock.calls[0][0].statusCode).toBe(403);
   });
 });
+
+describe('monitoringController.getUnassignedSchools', () => {
+  const request = { params: { institutionId: '3' }, query: { session_id: '5', monitoring_type: 'school_evaluation' } };
+
+  it('leaves out schools that already have a monitor or have no students', async () => {
+    mockQuery.mockResolvedValueOnce([
+      { id: 1, name: 'ASSIGNABLE', student_count: '4', is_assigned: 0 },
+      { id: 2, name: 'HAS MONITOR', student_count: 6, is_assigned: 1 },
+      { id: 3, name: 'NO STUDENTS', student_count: 0, is_assigned: 0 },
+      { id: 4, name: 'HAS MONITOR, NO STUDENTS', student_count: 0, is_assigned: 1 },
+    ]);
+
+    const res = createResponse();
+    const next = jest.fn();
+    await monitoringController.getUnassignedSchools(request, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    const body = res.json.mock.calls[0][0];
+    expect(body.data).toEqual([{ id: 1, name: 'ASSIGNABLE', student_count: 4 }]);
+    expect(body.meta).toEqual({ already_assigned: 2, no_students: 1 });
+  });
+
+  it('scopes the lookup to the institution, session and monitoring type', async () => {
+    const res = createResponse();
+    await monitoringController.getUnassignedSchools(request, res, jest.fn());
+
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).toContain("ma.status <> 'cancelled'");
+    expect(sql).not.toMatch(/LIMIT/i);
+    expect(params).toEqual([3, 5, 'school_evaluation', 3, 5, 3]);
+  });
+});
