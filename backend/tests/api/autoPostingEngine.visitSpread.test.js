@@ -153,6 +153,36 @@ describe('Auto-posting engine - visit spread per supervisor', () => {
     expect(a.assignments).toEqual(b.assignments);
   });
 
+  describe('reported visit spread', () => {
+    it('reports a clean mix and each supervisor\'s postings per visit', () => {
+      const config = SCENARIOS[0][1];
+      const { supervisors, slots } = makeScenario(config);
+      const { statistics, warnings } = runAutoPostingAlgorithm(supervisors, slots, config.visits, 'lga_based', false, {});
+
+      expect(statistics.visit_spread).toEqual({ supervisors_on_single_visit: 0, supervisors_uneven: 0, max_gap: 0 });
+      expect(statistics.assignments_by_supervisor[1].by_visit).toEqual({ visit_1: 2, visit_2: 2, visit_3: 2 });
+      expect(warnings.join(' ')).not.toMatch(/only one visit/);
+    });
+
+    it('warns when supply forces supervisors onto one visit', () => {
+      // Visit 1 has ten open slots, visit 2 a single one: nine supervisors can only get visit 1
+      const { supervisors, slots } = makeScenario({ supervisorCount: 5, capacity: 4, areas: 2, schoolsPerArea: 5, groups: 1, visits: 2 });
+      const lopsided = slots.filter((s) => s.visit_number === 1 || s.school_id === 1);
+      const { statistics, warnings } = runAutoPostingAlgorithm(supervisors, lopsided, 2, 'random', false, {});
+
+      expect(statistics.visit_spread.supervisors_on_single_visit).toBeGreaterThan(0);
+      expect(warnings.join(' ')).toMatch(/supervisor\(s\) have all their postings on only one visit/);
+    });
+
+    it('says nothing about spread on a single-visit run', () => {
+      const { supervisors, slots } = makeScenario({ supervisorCount: 5, capacity: 4, areas: 2, schoolsPerArea: 5, groups: 1, visits: 3 });
+      const { statistics, warnings } = runAutoPostingAlgorithm(supervisors, slots, 3, 'random', false, { visitNumbers: [2] });
+
+      expect(statistics.visit_spread.supervisors_on_single_visit).toBe(0);
+      expect(warnings.join(' ')).not.toMatch(/only one visit/);
+    });
+  });
+
   it('leaves a single-visit run untouched', () => {
     const { supervisors, slots } = makeScenario({ supervisorCount: 10, capacity: 6, areas: 4, schoolsPerArea: 5, groups: 1, visits: 3 });
     const result = runAutoPostingAlgorithm(supervisors, slots, 3, 'lga_based', false, { visitNumbers: [2] });

@@ -15,10 +15,10 @@
 
 const { z } = require('zod');
 const { query, transaction } = require('../db/database');
-const { NotFoundError, ValidationError } = require('../utils/errors');
+const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 
 const { calculateAllowances } = require('../services/allowanceCalculator');
-const { runAutoPostingAlgorithm } = require('../services/autoPostingEngine');
+const { runAutoPostingAlgorithm, planFingerprint } = require('../services/autoPostingEngine');
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -59,6 +59,12 @@ const schemas = {
       lgas: z.array(z.object({ state: z.string().min(1), lga: z.string().min(1) })).optional().default([]),
       route_ids: idList(),
       visit_numbers: z.array(z.coerce.number().int().min(1).max(10)).optional().default([]),
+
+      // On a run that covers only some visits, hold back the rest of each
+      // supervisor's posting limit for the visits not being posted yet
+      reserve_other_visits: strictBoolean(true),
+      // The preview's plan_hash - execute refuses to save a different plan
+      expected_plan_hash: z.string().max(64).optional().nullable(),
     }),
   }),
 };
@@ -339,6 +345,117 @@ async function getAvailableSlots(institutionId, sessionId, filters = {}) {
   availableSlots.sort((a, b) => b.distance_km - a.distance_km);
 
   return availableSlots;
+}
+
+/** The visits a run covers: an explicit selection, else visits 1 through N. */
+function visitsInRun(visitNumbers, numberOfPostings) {
+  if (visitNumbers && visitNumbers.length > 0) return [...new Set(visitNumbers)].sort((a, b) => a - b);
+  return Array.from({ length: numberOfPostings }, (_, i) => i + 1);
+}
+
+/**
+ * Primary postings each supervisor already holds, per visit.
+ * @returns {Promise<Map<number, Map<number, number>>>} supervisor_id -> visit_number -> count
+ */
+async function getPrimaryPostingsByVisit(institutionId, sessionId) {
+  const rows = await query(
+    `SELECT supervisor_id, visit_number, COUNT(*) as posting_count
+     FROM supervisor_postings
+     WHERE institution_id = ? AND session_id = ?
+           AND status != 'cancelled' AND is_primary_posting = 1
+     GROUP BY supervisor_id, visit_number`,
+    [parseInt(institutionId), parseInt(sessionId)]
+  );
+
+  const held = new Map();
+  for (const row of rows) {
+    if (!held.has(row.supervisor_id)) held.set(row.supervisor_id, new Map());
+    held.get(row.supervisor_id).set(Number(row.visit_number), Number(row.posting_count));
+  }
+  return held;
+}
+
+/**
+ * On a run that covers only some of the session's visits, limit each supervisor
+ * to those visits' share of the posting limit, so posting Visit 1 on its own
+ * does not use up the room they need for the visits posted later. A run over
+ * every visit is left alone. This is the posting LIMIT only - allowances stay
+ * tied to each primary posting as it is created.
+ *
+ * @param {Array} supervisors - eligible supervisors (remaining_slots = overall room left)
+ * @param {Map} heldByVisit - supervisor_id -> visit_number -> primary postings held
+ * @param {number[]} runVisits - visits this run covers
+ * @param {number} maxVisits - the session's supervision visits
+ * @param {number} maxPostings - posting limit per supervisor for the session
+ */
+function shareLimitAcrossVisits(supervisors, heldByVisit, runVisits, maxVisits, maxPostings) {
+  if (runVisits.length >= maxVisits) return supervisors;
+
+  const share = Math.ceil((maxPostings * runVisits.length) / maxVisits);
+
+  return supervisors
+    .map((s) => {
+      const byVisit = heldByVisit.get(s.id);
+      const heldInRun = runVisits.reduce((sum, v) => sum + (byVisit?.get(v) || 0), 0);
+      const room = Math.max(0, share - heldInRun);
+      return { ...s, remaining_slots: Math.min(Number(s.remaining_slots) || 0, room) };
+    })
+    .filter((s) => s.remaining_slots > 0);
+}
+
+/** Execute must save the plan that was previewed; anything else means the data moved. */
+function assertPlanUnchanged(expectedHash, actualHash) {
+  if (expectedHash && expectedHash !== actualHash) {
+    throw new ConflictError(
+      'Postings or supervisors changed since this preview was generated. Preview again to see the updated plan.'
+    );
+  }
+}
+
+/**
+ * Fetch everything a run needs and run the engine. Preview and execute both go
+ * through here so the plan one shows is the plan the other saves.
+ */
+async function planAutoPosting(institutionId, session, body, filters, user) {
+  const { session_id, number_of_postings, posting_type, priority_enabled, avoid_repeat_schools, faculty_id } = body;
+
+  let supervisors = await getEligibleSupervisors(institutionId, session_id, priority_enabled, faculty_id, filters);
+  const slots = await getAvailableSlots(institutionId, session_id, filters);
+  const schoolHistory = await getSupervisorSchoolHistory(institutionId, session_id);
+  const deanAllocation = await getDeanAllocation(institutionId, session_id, user);
+  const maxPostingsPerSupervisor = await getMaxPostingsPerSupervisor(institutionId, session_id);
+
+  const runVisits = visitsInRun(filters.visitNumbers, number_of_postings);
+  const limitShared = body.reserve_other_visits && runVisits.length < session.max_supervision_visits;
+  if (limitShared) {
+    supervisors = shareLimitAcrossVisits(
+      supervisors,
+      await getPrimaryPostingsByVisit(institutionId, session_id),
+      runVisits,
+      session.max_supervision_visits,
+      maxPostingsPerSupervisor
+    );
+  }
+
+  // An explicit visit selection (including non-contiguous sets like [1,3]) is
+  // handled natively by the engine, which supersedes the "visits 1 through N"
+  // shorthand when given.
+  const result = runAutoPostingAlgorithm(supervisors, slots, number_of_postings, posting_type, priority_enabled, {
+    avoidRepeatSchools: avoid_repeat_schools,
+    schoolHistory,
+    maxAssignments: deanAllocation ? deanAllocation.remaining : Infinity,
+    visitNumbers: filters.visitNumbers,
+  });
+
+  return {
+    supervisors,
+    slots,
+    deanAllocation,
+    maxPostingsPerSupervisor,
+    result,
+    limitShared,
+    planHash: planFingerprint(result.assignments),
+  };
 }
 
 /**
@@ -746,7 +863,7 @@ const previewAutoPosting = async (req, res, next) => {
       throw new ValidationError('Validation failed', validation.error.flatten().fieldErrors);
     }
 
-    const { session_id, number_of_postings, posting_type, priority_enabled, avoid_repeat_schools, faculty_id } = validation.data.body;
+    const { session_id, number_of_postings } = validation.data.body;
 
     // Get session
     const session = await getSession(institutionId, session_id);
@@ -762,31 +879,17 @@ const previewAutoPosting = async (req, res, next) => {
     const filters = await resolveAutoPostFilters(institutionId, validation.data.body);
     assertVisitNumbersWithinSession(filters.visitNumbers, session);
 
-    // Get data
-    const supervisors = await getEligibleSupervisors(institutionId, session_id, priority_enabled, faculty_id, filters);
-    const slots = await getAvailableSlots(institutionId, session_id, filters);
-    const schoolHistory = await getSupervisorSchoolHistory(institutionId, session_id);
-    const deanAllocation = await getDeanAllocation(institutionId, session_id, req.user);
+    // Run algorithm (dry run)
+    const { supervisors, slots, deanAllocation, result, limitShared, planHash } = await planAutoPosting(
+      institutionId,
+      session,
+      validation.data.body,
+      filters,
+      req.user
+    );
 
     // Log for debugging
     console.log(`[Auto-Post Preview] visits_to_include=${number_of_postings}, total_slots=${slots.length}, supervisors=${supervisors.length}`);
-
-    // Run algorithm (dry run). An explicit visit selection (including non-contiguous
-    // sets like [1,3]) is handled natively by the engine, which supersedes the
-    // "visits 1 through N" shorthand when given.
-    const result = runAutoPostingAlgorithm(
-      supervisors,
-      slots,
-      number_of_postings,
-      posting_type,
-      priority_enabled,
-      {
-        avoidRepeatSchools: avoid_repeat_schools,
-        schoolHistory,
-        maxAssignments: deanAllocation ? deanAllocation.remaining : Infinity,
-        visitNumbers: filters.visitNumbers,
-      }
-    );
 
     // Slots the run actually considered - the engine decides visit eligibility, so this
     // is read back from it rather than recomputed here where the two could drift apart
@@ -796,6 +899,9 @@ const previewAutoPosting = async (req, res, next) => {
       success: true,
       data: {
         preview: true,
+        // Sent back with execute so the saved plan is the one shown here
+        plan_hash: planHash,
+        limit_shared_across_visits: limitShared,
         // A number for a plain 1..N run, or the exact array when specific visits were chosen -
         // callers that need to display this should handle both shapes (see describeVisits on
         // the frontend)
@@ -851,12 +957,13 @@ const executeAutoPosting = async (req, res, next) => {
     const filters = await resolveAutoPostFilters(institutionId, validation.data.body);
     assertVisitNumbersWithinSession(filters.visitNumbers, session);
 
-    // Get data
-    const supervisors = await getEligibleSupervisors(institutionId, session_id, priority_enabled, faculty_id, filters);
-    const slots = await getAvailableSlots(institutionId, session_id, filters);
-    const schoolHistory = await getSupervisorSchoolHistory(institutionId, session_id);
-    const deanAllocation = await getDeanAllocation(institutionId, session_id, req.user);
-    const maxPostingsPerSupervisor = await getMaxPostingsPerSupervisor(institutionId, session_id);
+    const { supervisors, slots, deanAllocation, maxPostingsPerSupervisor, result, planHash } = await planAutoPosting(
+      institutionId,
+      session,
+      validation.data.body,
+      filters,
+      req.user
+    );
 
     if (deanAllocation && deanAllocation.remaining <= 0) {
       throw new ValidationError(
@@ -864,22 +971,7 @@ const executeAutoPosting = async (req, res, next) => {
       );
     }
 
-    // Run algorithm. An explicit visit selection (including non-contiguous sets like
-    // [1,3]) is handled natively by the engine, which supersedes the "visits 1
-    // through N" shorthand when given.
-    const result = runAutoPostingAlgorithm(
-      supervisors,
-      slots,
-      number_of_postings,
-      posting_type,
-      priority_enabled,
-      {
-        avoidRepeatSchools: avoid_repeat_schools,
-        schoolHistory,
-        maxAssignments: deanAllocation ? deanAllocation.remaining : Infinity,
-        visitNumbers: filters.visitNumbers,
-      }
-    );
+    assertPlanUnchanged(validation.data.body.expected_plan_hash, planHash);
 
     if (result.assignments.length === 0) {
       throw new ValidationError('No valid assignments could be made. Check available slots and supervisor eligibility.');
@@ -906,6 +998,7 @@ const executeAutoPosting = async (req, res, next) => {
           lgas: filters.lgaPairs,
           route_ids: filters.routeIds,
           visit_numbers: filters.visitNumbers,
+          reserve_other_visits: validation.data.body.reserve_other_visits,
         }),
       ]
     );
@@ -1189,4 +1282,7 @@ module.exports = {
   runAutoPostingAlgorithm,
   // Exported for testing
   getAvailableSlots,
+  visitsInRun,
+  shareLimitAcrossVisits,
+  assertPlanUnchanged,
 };

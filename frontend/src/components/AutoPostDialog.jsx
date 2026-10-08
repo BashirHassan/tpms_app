@@ -22,7 +22,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Dialog } from './ui/Dialog';
 import { Button } from './ui/Button';
-import { Select } from './ui/Select';
 import { Badge } from './ui/Badge';
 import { StatsCard } from './ui/StatsCard';
 import { Switch } from './forms/InstitutionFormSections';
@@ -110,12 +109,10 @@ function AutoPostDialog({
   const { showToast } = useToast();
 
   // Allocation options
-  // Defaults to every visit: "Visit 1 only" fills each supervisor's whole
-  // allowance with 1st visits, which is rarely what a first run wants.
-  const [numberOfPostings, setNumberOfPostings] = useState(maxVisits);
   const [postingType, setPostingType] = useState('random');
   const [priorityEnabled, setPriorityEnabled] = useState(true);
   const [avoidRepeatSchools, setAvoidRepeatSchools] = useState(true);
+  const [reserveOtherVisits, setReserveOtherVisits] = useState(true);
 
   // Scope. Every list empty = run across everything, which is the pre-scoping behaviour.
   const [scopeOptions, setScopeOptions] = useState(null);
@@ -133,19 +130,29 @@ function AutoPostDialog({
   const [previewData, setPreviewData] = useState(null);
   const [resultData, setResultData] = useState(null);
 
+  // Visits that still have open slots. Unlike the other scope lists, visits start
+  // fully selected: a run covers every visit unless the admin narrows it.
+  const openVisits = useMemo(
+    () => (scopeOptions?.visits || []).map((v) => v.visit_number),
+    [scopeOptions]
+  );
+  const sessionVisits = scopeOptions?.max_visits ?? maxVisits;
+
+  useEffect(() => {
+    setSelectedVisits(openVisits);
+  }, [openVisits]);
+
   const resetScope = useCallback(() => {
     setSelectedSupervisors([]);
     setSelectedFaculties([]);
     setSelectedStates([]);
     setSelectedLgas([]);
     setSelectedRoutes([]);
-    setSelectedVisits([]);
-  }, []);
+    setSelectedVisits(openVisits);
+  }, [openVisits]);
 
-  // The session (and so its visit count) can load after this dialog first mounts
-  useEffect(() => {
-    if (open) setNumberOfPostings(maxVisits);
-  }, [open, maxVisits]);
+  const visitsNarrowed = selectedVisits.length < openVisits.length;
+  const noVisitChosen = openVisits.length > 0 && selectedVisits.length === 0;
 
   // Load what can be scoped to. Counts come from the slots that are still open, so the
   // pickers never offer an area with nothing left to fill. A dean's faculty_id narrows
@@ -258,14 +265,14 @@ function AutoPostDialog({
       selectedStates.length > 0 ||
       selectedLgas.length > 0 ||
       selectedRoutes.length > 0 ||
-      selectedVisits.length > 0;
+      visitsNarrowed;
 
-    const isNarrowedByAreaOnly = selectedRoutes.length === 0 && selectedVisits.length === 0;
+    const isNarrowedByAreaOnly = selectedRoutes.length === 0 && !visitsNarrowed;
 
     return { supervisorCount: pool.length, capacity, areaSlots, isNarrowed, isNarrowedByAreaOnly };
   }, [
     supervisorOptions, selectedSupervisors, selectedFaculties,
-    selectedStates, selectedLgas, selectedRoutes, selectedVisits, lgaOptions,
+    selectedStates, selectedLgas, selectedRoutes, visitsNarrowed, lgaOptions,
     allLocations, scopeOptions,
   ]);
 
@@ -276,7 +283,8 @@ function AutoPostDialog({
   const buildCriteria = useCallback(
     () => ({
       session_id: sessionId,
-      number_of_postings: numberOfPostings,
+      // Every visit of the session unless narrowed below
+      number_of_postings: sessionVisits,
       posting_type: postingType,
       priority_enabled: priorityEnabled,
       avoid_repeat_schools: avoidRepeatSchools,
@@ -287,12 +295,13 @@ function AutoPostDialog({
       states: selectedStates,
       lgas: selectedLgas.map(parseLgaKey),
       route_ids: selectedRoutes,
-      visit_numbers: selectedVisits,
+      visit_numbers: visitsNarrowed ? selectedVisits : [],
+      reserve_other_visits: reserveOtherVisits,
     }),
     [
-      sessionId, numberOfPostings, postingType, priorityEnabled, avoidRepeatSchools,
-      facultyId, selectedSupervisors, selectedFaculties,
-      selectedStates, selectedLgas, selectedRoutes, selectedVisits,
+      sessionId, sessionVisits, postingType, priorityEnabled, avoidRepeatSchools,
+      reserveOtherVisits, facultyId, selectedSupervisors, selectedFaculties,
+      selectedStates, selectedLgas, selectedRoutes, selectedVisits, visitsNarrowed,
     ]
   );
 
@@ -300,10 +309,10 @@ function AutoPostDialog({
     setStep('scope');
     setPreviewData(null);
     setResultData(null);
-    setNumberOfPostings(maxVisits);
     setPostingType('random');
     setPriorityEnabled(true);
     setAvoidRepeatSchools(true);
+    setReserveOtherVisits(true);
     resetScope();
     onClose();
   };
@@ -329,7 +338,11 @@ function AutoPostDialog({
   const handleExecute = async () => {
     setLoading(true);
     try {
-      const response = await autoPostingApi.execute(buildCriteria());
+      // The preview's fingerprint: the server refuses to save a different plan
+      const response = await autoPostingApi.execute({
+        ...buildCriteria(),
+        expected_plan_hash: previewData?.plan_hash,
+      });
 
       const data = response.data?.data || response.data;
       setResultData(data);
@@ -338,6 +351,15 @@ function AutoPostDialog({
       onComplete?.(data);
     } catch (error) {
       showToast('error', error.response?.data?.message || error.message || 'Failed to execute auto-posting');
+      // Something was posted or changed since the preview - show the plan as it stands now
+      if (error.response?.status === 409) {
+        try {
+          const refreshed = await autoPostingApi.preview(buildCriteria());
+          setPreviewData(refreshed.data?.data || refreshed.data);
+        } catch {
+          setStep('options');
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -668,8 +690,8 @@ function AutoPostDialog({
         <div className="space-y-2 pt-2 border-t border-gray-200">
           <h4 className="text-sm font-semibold text-gray-900 pt-4">Which visits</h4>
           <p className="text-xs text-gray-500">
-            Pick exact visits to fill - useful once Visit 1 is already posted. Leave empty to
-            use the &ldquo;visits to include&rdquo; setting on the next step.
+            Every visit with open slots is included. Deselect a visit to leave it for a later
+            run - you can post one visit, several, or all of them.
           </p>
           <div className="flex flex-wrap gap-2 pt-1">
             {visits.length === 0 && (
@@ -702,6 +724,9 @@ function AutoPostDialog({
               );
             })}
           </div>
+          {noVisitChosen && (
+            <p className="text-xs text-red-600">Select at least one visit to continue.</p>
+          )}
         </div>
 
         {/* Live read on whether the scope is workable */}
@@ -753,7 +778,7 @@ function AutoPostDialog({
             {selectedStates.length > 0 && <> in {selectedStates.join(', ')}</>}
             {selectedLgas.length > 0 && <> ({selectedLgas.length} LGA(s))</>}
             {selectedRoutes.length > 0 && <> · {selectedRoutes.length} route(s)</>}
-            {selectedVisits.length > 0 && <> · {describeVisits(selectedVisits)}</>}.
+            {visitsNarrowed && <> · {describeVisits(selectedVisits)}</>}.
             <button
               type="button"
               onClick={() => setStep('scope')}
@@ -765,37 +790,46 @@ function AutoPostDialog({
         </div>
       )}
 
-      {/* Visits to Include */}
+      {/* Visits in this run - chosen on the scope step */}
       <div className="space-y-2">
-        <label className="block text-sm font-medium text-gray-700">
-          Visits to Include
-        </label>
-        <Select
-          value={numberOfPostings}
-          onChange={(e) => setNumberOfPostings(parseInt(e.target.value))}
-          className="w-full"
-          disabled={selectedVisits.length > 0}
-        >
-          {Array.from({ length: maxVisits }, (_, i) => i + 1).map(n => (
-            <option key={n} value={n}>
-              {n === 1 ? 'Visit 1 only' : `Visits 1 through ${n}`}
-            </option>
-          ))}
-        </Select>
+        <span className="block text-sm font-medium text-gray-700">Visits in This Run</span>
+        <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+          <span className="text-gray-900">
+            {selectedVisits.length > 0 ? describeVisits(selectedVisits) : `All ${sessionVisits} visit(s)`}
+            {!visitsNarrowed && <span className="text-gray-500"> · every visit with open slots</span>}
+          </span>
+          <button
+            type="button"
+            onClick={() => setStep('scope')}
+            className="text-primary-600 underline hover:no-underline"
+          >
+            Change
+          </button>
+        </div>
         <p className="text-xs text-gray-500">
-          {selectedVisits.length > 0 ? (
-            <>
-              Overridden by the visit selection on the previous step:{' '}
-              <span className="font-medium">{describeVisits(selectedVisits)}</span>.
-            </>
-          ) : (
-            <>
-              Maximum visits per session: {maxVisits}. All available slots for selected visits
-              will be distributed fairly among supervisors.
-            </>
-          )}
+          Each supervisor&apos;s postings are mixed across these visits rather than piled onto one.
         </p>
       </div>
+
+      {/* Hold back the posting limit for visits not in this run */}
+      {visitsNarrowed && (
+        <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-900">
+              Leave Room for the Other Visits
+            </label>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Each supervisor only uses these visits&apos; share of their posting limit, so there is
+              room left when the remaining visits are posted. Turn off to let this run use the
+              whole limit.
+            </p>
+          </div>
+          <Switch
+            checked={reserveOtherVisits}
+            onCheckedChange={setReserveOtherVisits}
+          />
+        </div>
+      )}
 
       {/* Posting Type */}
       <div className="space-y-2">
@@ -864,8 +898,8 @@ function AutoPostDialog({
             <p className="font-medium mb-1">How Auto-Posting Works</p>
             <ul className="list-disc list-inside space-y-1 text-blue-700">
               <li>Only the supervisors and locations you scoped to are considered</li>
-              <li>All Visit 1 slots are filled first, then Visit 2, and so on (round-robin by visit)</li>
-              <li>Postings are shared evenly - counts stay within one of each other</li>
+              <li>Each supervisor&apos;s postings are mixed across the visits in the run</li>
+              <li>Postings are shared evenly between supervisors</li>
               <li>A supervisor is not sent back to a school they already cover unless unavoidable</li>
               <li>With priority on, senior supervisors take the longer journeys (same workload, more distance)</li>
               <li>Only schools with students (in groups) are considered</li>
@@ -894,6 +928,13 @@ function AutoPostDialog({
 
       {/* What the run was narrowed to */}
       {renderScopeBanner(previewData?.filters_applied)}
+
+      {previewData?.limit_shared_across_visits && (
+        <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700">
+          Supervisors are using only these visits&apos; share of their posting limit, leaving room
+          for the other visits.
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-3 gap-4">
@@ -928,6 +969,33 @@ function AutoPostDialog({
               <span className="text-gray-700">No postings</span>
             </div>
           </div>
+
+          {/* Visit mix per supervisor */}
+          {previewData.statistics.visit_spread && Object.keys(previewData.statistics.by_visit || {}).length > 1 && (
+            <div className="mt-4 pt-4 border-t border-gray-200 text-sm">
+              <h5 className="text-sm font-medium text-gray-700 mb-2">Visit Mix per Supervisor</h5>
+              {previewData.statistics.visit_spread.supervisors_on_single_visit === 0 &&
+              previewData.statistics.visit_spread.supervisors_uneven === 0 ? (
+                <div className="flex items-center gap-2 text-gray-700">
+                  <Badge variant="success">Even</Badge>
+                  Every supervisor is spread across the visits, within one posting of even.
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-gray-700">
+                  <span className="flex items-center gap-2">
+                    <Badge variant={previewData.statistics.visit_spread.supervisors_on_single_visit > 0 ? 'error' : 'success'}>
+                      {previewData.statistics.visit_spread.supervisors_on_single_visit}
+                    </Badge>
+                    On one visit only
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <Badge variant="warning">{previewData.statistics.visit_spread.supervisors_uneven}</Badge>
+                    More than one apart between visits (largest gap {previewData.statistics.visit_spread.max_gap})
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* By visit breakdown */}
           {previewData.statistics.by_visit && Object.keys(previewData.statistics.by_visit).length > 0 && (
@@ -1197,7 +1265,7 @@ function AutoPostDialog({
             <Button variant="outline" onClick={handleClose} disabled={loading}>
               Cancel
             </Button>
-            <Button onClick={handlePreview} disabled={loading || !sessionId}>
+            <Button onClick={handlePreview} disabled={loading || !sessionId || noVisitChosen}>
               {loading ? (
                 <IconLoader2 className="h-4 w-4 animate-spin mr-2" />
               ) : (
@@ -1215,7 +1283,7 @@ function AutoPostDialog({
         <Button variant="outline" onClick={handleClose} disabled={loading}>
           Cancel
         </Button>
-        <Button onClick={() => setStep('options')} disabled={loadingOptions || !sessionId}>
+        <Button onClick={() => setStep('options')} disabled={loadingOptions || !sessionId || noVisitChosen}>
           Next: Options
           <IconArrowRight className="h-4 w-4 ml-2" />
         </Button>

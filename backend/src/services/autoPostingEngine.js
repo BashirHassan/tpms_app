@@ -208,6 +208,18 @@ function buildShuffledRank(ids, seed) {
   return rank;
 }
 
+/**
+ * A short fingerprint of who goes where, independent of assignment order. The
+ * preview hands it out and execute checks it, so what gets saved is the plan
+ * that was actually reviewed.
+ */
+function planFingerprint(assignments) {
+  const keys = assignments
+    .map((a) => `${a.supervisor_id}-${a.school_id}-${a.group_number}-${a.visit_number}`)
+    .sort();
+  return `${keys.length}-${hashSeed(keys).toString(16)}`;
+}
+
 // ============================================================================
 // PHASE 1 - NORMALIZE
 // ============================================================================
@@ -2052,15 +2064,22 @@ function calculateStatistics(assignments, supervisorModel, slots, visitsIncluded
   const bySupervisor = {};
   const bySchool = {};
   const repeatsMap = new Map();
+  const runVisits = [...new Set(slots.map((s) => s.visit_number))].sort((a, b) => a - b);
 
   for (const a of assignments) {
     const visitKey = `visit_${a.visit_number}`;
     byVisit[visitKey] = (byVisit[visitKey] || 0) + 1;
 
     if (!bySupervisor[a.supervisor_id]) {
-      bySupervisor[a.supervisor_id] = { count: 0, name: a.supervisor_name, distance: 0 };
+      bySupervisor[a.supervisor_id] = {
+        count: 0,
+        name: a.supervisor_name,
+        distance: 0,
+        by_visit: Object.fromEntries(runVisits.map((v) => [`visit_${v}`, 0])),
+      };
     }
     bySupervisor[a.supervisor_id].count++;
+    bySupervisor[a.supervisor_id].by_visit[visitKey]++;
     bySupervisor[a.supervisor_id].distance += a.distance_km || 0;
 
     if (!bySchool[a.school_id]) bySchool[a.school_id] = { count: 0, name: a.school_name };
@@ -2082,6 +2101,18 @@ function calculateStatistics(assignments, supervisorModel, slots, visitsIncluded
   }
 
   const counts = Object.values(bySupervisor).map((s) => s.count);
+
+  // How evenly each supervisor's postings sit across the visits of this run
+  const visitSpread = { supervisors_on_single_visit: 0, supervisors_uneven: 0, max_gap: 0 };
+  if (runVisits.length > 1) {
+    for (const s of Object.values(bySupervisor)) {
+      const perVisit = Object.values(s.by_visit);
+      const gap = Math.max(...perVisit) - Math.min(...perVisit);
+      if (s.count > 1 && perVisit.filter((c) => c > 0).length === 1) visitSpread.supervisors_on_single_visit++;
+      if (gap > 1) visitSpread.supervisors_uneven++;
+      if (gap > visitSpread.max_gap) visitSpread.max_gap = gap;
+    }
+  }
   const travels = Object.values(bySupervisor).map((s) => s.distance);
   const supervisorsWithPostings = Object.keys(bySupervisor).length;
   const totalSupervisors = supervisorModel.byId.size;
@@ -2167,6 +2198,7 @@ function calculateStatistics(assignments, supervisorModel, slots, visitsIncluded
     assignments_by_visit: byVisit,
     assignments_by_supervisor: bySupervisor,
 
+    visit_spread: visitSpread,
     workload: {
       min: finalTotals.length ? Math.min(...finalTotals) : 0,
       max: finalTotals.length ? Math.max(...finalTotals) : 0,
@@ -2239,6 +2271,12 @@ function buildWarnings(assignments, statistics, extras) {
   if (statistics.total_unassigned > 0) {
     warnings.push(
       `${statistics.total_unassigned} slot(s) could not be assigned (more slots than total supervisor capacity)`
+    );
+  }
+
+  if (statistics.visit_spread.supervisors_on_single_visit > 0) {
+    warnings.push(
+      `${statistics.visit_spread.supervisors_on_single_visit} supervisor(s) have all their postings on only one visit - the other visits did not have enough open slots to share`
     );
   }
 
@@ -2622,6 +2660,7 @@ module.exports = {
   scoreCandidate,
   compareObjectives,
   improveSolution,
+  planFingerprint,
   equalizeTravel,
   equalizeWorkload,
   validateSolution,
