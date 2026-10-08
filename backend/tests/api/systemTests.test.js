@@ -6,43 +6,33 @@
 
 const request = require('supertest');
 const { createTestApp } = require('../helpers/appFactory');
+const {
+  generateTestToken,
+  generateSuperAdminToken,
+  TEST_INSTITUTION_ID,
+  TEST_INSTITUTION_SUBDOMAIN,
+  TEST_STAFF_EMAIL,
+} = require('../helpers/testUtils');
+
+// A real login needs a real password, which the suite has no business knowing.
+// Supply one to exercise it: TEST_STAFF_PASSWORD=... npm test
+const testWithStaffPassword = process.env.TEST_STAFF_PASSWORD ? test : test.skip;
 const pool = require('../../src/db/connection');
 
 describe('DigitalTP System Tests', () => {
   let app;
   let staffToken;
   let superAdminToken;
-  let institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
 
   beforeAll(async () => {
     app = createTestApp();
-    
-    // Get staff token (institution 1 / "demo" subdomain - required since staff
-    // logins are subdomain-scoped, see src/middleware/subdomainResolver.js)
-    const staffLogin = await request(app)
-      .post('/api/auth/login')
-      .set('X-Subdomain', 'demo')
-      .send({
-        email: 'jest-test@sitpms.test',
-        password: 'TestPassword123!'
-      });
-    
-    if (staffLogin.body.success) {
-      staffToken = staffLogin.body.data.token;
-      institutionId = staffLogin.body.data.user.institution?.id || 1;
-    }
-    
-    // Get super admin token
-    const superAdminLogin = await request(app)
-      .post('/api/auth/login')
-      .send({
-        email: 'jest-super@sitpms.test',
-        password: 'SuperAdmin123!'
-      });
-    
-    if (superAdminLogin.body.success) {
-      superAdminToken = superAdminLogin.body.data.token;
-    }
+
+    // Signed directly rather than logged in: the suite acts as a staff user and a
+    // super admin that already exist in this database (see tests/globalSetup.js),
+    // so it needs no account with a known password.
+    staffToken = generateTestToken();
+    superAdminToken = generateSuperAdminToken();
   });
 
   afterAll(async () => {
@@ -57,13 +47,13 @@ describe('DigitalTP System Tests', () => {
   // AUTHENTICATION TESTS
   // ============================================================================
   describe('Authentication', () => {
-    test('POST /api/auth/login - should login with valid credentials', async () => {
+    testWithStaffPassword('POST /api/auth/login - should login with valid credentials', async () => {
       const response = await request(app)
         .post('/api/auth/login')
-        .set('X-Subdomain', 'demo')
+        .set('X-Subdomain', TEST_INSTITUTION_SUBDOMAIN)
         .send({
-          email: 'jest-test@sitpms.test',
-          password: 'TestPassword123!'
+          email: TEST_STAFF_EMAIL,
+          password: process.env.TEST_STAFF_PASSWORD
         });
 
       expect(response.status).toBe(200);
@@ -75,9 +65,10 @@ describe('DigitalTP System Tests', () => {
     test('POST /api/auth/login - should fail with invalid credentials', async () => {
       const response = await request(app)
         .post('/api/auth/login')
-        .set('X-Subdomain', 'demo')
+        .set('X-Subdomain', TEST_INSTITUTION_SUBDOMAIN)
         .send({
-          email: 'jest-test@sitpms.test',
+          // Not a real account, so no genuine user collects a failed attempt
+          email: 'no-such-user@sitpms.test',
           password: 'wrongpassword'
         });
 
@@ -92,7 +83,7 @@ describe('DigitalTP System Tests', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
-      expect(response.body.data.email).toBe('jest-test@sitpms.test');
+      expect(response.body.data.email).toBe(TEST_STAFF_EMAIL);
     });
 
     test('GET /api/auth/me - should fail without token', async () => {
@@ -118,7 +109,7 @@ describe('DigitalTP System Tests', () => {
 
     test('GET /api/public/institution/:subdomain - should lookup institution by subdomain', async () => {
       const response = await request(app)
-        .get('/api/public/institution/demo');
+        .get(`/api/public/institution/${TEST_INSTITUTION_SUBDOMAIN}`);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);

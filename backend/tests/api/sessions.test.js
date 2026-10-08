@@ -15,6 +15,8 @@ const request = require('supertest');
 const {
   generateTestToken,
   generateStudentToken,
+  TEST_INSTITUTION_ID,
+  TEST_STAFF_USER_ID,
 } = require('../helpers/testUtils');
 
 let app;
@@ -29,7 +31,7 @@ beforeAll(async () => {
 // ============================================================================
 
 describe('GET /api/:institutionId/sessions', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   it('should reject request without token', async () => {
     const response = await request(app)
@@ -48,7 +50,7 @@ describe('GET /api/:institutionId/sessions', () => {
   });
   
   it('should allow staff access', async () => {
-    const token = generateTestToken({ userId: 1, institutionId: 1 });
+    const token = generateTestToken();
     const response = await request(app)
       .get(`/api/${institutionId}/sessions`)
       .set('Authorization', `Bearer ${token}`);
@@ -62,7 +64,7 @@ describe('GET /api/:institutionId/sessions', () => {
 // ============================================================================
 
 describe('GET /api/:institutionId/sessions/:id', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   it('should reject request without token', async () => {
     const response = await request(app)
@@ -77,7 +79,7 @@ describe('GET /api/:institutionId/sessions/:id', () => {
 // ============================================================================
 
 describe('POST /api/:institutionId/sessions', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   it('should reject request without token', async () => {
     const response = await request(app)
@@ -93,8 +95,8 @@ describe('POST /api/:institutionId/sessions', () => {
   
   describe('Validation', () => {
     const token = generateTestToken({ 
-      userId: 1, 
-      institutionId: 1, 
+      userId: TEST_STAFF_USER_ID, 
+      institutionId: TEST_INSTITUTION_ID, 
       role: 'head_of_teaching_practice' 
     });
     
@@ -117,7 +119,7 @@ describe('POST /api/:institutionId/sessions', () => {
 // ============================================================================
 
 describe('PUT /api/:institutionId/sessions/:id', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   it('should reject request without token', async () => {
     const response = await request(app)
@@ -133,7 +135,7 @@ describe('PUT /api/:institutionId/sessions/:id', () => {
 // ============================================================================
 
 describe('DELETE /api/:institutionId/sessions/:id', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   it('should reject request without token', async () => {
     const response = await request(app)
@@ -148,7 +150,7 @@ describe('DELETE /api/:institutionId/sessions/:id', () => {
 // ============================================================================
 
 describe('POST /api/:institutionId/sessions/:id/set-current', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
 
   it('should reject request without token', async () => {
     const response = await request(app)

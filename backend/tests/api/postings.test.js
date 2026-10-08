@@ -15,6 +15,7 @@ const request = require('supertest');
 const {
   generateTestToken,
   generateStudentToken,
+  TEST_INSTITUTION_ID,
 } = require('../helpers/testUtils');
 
 let app;
@@ -29,7 +30,7 @@ beforeAll(async () => {
 // ============================================================================
 
 describe('GET /api/:institutionId/postings', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   it('should reject request without token', async () => {
     const response = await request(app)
@@ -48,7 +49,7 @@ describe('GET /api/:institutionId/postings', () => {
   });
   
   describe('Query Parameters', () => {
-    const token = generateTestToken({ userId: 1, institutionId: 1 });
+    const token = generateTestToken();
     
     it('should support session_id filter', async () => {
       const response = await request(app)
@@ -73,7 +74,7 @@ describe('GET /api/:institutionId/postings', () => {
 // ============================================================================
 
 describe('GET /api/:institutionId/postings/:id', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   it('should reject request without token', async () => {
     const response = await request(app)
@@ -88,7 +89,7 @@ describe('GET /api/:institutionId/postings/:id', () => {
 // ============================================================================
 
 describe('POST /api/:institutionId/postings', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   it('should reject request without token', async () => {
     const response = await request(app)
@@ -108,7 +109,7 @@ describe('POST /api/:institutionId/postings', () => {
 // ============================================================================
 
 describe('PUT /api/:institutionId/postings/:id', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   it('should reject request without token', async () => {
     const response = await request(app)
@@ -124,7 +125,7 @@ describe('PUT /api/:institutionId/postings/:id', () => {
 // ============================================================================
 
 describe('DELETE /api/:institutionId/postings/:id', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   it('should reject request without token', async () => {
     const response = await request(app)
@@ -139,7 +140,7 @@ describe('DELETE /api/:institutionId/postings/:id', () => {
 // ============================================================================
 
 describe('POST /api/:institutionId/postings/multi', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   it('should reject request without token', async () => {
     const response = await request(app)

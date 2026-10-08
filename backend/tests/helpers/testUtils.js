@@ -8,6 +8,15 @@ const bcrypt = require('bcrypt');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'test-secret-key-for-jwt-signing';
 
+// An institution and users that exist in the database the HTTP suites run
+// against, resolved by tests/globalSetup.js. The fallbacks keep the mocked
+// suites working when there is no database.
+const TEST_INSTITUTION_ID = Number(process.env.TEST_INSTITUTION_ID) || 1;
+const TEST_INSTITUTION_SUBDOMAIN = process.env.TEST_INSTITUTION_SUBDOMAIN || 'demo';
+const TEST_STAFF_USER_ID = Number(process.env.TEST_STAFF_USER_ID) || 1;
+const TEST_STAFF_EMAIL = process.env.TEST_STAFF_EMAIL || null;
+const TEST_SUPER_ADMIN_ID = Number(process.env.TEST_SUPER_ADMIN_ID) || 1;
+
 // ============================================================================
 // TOKEN GENERATION
 // ============================================================================
@@ -20,8 +29,8 @@ const JWT_SECRET = process.env.JWT_SECRET || 'test-secret-key-for-jwt-signing';
  */
 function generateTestToken(payload = {}, expiresIn = '1h') {
   const defaultPayload = {
-    userId: 1,
-    institutionId: 1,
+    userId: TEST_STAFF_USER_ID,
+    institutionId: TEST_INSTITUTION_ID,
     role: 'head_of_teaching_practice',
     authType: 'staff',
     ...payload,
@@ -37,8 +46,8 @@ function generateTestToken(payload = {}, expiresIn = '1h') {
  */
 function generateExpiredToken(payload = {}) {
   const defaultPayload = {
-    userId: 1,
-    institutionId: 1,
+    userId: TEST_STAFF_USER_ID,
+    institutionId: TEST_INSTITUTION_ID,
     role: 'head_of_teaching_practice',
     authType: 'staff',
     ...payload,
@@ -54,8 +63,8 @@ function generateExpiredToken(payload = {}) {
  */
 function generateInvalidToken(payload = {}) {
   const defaultPayload = {
-    userId: 1,
-    institutionId: 1,
+    userId: TEST_STAFF_USER_ID,
+    institutionId: TEST_INSTITUTION_ID,
     role: 'head_of_teaching_practice',
     authType: 'staff',
     ...payload,
@@ -70,7 +79,7 @@ function generateInvalidToken(payload = {}) {
  */
 function generateSuperAdminToken() {
   return generateTestToken({
-    userId: 1,
+    userId: TEST_SUPER_ADMIN_ID,
     institutionId: null,
     role: 'super_admin',
     authType: 'staff',
@@ -83,7 +92,7 @@ function generateSuperAdminToken() {
  * @param {number} institutionId - Institution ID
  * @returns {string} JWT token for student
  */
-function generateStudentToken(studentId = 1, institutionId = 1) {
+function generateStudentToken(studentId = 1, institutionId = TEST_INSTITUTION_ID) {
   return generateTestToken({
     userId: studentId,
     institutionId,
@@ -281,6 +290,13 @@ function expectPaginated(response) {
 }
 
 module.exports = {
+  // Database-backed fixtures (see tests/globalSetup.js)
+  TEST_INSTITUTION_ID,
+  TEST_INSTITUTION_SUBDOMAIN,
+  TEST_STAFF_USER_ID,
+  TEST_STAFF_EMAIL,
+  TEST_SUPER_ADMIN_ID,
+
   // Token utilities
   generateTestToken,
   generateExpiredToken,

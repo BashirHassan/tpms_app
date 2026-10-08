@@ -19,6 +19,8 @@ const {
   authHeader,
   expectSuccess,
   expectError,
+  TEST_INSTITUTION_ID,
+  TEST_STAFF_USER_ID,
 } = require('../helpers/testUtils');
 
 let app;
@@ -33,7 +35,7 @@ beforeAll(async () => {
 // ============================================================================
 
 describe('GET /api/:institutionId/students', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   describe('Authentication', () => {
     it('should reject request without token', async () => {
@@ -57,7 +59,7 @@ describe('GET /api/:institutionId/students', () => {
   
   describe('Authorization', () => {
     it('should allow staff with valid token', async () => {
-      const token = generateTestToken({ userId: 1, institutionId: 1 });
+      const token = generateTestToken();
       const response = await request(app)
         .get(`/api/${institutionId}/students`)
         .set('Authorization', `Bearer ${token}`);
@@ -79,7 +81,7 @@ describe('GET /api/:institutionId/students', () => {
   
   describe('Query Parameters', () => {
     it('should support pagination parameters', async () => {
-      const token = generateTestToken({ userId: 1, institutionId: 1 });
+      const token = generateTestToken();
       const response = await request(app)
         .get(`/api/${institutionId}/students?page=1&limit=10`)
         .set('Authorization', `Bearer ${token}`);
@@ -89,7 +91,7 @@ describe('GET /api/:institutionId/students', () => {
     });
     
     it('should support search parameter', async () => {
-      const token = generateTestToken({ userId: 1, institutionId: 1 });
+      const token = generateTestToken();
       const response = await request(app)
         .get(`/api/${institutionId}/students?search=test`)
         .set('Authorization', `Bearer ${token}`);
@@ -98,7 +100,7 @@ describe('GET /api/:institutionId/students', () => {
     });
     
     it('should support session_id filter', async () => {
-      const token = generateTestToken({ userId: 1, institutionId: 1 });
+      const token = generateTestToken();
       const response = await request(app)
         .get(`/api/${institutionId}/students?session_id=1`)
         .set('Authorization', `Bearer ${token}`);
@@ -107,7 +109,7 @@ describe('GET /api/:institutionId/students', () => {
     });
     
     it('should support status filter', async () => {
-      const token = generateTestToken({ userId: 1, institutionId: 1 });
+      const token = generateTestToken();
       const response = await request(app)
         .get(`/api/${institutionId}/students?status=active`)
         .set('Authorization', `Bearer ${token}`);
@@ -122,7 +124,7 @@ describe('GET /api/:institutionId/students', () => {
 // ============================================================================
 
 describe('GET /api/:institutionId/students/:id', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   const studentId = 1;
   
   it('should reject request without token', async () => {
@@ -133,7 +135,7 @@ describe('GET /api/:institutionId/students/:id', () => {
   });
   
   it('should return 404 for non-existent student', async () => {
-    const token = generateTestToken({ userId: 1, institutionId: 1 });
+    const token = generateTestToken();
     const response = await request(app)
       .get(`/api/${institutionId}/students/999999`)
       .set('Authorization', `Bearer ${token}`);
@@ -147,7 +149,7 @@ describe('GET /api/:institutionId/students/:id', () => {
 // ============================================================================
 
 describe('POST /api/:institutionId/students', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   describe('Authentication', () => {
     it('should reject request without token', async () => {
@@ -166,8 +168,8 @@ describe('POST /api/:institutionId/students', () => {
   
   describe('Validation', () => {
     const token = generateTestToken({ 
-      userId: 1, 
-      institutionId: 1, 
+      userId: TEST_STAFF_USER_ID, 
+      institutionId: TEST_INSTITUTION_ID, 
       role: 'head_of_teaching_practice' 
     });
     
@@ -204,7 +206,7 @@ describe('POST /api/:institutionId/students', () => {
 // ============================================================================
 
 describe('PUT /api/:institutionId/students/:id', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   const studentId = 1;
   
   it('should reject request without token', async () => {
@@ -221,7 +223,7 @@ describe('PUT /api/:institutionId/students/:id', () => {
 // ============================================================================
 
 describe('DELETE /api/:institutionId/students/:id', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   const studentId = 1;
   
   it('should reject request without token', async () => {
@@ -237,7 +239,7 @@ describe('DELETE /api/:institutionId/students/:id', () => {
 // ============================================================================
 
 describe('POST /api/:institutionId/students/upload', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
 
   it('should reject request without token', async () => {
     const response = await request(app)
@@ -248,8 +250,8 @@ describe('POST /api/:institutionId/students/upload', () => {
 
   it('should reject request without file', async () => {
     const token = generateTestToken({
-      userId: 1,
-      institutionId: 1,
+      userId: TEST_STAFF_USER_ID,
+      institutionId: TEST_INSTITUTION_ID,
       role: 'head_of_teaching_practice'
     });
 

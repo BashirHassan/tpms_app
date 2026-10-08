@@ -15,6 +15,8 @@ const {
   generateTestToken,
   generateStudentToken,
   generateSuperAdminToken,
+  TEST_INSTITUTION_ID,
+  TEST_STAFF_USER_ID,
 } = require('../helpers/testUtils');
 
 let app;
@@ -29,7 +31,7 @@ beforeAll(async () => {
 // ============================================================================
 
 describe('GET /api/:institutionId/schools', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   describe('Authentication', () => {
     it('should reject request without token', async () => {
@@ -50,7 +52,7 @@ describe('GET /api/:institutionId/schools', () => {
   });
   
   describe('Query Parameters', () => {
-    const token = generateTestToken({ userId: 1, institutionId: 1 });
+    const token = generateTestToken();
     
     it('should support pagination', async () => {
       const response = await request(app)
@@ -91,7 +93,7 @@ describe('GET /api/:institutionId/schools', () => {
 // ============================================================================
 
 describe('GET /api/:institutionId/schools/:id', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   const schoolId = 1;
   
   it('should reject request without token', async () => {
@@ -102,7 +104,7 @@ describe('GET /api/:institutionId/schools/:id', () => {
   });
   
   it('should return 404 for non-existent school', async () => {
-    const token = generateTestToken({ userId: 1, institutionId: 1 });
+    const token = generateTestToken();
     const response = await request(app)
       .get(`/api/${institutionId}/schools/999999`)
       .set('Authorization', `Bearer ${token}`);
@@ -116,7 +118,7 @@ describe('GET /api/:institutionId/schools/:id', () => {
 // ============================================================================
 
 describe('POST /api/:institutionId/schools', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   
   it('should reject request without token', async () => {
     const response = await request(app)
@@ -134,8 +136,8 @@ describe('POST /api/:institutionId/schools', () => {
   
   describe('Validation', () => {
     const token = generateTestToken({ 
-      userId: 1, 
-      institutionId: 1, 
+      userId: TEST_STAFF_USER_ID, 
+      institutionId: TEST_INSTITUTION_ID, 
       role: 'head_of_teaching_practice' 
     });
     
@@ -159,7 +161,7 @@ describe('POST /api/:institutionId/schools', () => {
 // ============================================================================
 
 describe('PUT /api/:institutionId/schools/:id', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   const schoolId = 1;
   
   it('should reject request without token', async () => {
@@ -176,7 +178,7 @@ describe('PUT /api/:institutionId/schools/:id', () => {
 // ============================================================================
 
 describe('DELETE /api/:institutionId/schools/:id', () => {
-  const institutionId = 1;
+  const institutionId = TEST_INSTITUTION_ID;
   const schoolId = 1;
   
   it('should reject request without token', async () => {

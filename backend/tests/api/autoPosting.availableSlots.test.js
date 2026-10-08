@@ -1,7 +1,7 @@
 /**
  * getAvailableSlots() - the auto-posting slot generator
  *
- * Guards the core guarantee: only schools/groups with approved student
+ * Guards the core guarantee: only schools/groups with submitted student
  * acceptances in the *current* session ever produce postable slots. A school
  * with no students this session must never reach the allocation engine.
  */
@@ -27,7 +27,7 @@ describe('autoPostingController.getAvailableSlots', () => {
     expect(sessionQuery.params).toEqual([9, 5]);
   });
 
-  it('scopes the schools query to approved acceptances in the given session', async () => {
+  it('scopes the schools query to submitted acceptances in the given session', async () => {
     mockDb.setMockResult('max_supervision_visits', [{ max_supervision_visits: 1 }]);
     mockDb.setMockResult('FROM institution_schools', []);
     mockDb.setMockResult('FROM supervisor_postings', []);
@@ -38,12 +38,13 @@ describe('autoPostingController.getAvailableSlots', () => {
     expect(schoolsQuery).toBeDefined();
     const { sql, params } = schoolsQuery;
 
-    // Only approved acceptances for THIS session count toward eligibility - this
+    // Only submitted acceptances for THIS session count toward eligibility ('submitted'
+    // is the one acceptance status since migration 066 made it binary) - this
     // INNER JOIN is what keeps a school with no students this session out of the
     // pool entirely (it never appears in the result set, so no slots are ever
     // generated for it)
     expect(sql).toMatch(/JOIN student_acceptances sa[\s\S]*sa\.session_id = \?/);
-    expect(sql).toContain("sa.status = 'approved'");
+    expect(sql).toContain("sa.status = 'submitted'");
     expect(sql).not.toMatch(/LEFT JOIN student_acceptances/);
 
     // Secondary/merged groups are excluded - they get dependent postings automatically

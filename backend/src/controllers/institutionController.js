@@ -473,22 +473,22 @@ const getSmtpSettings = async (req, res, next) => {
       throw new NotFoundError('Institution not found');
     }
 
-    // Decrypt password if exists
     const smtpSettings = {
       smtp_host: institution.smtp_host,
       smtp_port: institution.smtp_port,
       smtp_user: institution.smtp_user,
-      smtp_password: institution.smtp_password ? decrypt(institution.smtp_password) : null,
       smtp_from_email: institution.smtp_from_email,
       smtp_from_name: institution.smtp_from_name,
       smtp_secure: institution.smtp_secure === 1,
       is_configured: !!(institution.smtp_host && institution.smtp_user),
     };
 
-    // Mask password for response
-    if (smtpSettings.smtp_password) {
+    // The password is never sent to the frontend, only the fact that one is
+    // stored - so it is not decrypted here. A password saved under an old
+    // encryption key must not stop this page loading: it is where the admin
+    // re-enters it.
+    if (institution.smtp_password) {
       smtpSettings.smtp_password_masked = '••••••••';
-      delete smtpSettings.smtp_password; // Don't send actual password to frontend
     }
 
     res.json({

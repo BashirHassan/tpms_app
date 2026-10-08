@@ -16,6 +16,7 @@ module.exports = {
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],
   testTimeout: 30000,
+  globalSetup: '<rootDir>/tests/globalSetup.js',
   setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
   modulePathIgnorePatterns: ['<rootDir>/node_modules/'],
   clearMocks: true,

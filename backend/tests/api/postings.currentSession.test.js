@@ -14,6 +14,7 @@ const request = require('supertest');
 const {
   generateSuperAdminToken,
   generateStudentToken,
+  TEST_INSTITUTION_ID,
 } = require('../helpers/testUtils');
 
 let app;
@@ -23,7 +24,7 @@ beforeAll(async () => {
   app = createTestApp();
 });
 
-const institutionId = 1;
+const institutionId = TEST_INSTITUTION_ID;
 const summaryPath = `/api/${institutionId}/postings/current-session/summary`;
 const clearPath = `/api/${institutionId}/postings/current-session`;
 
