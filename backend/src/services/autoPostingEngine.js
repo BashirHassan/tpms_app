@@ -22,14 +22,16 @@
  *   STRONG visit spread     a supervisor's postings are mixed across the visits
  *                           of the run, never piled onto one (planUnitHeadcount)
  *   SOFT  repeat avoidance  prefer a school the supervisor has not already covered
+ *   SOFT  visit evenness    within the mix, keep each supervisor's visits level
  *   SOFT  workload balance  even total posting counts (including existing load)
  *   SOFT  travel balance    even total kilometres, only within an equivalent
  *                           priority/area group
  *
  * This is a lexicographic objective, not a weighted sum (see scoreCandidate /
  * compareObjectives): a tiny travel improvement can never buy back a broken
- * priority or LGA-cohesion rule. Multiple deterministic candidate solutions are
- * generated (generateInitialSolutions) and compared; the winner is then refined
+ * priority or LGA-cohesion rule. Several candidate solutions, each from its own
+ * seeded tie-break shuffle, are generated (generateInitialSolutions) and
+ * compared; the winner is then refined
  * by a small set of named, hierarchy-validated local moves (improveSolution).
  *
  * @see docs/AUTOMATED_POSTING_SYSTEM.md
@@ -981,7 +983,9 @@ const OBJECTIVE_FIELDS = [
   'priorityInversionSeverity',
   'crossLgaAssignmentCount',
   'lgaFragmentation',
+  'singleVisitCount',
   'repeatCount',
+  'visitImbalance',
   'workloadImbalance',
   'travelImbalance',
 ];
@@ -1064,6 +1068,35 @@ function scoreCandidate(assignments, ctx) {
     crossLgaAssignmentCount = assignments.filter((a) => a.cluster_break).length;
   }
 
+  // Visit mix, in two strengths. A supervisor with several postings all on one
+  // visit is the failure worth a repeat school to avoid; being merely uneven
+  // (postings beyond "within one of even", so 4/1/1 counts 2) is not, and
+  // ranks below repeats.
+  const runVisits = [...new Set(ctx.slots.map((s) => s.visit_number))];
+  let singleVisitCount = 0;
+  let visitImbalance = 0;
+  if (runVisits.length > 1) {
+    const perVisit = new Map(); // supervisorId -> Map(visit -> count)
+    for (const a of assignments) {
+      if (!perVisit.has(a.supervisor_id)) perVisit.set(a.supervisor_id, new Map());
+      const byVisit = perVisit.get(a.supervisor_id);
+      byVisit.set(a.visit_number, (byVisit.get(a.visit_number) || 0) + 1);
+    }
+    for (const byVisit of perVisit.values()) {
+      let max = 0;
+      let min = Infinity;
+      let total = 0;
+      for (const v of runVisits) {
+        const count = byVisit.get(v) || 0;
+        total += count;
+        if (count > max) max = count;
+        if (count < min) min = count;
+      }
+      if (total > 1 && max === total) singleVisitCount++;
+      visitImbalance += Math.max(0, max - min - 1);
+    }
+  }
+
   const repeatCountVal = assignments.filter((a) => a.repeat_school).length;
 
   const totalsBySupervisor = new Map();
@@ -1089,7 +1122,9 @@ function scoreCandidate(assignments, ctx) {
     priorityInversionSeverity: Number(inversionSeverity.toFixed(2)),
     crossLgaAssignmentCount,
     lgaFragmentation,
+    singleVisitCount,
     repeatCount: repeatCountVal,
+    visitImbalance,
     workloadImbalance: Number(workloadImbalance.toFixed(3)),
     travelImbalance: Number(travelImbalance.toFixed(3)),
   };
@@ -1107,87 +1142,31 @@ function compareObjectives(a, b) {
 // PHASE 8 - MULTIPLE DETERMINISTIC INITIAL SOLUTIONS
 // ============================================================================
 
-const STRATEGIES = [
-  'A-hardest-difficulty-first',
-  'B-largest-demand-first',
-  'C-hardest-to-fit-first',
-  'D-highest-priority-tier-first',
-  'E-visit-balanced',
-];
+// The seating core always works hardest-area-first, so the order units are fed
+// in cannot change the outcome - what does change it is who wins each tie.
+// Each candidate therefore uses its own seeded shuffle of the supervisors, and
+// the best-scoring one is kept. Candidate 1 uses the batch's own shuffle.
+const CANDIDATE_COUNT = 5;
 
-function orderUnitsForStrategy(strategyName, demandModel, tiers, supervisorModel) {
+function orderUnitsHardestFirst(demandModel) {
   const allUnits = [];
   for (const visit of demandModel.visits) {
     for (const unit of demandModel.byVisit.get(visit)) allUnits.push(unit);
   }
-
-  const byKey = (a, b) => a.key.localeCompare(b.key) || a.visit_number - b.visit_number;
-
-  switch (strategyName) {
-    case 'A-hardest-difficulty-first':
-      return [...allUnits].sort((a, b) => b.difficulty - a.difficulty || byKey(a, b));
-
-    case 'B-largest-demand-first':
-      return [...allUnits].sort((a, b) => b.demand - a.demand || byKey(a, b));
-
-    case 'C-hardest-to-fit-first': {
-      return [...allUnits].sort((a, b) => {
-        const feasA = tiers.filter((t) => t.totalCapacity >= a.demand).length || 1;
-        const feasB = tiers.filter((t) => t.totalCapacity >= b.demand).length || 1;
-        return feasA - feasB || b.difficulty - a.difficulty || byKey(a, b);
-      });
-    }
-
-    case 'D-highest-priority-tier-first': {
-      // Process the whole difficulty-sorted list once - it already places the
-      // hardest work first, which is what a senior-tier-first pass wants to see
-      // first anyway (senior tiers are seeded from the hardest units).
-      return [...allUnits].sort((a, b) => b.difficulty - a.difficulty || byKey(a, b));
-    }
-
-    case 'E-visit-balanced': {
-      // Round-robin across visits so no single visit's demand can monopolize
-      // capacity purely because it was processed first.
-      const byVisit = new Map();
-      for (const unit of allUnits) {
-        if (!byVisit.has(unit.visit_number)) byVisit.set(unit.visit_number, []);
-        byVisit.get(unit.visit_number).push(unit);
-      }
-      for (const list of byVisit.values()) {
-        list.sort((a, b) => b.difficulty - a.difficulty || byKey(a, b));
-      }
-      const visitKeys = [...byVisit.keys()].sort((a, b) => a - b);
-      const result = [];
-      let more = true;
-      let idx = 0;
-      while (more) {
-        more = false;
-        for (const v of visitKeys) {
-          const list = byVisit.get(v);
-          if (idx < list.length) {
-            result.push(list[idx]);
-            more = true;
-          }
-        }
-        idx++;
-      }
-      return result;
-    }
-
-    default:
-      return [...allUnits].sort((a, b) => b.difficulty - a.difficulty || byKey(a, b));
-  }
+  return allUnits.sort(
+    (a, b) => b.difficulty - a.difficulty || a.key.localeCompare(b.key) || a.visit_number - b.visit_number
+  );
 }
 
-function buildCandidate(strategyName, demandModel, baseSupervisorModel, baseTiers, postingType, priorityEnabled, avoidRepeatSchools, ctx) {
+function buildCandidate(strategyName, shuffledRank, demandModel, baseSupervisorModel, baseTiers, postingType, priorityEnabled, avoidRepeatSchools, ctx) {
   const supervisorModel = cloneSupervisorModel(baseSupervisorModel);
   const tiers = cloneTiers(baseTiers);
 
-  const orderedUnits = orderUnitsForStrategy(strategyName, demandModel, tiers, supervisorModel);
+  const orderedUnits = orderUnitsHardestFirst(demandModel);
 
   const { seatPlan, unplacedUnits } = solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, {
     priorityEnabled,
-    shuffledRank: ctx.shuffledRank,
+    shuffledRank,
   });
 
   const { assignments, unassignedCount } = assignSlotsWithinClusters(
@@ -1196,7 +1175,7 @@ function buildCandidate(strategyName, demandModel, baseSupervisorModel, baseTier
     supervisorModel,
     postingType,
     avoidRepeatSchools,
-    ctx.shuffledRank
+    shuffledRank
   );
 
   reflagClusterBreaks(assignments, postingType);
@@ -1205,6 +1184,7 @@ function buildCandidate(strategyName, demandModel, baseSupervisorModel, baseTier
 
   return {
     strategyName,
+    shuffledRank,
     assignments,
     supervisorModel,
     tiers,
@@ -1215,9 +1195,24 @@ function buildCandidate(strategyName, demandModel, baseSupervisorModel, baseTier
 }
 
 function generateInitialSolutions(demandModel, supervisorModel, tiers, postingType, priorityEnabled, avoidRepeatSchools, ctx) {
-  return STRATEGIES.map((name) =>
-    buildCandidate(name, demandModel, supervisorModel, tiers, postingType, priorityEnabled, avoidRepeatSchools, ctx)
-  );
+  const supervisorIds = [...supervisorModel.byId.keys()];
+  const baseRank = ctx.shuffledRank || new Map();
+
+  return Array.from({ length: CANDIDATE_COUNT }, (_, index) => {
+    const shuffledRank =
+      index === 0 ? baseRank : buildShuffledRank(supervisorIds, hashSeed([ctx.seed ?? 0, 'candidate', index]));
+    return buildCandidate(
+      `shuffle-${index + 1}`,
+      shuffledRank,
+      demandModel,
+      supervisorModel,
+      tiers,
+      postingType,
+      priorityEnabled,
+      avoidRepeatSchools,
+      ctx
+    );
+  });
 }
 
 function selectBestCandidate(candidates) {
@@ -1589,6 +1584,32 @@ function buildVisitLedger(assignments) {
   };
 }
 
+/**
+ * Which schools each supervisor covers once this run's own assignments are
+ * counted on top of their existing postings. The balancing passes work from
+ * the pre-run supervisor model, whose history knows nothing of the run, so
+ * without this they could hand a supervisor a school the run already gave them.
+ */
+function buildSchoolCover(assignments, supervisorModel) {
+  const inRun = new Map(); // supervisorId -> Map(schoolId -> postings this run)
+  const bump = (supervisorId, schoolId, delta) => {
+    if (!inRun.has(supervisorId)) inRun.set(supervisorId, new Map());
+    const bySchool = inRun.get(supervisorId);
+    bySchool.set(schoolId, (bySchool.get(schoolId) || 0) + delta);
+  };
+  for (const a of assignments) bump(a.supervisor_id, a.school_id, 1);
+
+  return {
+    covers: (supervisorId, schoolId) =>
+      supervisorModel.byId.get(supervisorId)?.schoolHistory.has(schoolId) ||
+      (inRun.get(supervisorId)?.get(schoolId) || 0) > 0,
+    move: (fromId, toId, schoolId) => {
+      bump(fromId, schoolId, -1);
+      bump(toId, schoolId, 1);
+    },
+  };
+}
+
 const EQUALIZE_TRAVEL_MAX_MOVES = 500;
 const EQUALIZE_TRAVEL_MAX_COMPARISONS = 200000;
 
@@ -1604,6 +1625,8 @@ function equalizeTravel(assignments, supervisorModel, tiers, postingType, avoidR
   const rankOf = (id) => shuffledRank.get(id) ?? id;
   const unitOf = (a) => (postingType === 'random' ? null : clusterKeyFor(a, postingType));
   const eligible = [...supervisorModel.byId.values()].filter((e) => e.totalCapacity > 0);
+
+  const schoolCover = buildSchoolCover(assignments, supervisorModel);
 
   let movesApplied = 0;
   let comparisons = 0;
@@ -1726,8 +1749,9 @@ function equalizeTravel(assignments, supervisorModel, tiers, postingType, avoidR
           const d = distanceBySupervisor.get(e.supervisor.id) || 0;
           if (d >= donorDistance) continue; // wouldn't move either total toward the other
 
-          const wouldRepeat = avoidRepeatSchools && e.schoolHistory.has(candidate.school_id) ? 1 : 0;
-          const key = [wouldRepeat, d, rankOf(e.supervisor.id)];
+          // Travel balance ranks below repeat avoidance, so it never buys a repeat
+          if (avoidRepeatSchools && schoolCover.covers(e.supervisor.id, candidate.school_id)) continue;
+          const key = [d, rankOf(e.supervisor.id)];
           if (receiver === null || compareArrays(key, receiverKey) < 0) {
             receiver = e;
             receiverKey = key;
@@ -1756,12 +1780,12 @@ function equalizeTravel(assignments, supervisorModel, tiers, postingType, avoidR
           const newSpread = Math.max(...simulated) - Math.min(...simulated);
           if (newSpread >= currentSpread - 1e-9) continue; // no genuine improvement - try a smaller candidate
 
+          schoolCover.move(donor.supervisor.id, receiver.supervisor.id, candidate.school_id);
           candidate.supervisor_id = receiver.supervisor.id;
           candidate.supervisor_name = receiver.supervisor.name;
           candidate.rank_code = receiver.supervisor.rank_code;
           candidate.priority_number = receiver.supervisor.priority_number;
-          candidate.repeat_school = avoidRepeatSchools ? receiver.schoolHistory.has(candidate.school_id) : false;
-          receiver.schoolHistory.add(candidate.school_id);
+          candidate.repeat_school = false;
           movesApplied++;
           applied = true;
           break;
@@ -1822,6 +1846,8 @@ function equalizeWorkload(assignments, supervisorModel, tiers, postingType, avoi
     if (!countBySupervisor.has(e.supervisor.id)) countBySupervisor.set(e.supervisor.id, 0);
   }
 
+  const schoolCover = buildSchoolCover(assignments, supervisorModel);
+
   let movesApplied = 0;
   let budgetExhausted = false;
 
@@ -1877,7 +1903,8 @@ function equalizeWorkload(assignments, supervisorModel, tiers, postingType, avoi
     // donor's remaining set stays skewed toward their own harder work, and a
     // cross-tier receiver only ever gets a modest top-up rather than a large
     // chunk of the donor's load.
-    const repeatForReceiver = (a) => (avoidRepeatSchools && receiver.schoolHistory.has(a.school_id) ? 1 : 0);
+    const repeatForReceiver = (a) =>
+      avoidRepeatSchools && schoolCover.covers(receiver.supervisor.id, a.school_id) ? 1 : 0;
     // ...and before either, a posting from a visit the donor can spare and
     // the receiver is short of, so closing the count gap keeps both mixed
     // across visits.
@@ -1887,10 +1914,25 @@ function equalizeWorkload(assignments, supervisorModel, tiers, postingType, avoi
       visitLedger.unbalances(receiver.supervisor.id, a.visit_number, 1)
         ? 1
         : 0;
+    // ...and first of all, one that does not send the receiver into a second
+    // area on a visit where they already have one.
+    const receiverAreas = new Map(); // visit -> Set(area)
+    if (postingType !== 'random') {
+      for (const a of assignments) {
+        if (a.supervisor_id !== receiver.supervisor.id) continue;
+        if (!receiverAreas.has(a.visit_number)) receiverAreas.set(a.visit_number, new Set());
+        receiverAreas.get(a.visit_number).add(clusterKeyFor(a, postingType));
+      }
+    }
+    const splitsReceiverVisit = (a) => {
+      const areas = receiverAreas.get(a.visit_number);
+      return areas && !areas.has(clusterKeyFor(a, postingType)) ? 1 : 0;
+    };
     const donorAssignments = assignments
       .filter((a) => a.supervisor_id === donor.supervisor.id)
       .sort(
         (a, b) =>
+          splitsReceiverVisit(a) - splitsReceiverVisit(b) ||
           upsetsVisitMix(a) - upsetsVisitMix(b) ||
           repeatForReceiver(a) - repeatForReceiver(b) ||
           a.distance_km - b.distance_km ||
@@ -1899,15 +1941,15 @@ function equalizeWorkload(assignments, supervisorModel, tiers, postingType, avoi
     const moved = donorAssignments[0];
     if (!moved) break;
 
+    moved.repeat_school = repeatForReceiver(moved) === 1;
+    schoolCover.move(donor.supervisor.id, receiver.supervisor.id, moved.school_id);
     moved.supervisor_id = receiver.supervisor.id;
     moved.supervisor_name = receiver.supervisor.name;
     moved.rank_code = receiver.supervisor.rank_code;
     moved.priority_number = receiver.supervisor.priority_number;
-    moved.repeat_school = avoidRepeatSchools ? receiver.schoolHistory.has(moved.school_id) : false;
 
     countBySupervisor.set(donor.supervisor.id, donorCount - 1);
     countBySupervisor.set(receiver.supervisor.id, receiverCount + 1);
-    receiver.schoolHistory.add(moved.school_id);
     movesApplied++;
 
     if (move === EQUALIZE_MAX_MOVES - 1) budgetExhausted = true;
@@ -2487,6 +2529,7 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
     supervisors: baseSupervisorModel.byId,
     maxDistanceNorm,
     shuffledRank,
+    seed,
   };
 
   // ---- Phase 5-6-8: multiple deterministic initial solutions ----
@@ -2501,6 +2544,9 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
   );
 
   let winner = selectBestCandidate(candidates);
+  // Every later tie-break follows the winning candidate's shuffle
+  const winnerRank = winner.shuffledRank;
+  scoringCtx.shuffledRank = winnerRank;
 
   // Respect dean ceiling as a hard cap on the chosen candidate (best-first by objective)
   let quotaSkipped = 0;
@@ -2543,7 +2589,7 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
     postingType,
     avoidRepeatSchools,
     priorityEnabled,
-    shuffledRank
+    winnerRank
   );
 
   // ---- Phase 9.5: narrow the postings-per-supervisor gap to a fair share ----
@@ -2554,7 +2600,7 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
     postingType,
     avoidRepeatSchools,
     priorityEnabled,
-    shuffledRank
+    winnerRank
   );
   if (utilization.remainingGap > MAX_LOAD_GAP) {
     const reason = utilization.belowCapacityCeiling > 0
@@ -2608,7 +2654,11 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
 
   const optimizationMeta = {
     strategy: winner.strategyName,
-    candidate_solutions: candidates.map((c) => ({ strategy: c.strategyName, objective: c.objective })),
+    candidate_solutions: candidates.map((c) => ({
+      strategy: c.strategyName,
+      objective: c.objective,
+      fingerprint: planFingerprint(c.assignments),
+    })),
     improvement_passes: improvement.passes,
     objective_before: improvement.objectiveBefore,
     objective_after: improvement.objectiveAfter,

@@ -6,7 +6,14 @@
  * up with e.g. six postings that were all 1st visit.
  */
 
-const { runAutoPostingAlgorithm } = require('../../src/services/autoPostingEngine');
+const {
+  runAutoPostingAlgorithm,
+  buildSupervisorModel,
+  buildPriorityTiers,
+  equalizeWorkload,
+  scoreCandidate,
+  compareObjectives,
+} = require('../../src/services/autoPostingEngine');
 const { assertValidSolution } = require('../helpers/autoPostingAssertions');
 
 const POSTING_TYPES = ['random', 'lga_based', 'route_based'];
@@ -189,5 +196,86 @@ describe('Auto-posting engine - visit spread per supervisor', () => {
 
     expect(result.assignments).toHaveLength(20);
     expect(result.assignments.every((a) => a.visit_number === 2)).toBe(true);
+  });
+
+  describe('as part of the objective', () => {
+    const posting = (supervisorId, schoolId, visit) => ({
+      supervisor_id: supervisorId, supervisor_name: `S${supervisorId}`, rank_code: 'SL', priority_number: 1,
+      school_id: schoolId, school_name: `School ${schoolId}`, group_number: 1, visit_number: visit,
+      distance_km: 10, route_id: 1, route_name: 'R1', lga: 'LGA 1', repeat_school: false, cluster_break: false,
+    });
+    const supervisors = [1, 2].map((id) => ({ id, name: `S${id}`, rank_code: 'SL', priority_number: 1, current_postings: 0, remaining_slots: 6 }));
+    const slots = [1, 2, 3, 4].flatMap((school) => [1, 2].map((visit) => ({ school_id: school, group_number: 1, visit_number: visit })));
+    const score = (assignments) => {
+      const model = buildSupervisorModel(supervisors, new Map());
+      return scoreCandidate(assignments, {
+        tiers: buildPriorityTiers(model, false), eligibleSlotCount: assignments.length, supervisors: model.byId,
+        maxDistanceNorm: 1, slots, visitFilter: () => true, maxAssignments: Infinity, postingType: 'random',
+      });
+    };
+
+    const mixed = [posting(1, 1, 1), posting(1, 2, 1), posting(1, 3, 2), posting(1, 4, 2), posting(2, 3, 1), posting(2, 4, 1), posting(2, 1, 2), posting(2, 2, 2)];
+    const piled = [posting(1, 1, 1), posting(1, 2, 1), posting(1, 3, 1), posting(1, 4, 1), posting(2, 1, 2), posting(2, 2, 2), posting(2, 3, 2), posting(2, 4, 2)];
+
+    it('scores a mixed plan as clean and a piled-up plan as single-visit and uneven', () => {
+      expect(score(mixed)).toMatchObject({ singleVisitCount: 0, visitImbalance: 0 });
+      expect(score(piled)).toMatchObject({ singleVisitCount: 2, visitImbalance: 6 });
+    });
+
+    it('ranks a single-visit pile-up above repeat avoidance but below area cohesion', () => {
+      const base = score(mixed);
+      expect(compareObjectives({ ...base, singleVisitCount: 0, repeatCount: 5 }, { ...base, singleVisitCount: 1, repeatCount: 0 })).toBeLessThan(0);
+      expect(compareObjectives({ ...base, lgaFragmentation: 0, singleVisitCount: 5 }, { ...base, lgaFragmentation: 1, singleVisitCount: 0 })).toBeLessThan(0);
+    });
+
+    it('ranks mere unevenness below repeat avoidance but above workload balance', () => {
+      const base = score(mixed);
+      expect(compareObjectives({ ...base, repeatCount: 0, visitImbalance: 5 }, { ...base, repeatCount: 1, visitImbalance: 0 })).toBeLessThan(0);
+      expect(compareObjectives({ ...base, visitImbalance: 0, workloadImbalance: 5 }, { ...base, visitImbalance: 1, workloadImbalance: 0 })).toBeLessThan(0);
+    });
+  });
+
+  describe('workload pass', () => {
+    it('hands over a posting from the receiver\'s own area rather than a nearer one elsewhere', () => {
+      const supervisors = [
+        { id: 1, name: 'Busy', rank_code: 'SL', priority_number: 1, current_postings: 0, remaining_slots: 8 },
+        { id: 2, name: 'Light', rank_code: 'SL', priority_number: 1, current_postings: 0, remaining_slots: 8 },
+      ];
+      const model = buildSupervisorModel(supervisors, new Map());
+      const tiers = buildPriorityTiers(model, false);
+      const posting = (supervisorId, schoolId, visit, lga, distance) => ({
+        supervisor_id: supervisorId, supervisor_name: supervisorId === 1 ? 'Busy' : 'Light', rank_code: 'SL', priority_number: 1,
+        school_id: schoolId, school_name: `School ${schoolId}`, group_number: 1, visit_number: visit,
+        distance_km: distance, route_id: 1, route_name: 'R1', lga, repeat_school: false, cluster_break: false,
+      });
+
+      // Busy: visit 1 in LGA B (near), visit 2 in LGA A (far). Light: visit 1 in LGA C, visit 2 in LGA A.
+      const assignments = [
+        posting(1, 1, 1, 'LGA B', 10), posting(1, 2, 1, 'LGA B', 10), posting(1, 3, 1, 'LGA B', 10),
+        posting(1, 4, 2, 'LGA A', 50), posting(1, 5, 2, 'LGA A', 50), posting(1, 6, 2, 'LGA A', 50),
+        posting(2, 7, 1, 'LGA C', 20), posting(2, 8, 2, 'LGA A', 50),
+      ];
+
+      const { movesApplied } = equalizeWorkload(assignments, model, tiers, 'lga_based', true, false);
+
+      expect(movesApplied).toBe(1);
+      const lightAreas = (visit) => new Set(assignments.filter((a) => a.supervisor_id === 2 && a.visit_number === visit).map((a) => a.lga));
+      expect(lightAreas(1).size).toBe(1);
+      expect(lightAreas(2).size).toBe(1);
+      expect(assignments.filter((a) => a.cluster_break)).toHaveLength(0);
+    });
+  });
+
+  describe('candidate solutions', () => {
+    it('compares genuinely different plans, not five copies of one', () => {
+      const config = SCENARIOS[2][1];
+      const { supervisors, slots } = makeScenario(config);
+      const { statistics } = runAutoPostingAlgorithm(supervisors, slots, config.visits, 'lga_based', true, {});
+
+      const candidates = statistics.optimization.candidate_solutions;
+      expect(candidates.length).toBeGreaterThan(1);
+      expect(new Set(candidates.map((c) => c.strategy)).size).toBe(candidates.length);
+      expect(new Set(candidates.map((c) => c.fingerprint)).size).toBeGreaterThan(1);
+    });
   });
 });
