@@ -266,6 +266,27 @@ describe('Auto-posting engine - visit spread per supervisor', () => {
     });
   });
 
+  describe('reshuffle', () => {
+    const config = SCENARIOS[0][1];
+    const run = (shuffleSalt) => {
+      const { supervisors, slots } = makeScenario(config);
+      return runAutoPostingAlgorithm(supervisors, slots, config.visits, 'random', false, { shuffleSalt });
+    };
+    const whoGoesWhere = (result) => result.assignments.map((a) => `${a.supervisor_id}-${a.school_id}-${a.group_number}-${a.visit_number}`).sort();
+
+    it('draws a different plan for a different salt', () => {
+      expect(whoGoesWhere(run(1))).not.toEqual(whoGoesWhere(run(0)));
+    });
+
+    it('repeats the same plan for the same salt, so Preview and Execute agree', () => {
+      expect(whoGoesWhere(run(3))).toEqual(whoGoesWhere(run(3)));
+    });
+
+    it('treats no salt as salt 0', () => {
+      expect(whoGoesWhere(run(undefined))).toEqual(whoGoesWhere(run(0)));
+    });
+  });
+
   describe('candidate solutions', () => {
     it('compares genuinely different plans, not five copies of one', () => {
       const config = SCENARIOS[2][1];

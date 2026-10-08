@@ -2450,6 +2450,7 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
     schoolHistory = new Map(),
     maxAssignments = Infinity,
     visitNumbers = [],
+    shuffleSalt = 0,
     limits = {},
   } = options;
 
@@ -2514,6 +2515,9 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
     String(numberOfPostings),
     normalized.supervisors.map((s) => s.id).sort((a, b) => a - b).join(','),
     eligibleSlots.map((s) => s.id).sort().join(','),
+    // "Reshuffle": the same batch drawn again. Left out when unset so an
+    // un-salted run keeps the seed it always had.
+    ...(shuffleSalt ? [`salt:${shuffleSalt}`] : []),
   ]);
   const shuffledRank = buildShuffledRank(normalized.supervisors.map((s) => s.id), seed);
 

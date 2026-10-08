@@ -63,6 +63,8 @@ const schemas = {
       // On a run that covers only some visits, hold back the rest of each
       // supervisor's posting limit for the visits not being posted yet
       reserve_other_visits: strictBoolean(true),
+      // "Reshuffle" - draws the same batch again with a different tie-break order
+      shuffle_salt: z.coerce.number().int().min(0).max(1000000).default(0),
       // The preview's plan_hash - execute refuses to save a different plan
       expected_plan_hash: z.string().max(64).optional().nullable(),
     }),
@@ -257,8 +259,8 @@ async function getEligibleSupervisors(institutionId, sessionId, priorityEnabled,
 async function getAvailableSlots(institutionId, sessionId, filters = {}) {
   // Get session settings
   const [session] = await query(
-    'SELECT max_supervision_visits FROM academic_sessions WHERE id = ?',
-    [sessionId]
+    'SELECT max_supervision_visits FROM academic_sessions WHERE id = ? AND institution_id = ?',
+    [parseInt(sessionId), parseInt(institutionId)]
   );
   const maxVisits = session?.max_supervision_visits || 3;
 
@@ -445,6 +447,7 @@ async function planAutoPosting(institutionId, session, body, filters, user) {
     schoolHistory,
     maxAssignments: deanAllocation ? deanAllocation.remaining : Infinity,
     visitNumbers: filters.visitNumbers,
+    shuffleSalt: body.shuffle_salt,
   });
 
   return {
@@ -999,6 +1002,7 @@ const executeAutoPosting = async (req, res, next) => {
           route_ids: filters.routeIds,
           visit_numbers: filters.visitNumbers,
           reserve_other_visits: validation.data.body.reserve_other_visits,
+          shuffle_salt: validation.data.body.shuffle_salt,
         }),
       ]
     );

@@ -12,7 +12,7 @@ This document outlines the implementation of an **automated posting system** tha
 
 ### Key Features
 
-1. **Number of Postings** - How many primary postings each supervisor receives, or an exact set of visits via `visit_numbers`
+1. **Visits** - Every visit with open slots by default, or any one or several of them (sessions run up to six visits)
 2. **Posting Type** - Random, Route-based, or LGA-based distribution
 3. **Priority System** - Higher-ranked supervisors systematically receive the harder/farther geographical work
 4. **Deterministic, lexicographically-optimized allocation** - not round-robin: the engine builds several candidate solutions and refines the best one with bounded local search (see "The Allocation Engine" below)
@@ -31,7 +31,7 @@ combination of:
 | **States** | Only schools in those states |
 | **LGAs** | Only those LGAs, each identified together with its state |
 | **Routes** | Only schools on those routes |
-| **Visits** | Exact visits to fill (e.g. Visit 2 alone, or a non-contiguous set like [1, 3]), overriding "visits 1 through N" |
+| **Visits** | All open visits are selected by default; deselect to post one visit or a non-contiguous set like [1, 3] |
 
 **Every list is optional, and an empty list means "no narrowing"** - a run with nothing
 selected behaves exactly as it did before scoping existed. `GET /auto-posting/options`
@@ -75,17 +75,23 @@ The allocation strategy lives in `backend/src/services/autoPostingEngine.js` as 
 6. **SOFT** workload imbalance (stddev of per-supervisor posting counts)
 7. **SOFT** travel imbalance (stddev of per-supervisor distance, only compared within an equivalent priority/area group)
 
-**Multiple deterministic candidates.** Rather than one greedy pass, the engine builds five differently-ordered initial solutions (hardest-difficulty-first, largest-demand-first, hardest-to-fit-first, highest-priority-tier-first, visit-balanced) and keeps whichever scores best on the hierarchy above. Priority tiers (grouped by `ranks.priority_number`) get first claim on the geographically hardest work, in proportion to their share of total capacity - so a small senior tier isn't skipped just because a unit doesn't fit it whole; it's given as much as it can take, with the genuine leftover spilling to the next most-senior tier before ever reaching a junior one.
+**Multiple deterministic candidates.** Rather than one greedy pass, the engine builds five initial solutions and keeps whichever scores best on the hierarchy above. Seating always works hardest-area-first, so what distinguishes the candidates is who wins each tie: each one uses its own seeded shuffle of the supervisors (`shuffle-1` is the batch's own). Priority tiers (grouped by `ranks.priority_number`) get first claim on the geographically hardest work, in proportion to their share of total capacity - so a small senior tier isn't skipped just because a unit doesn't fit it whole; it's given as much as it can take, with the genuine leftover spilling to the next most-senior tier before ever reaching a junior one.
 
 **Constrained local improvement.** The winning candidate is then refined by four named, hierarchy-validated moves - reassign one slot within a unit (Move A), swap two supervisors' full allocations within a unit (Move B), exchange whole-unit ownership between two same-tier supervisors (Move C), and a bounded cross-tier exchange that only ever shrinks an existing priority inversion (Move D). Every move is accepted only when it is not lexicographically worse than what it replaces, and A-C never cross a priority tier boundary.
 
-**Dedicated equalization passes.** Two further passes run after local search: `equalizeTravel` narrows the spread of cumulative distance per supervisor by peeling a busy supervisor's costliest assignment onto the least-loaded compatible peer without ever creating a new out-of-area trip; `equalizeWorkload` narrows the posting-count spread to at most 3, preferring a same-tier donor/receiver pair and falling back to a short cross-tier top-up only when necessary.
+**Dedicated equalization passes.** Two further passes run after local search: `equalizeTravel` narrows the spread of cumulative distance per supervisor by peeling a busy supervisor's costliest assignment onto the least-loaded compatible peer without ever creating a new out-of-area trip; `equalizeWorkload` narrows the posting-count spread to at most 3, preferring a same-tier donor/receiver pair and falling back to a short cross-tier top-up only when necessary; it hands over a posting from the receiver's own area for that visit where one exists. Both passes count the schools this run has already given a supervisor, so neither can introduce a repeat the seating step avoided - the travel pass never does, the workload pass only when no other posting can close the gap.
 
 **Authoritative validation.** A final pass re-derives every hard constraint from the assignments alone - never trusting the optimizer's own running counters - and deterministically repairs (drops the minimum offending assignments) if anything still fails.
 
-**Visit spread.** Whenever a run covers more than one visit, each supervisor's postings are mixed across those visits rather than piled onto one (a supervisor with six postings over three visits gets about two of each). Three things make that hold: priority tiers are given their share of *every* visit, not just of the total; within a tier, each visit's units are shared across the whole tier (`planUnitHeadcount`) instead of one supervisor absorbing a whole unit; and the equalization passes below refuse a move that would leave either supervisor lopsided across visits. For Route/LGA-based runs a supervisor still stays in one area per visit, so uneven area sizes can leave counts up to a couple apart between visits. A run restricted to a single visit (the "Visit 1 only" setting, or one visit picked under "Which visits") can only ever hand out that visit - the dialog therefore defaults to all visits.
+**Visit spread.** Whenever a run covers more than one visit, each supervisor's postings are mixed across those visits rather than piled onto one (a supervisor with six postings over three visits gets about two of each). Three things make that hold: priority tiers are given their share of *every* visit, not just of the total; within a tier, each visit's units are shared across the whole tier (`planUnitHeadcount`) instead of one supervisor absorbing a whole unit; and the equalization passes below avoid moves that would leave either supervisor lopsided across visits. The objective carries it in two strengths: a supervisor with several postings all on one visit (`singleVisitCount`) ranks above repeat avoidance, while plain unevenness (`visitImbalance`) ranks just below it - so the engine will not buy a slightly more even split with a repeat school. For Route/LGA-based runs a supervisor still stays in one area per visit, so uneven area sizes can leave counts up to a couple apart between visits. A run restricted to a single visit can only ever hand out that visit - the dialog therefore starts with every open visit selected. The preview reports the result as `statistics.visit_spread` and per supervisor in `assignments_by_supervisor[id].by_visit`.
 
 **Visit selection.** `visit_numbers` (an exact, possibly non-contiguous set of visits, e.g. `[1, 3]`) is understood natively by the engine via `options.visitNumbers`, and supersedes the `number_of_postings` "visits 1 through N" shorthand when given. `statistics.visits_included` mirrors back whichever form was used (a number for the shorthand, the array for an explicit selection) so the dialog can render either.
+
+**Sharing the posting limit on a partial run.** A supervisor's posting limit (`max_posting_per_supervisor`, counting primary postings) covers the whole session. When a run covers only some of the session's visits, each supervisor is limited to those visits' share of it - `ceil(limit x visits in run / session visits)` minus the primary postings they already hold in those visits - so posting Visit 1 alone does not use up the room needed for later visits. It is on by default (`reserve_other_visits`), can be switched off per run, and never applies to a run over every visit. This concerns the posting limit only: allowances are unaffected and are still calculated for each primary posting as it is created.
+
+**The saved plan is the previewed plan.** Preview returns a `plan_hash` (a fingerprint of who goes where). The dialog sends it back as `expected_plan_hash`, and execute answers `409 Conflict` instead of saving if the plan it computes differs - which happens only when postings or supervisors changed in between. The dialog then shows the updated preview.
+
+**Reshuffle.** Runs are deterministic, so the same settings always give the same plan. `shuffle_salt` (the Reshuffle button on the preview) folds an extra number into the seed to draw a different, equally valid plan; it is sent with execute and stored in the batch criteria.
 
 ### Reported Statistics
 
@@ -235,217 +241,27 @@ CREATE TABLE `auto_posting_batches` (
 
 ## Auto-Posting Algorithm
 
-### Overview
+The engine (`backend/src/services/autoPostingEngine.js`) is a pure function of its inputs: eligible supervisors, open slots, and each supervisor's school history. `planAutoPosting()` in the controller gathers those for both preview and execute.
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    AUTO-POSTING FLOW                                 │
-├─────────────────────────────────────────────────────────────────────┤
-│  1. COLLECT INPUTS                                                   │
-│     ├─ Number of postings per supervisor (N)                        │
-│     ├─ Posting type (random / route / lga)                          │
-│     └─ Priority enabled (true/false)                                │
-│                                                                      │
-│  2. PREPARE DATA                                                     │
-│     ├─ Get all eligible supervisors                                 │
-│     │   └─ Sort by priority (if enabled) then by existing postings │
-│     ├─ Get all available school slots                               │
-│     │   └─ Sort by VISIT NUMBER FIRST (all Visit 1s before Visit 2s)│
-│     │   └─ Then by posting_type criteria (route/lga/distance)       │
-│     └─ Schools distributed serially within each visit               │
-│                                                                      │
-│  3. ASSIGN SLOTS                                                     │
-│     ├─ Iterate through sorted slots (Visit 1 first, then Visit 2...)│
-│     ├─ Assign each slot to next available supervisor (round-robin)  │
-│     └─ Each supervisor gets 1 posting before any gets 2             │
-│                                                                      │
-│  4. CREATE POSTINGS                                                  │
-│     └─ Bulk insert all assignments                                  │
-└─────────────────────────────────────────────────────────────────────┘
-```
+1. **Normalize** - de-duplicate slots, keep only the visits in the run, flag unknown distance or priority.
+2. **Demand units** - one unit per visit and area (LGA or route); for Random, one unit per slot.
+3. **Priority tiers** - supervisors grouped by rank priority; a single tier when priority is off.
+4. **Tier allocation** - within each visit, hardest units first, each tier taking its capacity share of that visit.
+5. **Seating** - each visit's units are shared across the whole tier (`planUnitHeadcount`); a supervisor stays in one area per visit and is steered away from schools and areas they already cover.
+6. **Slot assignment** - seated supervisors receive the actual school/group/visit slots, non-repeat schools first.
+7. **Candidate selection** - steps 4-6 run for five seeded shuffles; the best by the lexicographic objective wins.
+8. **Local improvement, travel and workload passes** - bounded moves that never trade a higher rule for a lower one.
+9. **Validation and repair** - every hard constraint re-derived from the assignments alone.
 
-### Step-by-Step Algorithm
+The objective, in order: unassigned slots, hard violations, priority inversions, out-of-area postings, single-visit pile-ups, repeat schools, visit unevenness, workload balance, travel balance.
 
-```
-ALGORITHM: AutoPostSupervisors(institutionId, sessionId, criteria)
+### Getting the Best Result
 
-INPUT:
-  - numberOfPostings: int (1 to max_supervision_visits)
-  - postingType: enum('random', 'route_based', 'lga_based')
-  - priorityEnabled: boolean
-
-OUTPUT:
-  - List of created posting assignments
-
-STEPS:
-
-1. VALIDATE INPUTS
-   - Ensure numberOfPostings <= session.max_supervision_visits
-   - Ensure session is active and not locked
-
-2. FETCH SUPERVISORS
-   supervisors = SELECT * FROM users WHERE eligible for posting
-   
-   IF priorityEnabled:
-     ORDER BY rank.priority_number ASC, current_postings ASC, name ASC
-   ELSE:
-     ORDER BY current_postings ASC, name ASC
-
-3. FETCH AVAILABLE SLOTS
-   slots = SELECT schools with available group slots
-   
-   PRIMARY SORT: visit_number ASC (all Visit 1s first, then Visit 2s, etc.)
-   
-   SECONDARY SORT based on postingType:
-   IF postingType == 'route_based':
-     SORT BY route_id, then distance_km DESC (if priority enabled)
-   ELSE IF postingType == 'lga_based':
-     SORT BY lga, then distance_km DESC (if priority enabled)
-   ELSE (random):
-     SORT BY distance_km DESC (if priority enabled), then school_id
-
-   This ensures:
-   - All Visit 1 slots are processed before any Visit 2 slots
-   - Within each visit, schools are distributed in a consistent order
-   - Higher priority supervisors get longer distance schools
-
-4. INITIALIZE TRACKING
-   assignments = []
-   supervisorPostingCount = Map<supervisor_id, count>
-   usedSlots = Set<slot_id>
-
-5. ITERATE THROUGH SORTED SLOTS (Visit-First Round-Robin)
-   supervisorIndex = 0
-   
-   FOR each slot IN sortedSlots:  // All Visit 1s come before Visit 2s
-     // Find next supervisor with capacity (round-robin)
-     attempts = 0
-     WHILE attempts < supervisors.length:
-       supervisor = supervisors[supervisorIndex]
-       currentCount = supervisorPostingCount[supervisor.id]
-       
-       IF currentCount < numberOfPostings AND currentCount < supervisor.remaining_slots:
-         // Assign this slot to this supervisor
-         assignments.ADD({
-           supervisor_id: supervisor.id,
-           school_id: slot.school_id,
-           group_number: slot.group_number,
-           visit_number: slot.visit_number,  // From the slot itself
-           distance_km: slot.distance_km
-         })
-         
-         usedSlots.ADD(slot.id)
-         supervisorPostingCount[supervisor.id]++
-         BREAK  // Move to next slot
-       
-       // Move to next supervisor (round-robin)
-       supervisorIndex = (supervisorIndex + 1) MOD supervisors.length
-       attempts++
-     
-     IF attempts >= supervisors.length:
-       LOG warning: "No supervisor available for slot"
-
-6. CREATE POSTINGS
-   Bulk insert all assignments with calculated allowances
-
-7. RETURN RESULT
-   Return summary: total postings, per-supervisor counts, any skipped supervisors
-```
-
-### Slot Selection Logic
-
-```
-FUNCTION: FindNextAvailableSlot(supervisor, postingType, usedSlots, priorityEnabled, visitNumber, supervisorVisitAssignments)
-
-// supervisorVisitAssignments tracks: Map<supervisor_id, Map<visit_number, route_id|lga>>
-// This ensures same-visit postings stay in same route/LGA
-
-IF postingType == 'route_based':
-  // Check if supervisor already has a route assigned for this visit
-  existingRoute = supervisorVisitAssignments[supervisor.id]?.[visitNumber]
-  
-  IF existingRoute:
-    // Must stay in same route for this visit
-    slots = GetAvailableSlots(route_id = existingRoute, visit = visitNumber, exclude = usedSlots)
-  ELSE:
-    // First posting for this visit - assign best available route
-    slots = GetAvailableSlots(visit = visitNumber, exclude = usedSlots)
-    // When slot is selected, record: supervisorVisitAssignments[supervisor.id][visitNumber] = slot.route_id
-  
-ELSE IF postingType == 'lga_based':
-  // Check if supervisor already has an LGA assigned for this visit
-  existingLGA = supervisorVisitAssignments[supervisor.id]?.[visitNumber]
-  
-  IF existingLGA:
-    // Must stay in same LGA for this visit
-    slots = GetAvailableSlots(lga = existingLGA, visit = visitNumber, exclude = usedSlots)
-  ELSE:
-    // First posting for this visit - assign best available LGA
-    slots = GetAvailableSlots(visit = visitNumber, exclude = usedSlots)
-    // When slot is selected, record: supervisorVisitAssignments[supervisor.id][visitNumber] = slot.lga
-  
-ELSE:  // random
-  slots = GetAllAvailableSlots(exclude = usedSlots)
-
-// Sort slots by distance
-IF priorityEnabled:
-  // Higher priority supervisors get longest distances
-  SORT slots BY distance_km DESC
-ELSE:
-  // Random order for fairness
-  SHUFFLE slots
-
-RETURN slots[0] OR NULL if empty
-```
-
-> **Key Constraint:** Once a supervisor receives their first posting for a visit (e.g., Visit 1), all subsequent Visit 1 postings must be in the same route/LGA. This allows Visit 2 to be in a completely different location.
-
-### Route/LGA Assignment Strategy (Per-Visit)
-
-> **Note:** the pseudocode below is legacy and does not reflect the current
-> engine - see "The Allocation Engine" near the top of this document for the
-> actual design. It's kept here pending a full rewrite of this section; the
-> gist below (rank areas by distance, hand the farthest to the most senior
-> supervisors) is directionally right but the real implementation buckets by
-> each priority tier's *capacity share* (not a 1:1 per-supervisor walk) and
-> seats within a tier using repeat-avoidance, not a plain "best available"
-> pick - see `planPriorityAllocation`/`assignUnitsToTiers` in
-> `autoPostingEngine.js`.
-
-For route-based and LGA-based posting, assignments are tracked **per visit**:
-
-```
-FUNCTION: AssignSupervisorsToGroupsPerVisit(supervisors, slots, groupType, priorityEnabled, visitNumber)
-
-// Get available groups for this specific visit
-IF groupType == 'route':
-  groups = GetRoutesWithSlotsForVisit(slots, visitNumber)
-ELSE:
-  groups = GetLGAsWithSlotsForVisit(slots, visitNumber)
-
-// Sort groups by total distance capacity for this visit
-SORT groups BY totalDistanceCapacityForVisit DESC
-
-// For first-time assignment in this visit:
-// Higher priority supervisors get groups with longest distances
-FOR each supervisor IN supervisors (sorted by priority):
-  IF supervisor has no assignment for visitNumber:
-    // Assign to group with most remaining capacity and longest distances
-    bestGroup = FindBestAvailableGroup(groups, supervisor)
-    supervisor.visitAssignments[visitNumber] = bestGroup.id
-
-RETURN supervisorVisitAssignments
-```
-
-**Example Distribution:**
-
-| Supervisor | Rank Priority | Visit 1 Route | Visit 2 Route | Visit 3 Route |
-|------------|--------------|---------------|---------------|---------------|
-| Dr. Aminu  | 1 (Chief)    | Route A (80km) | Route C (75km) | Route B (70km) |
-| Dr. Bello  | 2 (Principal)| Route B (70km) | Route A (65km) | Route D (60km) |
-| Dr. Chika  | 3 (Senior)   | Route C (60km) | Route B (55km) | Route A (50km) |
-
-> Each supervisor focuses on **one geographic area per visit trip**, making supervision logistics simpler.
+1. **Prepare the data.** Fill in school distances and supervisor ranks first. The preview lists schools with no distance (treated as 0 km, so they look near) and supervisors with no rank (treated as most junior). Assign routes before using Route-based.
+2. **Post every visit in one run where you can.** That is the default selection and gives the best visit mix and the fewest repeat schools. If you post one or a few visits at a time, leave "Leave Room for the Other Visits" on.
+3. **Choose the type by geography.** LGA- or Route-based when supervisors should stay in one area per trip; Random only when travel does not matter.
+4. **Read the preview before executing.** Check unassigned slots, repeat schools, out-of-area postings, the visit mix and the load range. Use Reshuffle for a different draw with the same settings.
+5. **Scope rather than redo.** Use the faculty, state, LGA and visit filters to top up later, and roll a batch back from the history rather than hand-editing a bad one.
 
 ---
 

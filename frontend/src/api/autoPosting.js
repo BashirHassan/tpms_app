@@ -27,7 +27,10 @@ export function createAutoPostingApi(institutionId) {
      * Preview auto-posting results without creating
      * @param {Object} criteria - Auto-posting criteria
      * @param {number} criteria.session_id - Session ID
-     * @param {number} criteria.number_of_postings - Number of postings per supervisor
+     * @param {number} criteria.number_of_postings - Visits 1 through N; superseded by visit_numbers when given
+     * @param {number[]} [criteria.visit_numbers] - Exact visits to post; empty means every visit
+     * @param {boolean} [criteria.reserve_other_visits=true] - On a partial run, keep room in the posting limit for the other visits
+     * @param {number} [criteria.shuffle_salt=0] - Draws a different plan for the same settings
      * @param {string} criteria.posting_type - 'random' | 'route_based' | 'lga_based'
      * @param {boolean} criteria.priority_enabled - Enable priority-based distribution
      * @param {boolean} [criteria.avoid_repeat_schools=true] - Avoid sending a supervisor to the same school twice
@@ -39,6 +42,7 @@ export function createAutoPostingApi(institutionId) {
     /**
      * Execute auto-posting
      * @param {Object} criteria - Auto-posting criteria (same as preview)
+     * @param {string} [criteria.expected_plan_hash] - plan_hash from the preview; a different plan is rejected with 409
      */
     execute: (criteria) => 
       apiClient.post(`${basePath}/execute`, criteria),

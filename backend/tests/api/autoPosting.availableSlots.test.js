@@ -17,6 +17,16 @@ describe('autoPostingController.getAvailableSlots', () => {
     mockDb.resetMocks();
   });
 
+  it('reads the session\'s visit count for this institution only', async () => {
+    mockDb.setMockResult('max_supervision_visits', [{ max_supervision_visits: 1 }]);
+
+    await getAvailableSlots(5, 9);
+
+    const [sessionQuery] = mockDb.getQueriesMatching('max_supervision_visits');
+    expect(sessionQuery.sql).toMatch(/institution_id = \?/);
+    expect(sessionQuery.params).toEqual([9, 5]);
+  });
+
   it('scopes the schools query to approved acceptances in the given session', async () => {
     mockDb.setMockResult('max_supervision_visits', [{ max_supervision_visits: 1 }]);
     mockDb.setMockResult('FROM institution_schools', []);

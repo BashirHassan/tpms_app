@@ -38,6 +38,7 @@ import {
   IconArrowLeft,
   IconArrowRight,
   IconRefresh,
+  IconArrowsShuffle,
   IconUsers,
   IconBuildingBank as IconSchool,
   IconRoute,
@@ -113,6 +114,8 @@ function AutoPostDialog({
   const [priorityEnabled, setPriorityEnabled] = useState(true);
   const [avoidRepeatSchools, setAvoidRepeatSchools] = useState(true);
   const [reserveOtherVisits, setReserveOtherVisits] = useState(true);
+  // Bumped by "Reshuffle" to draw the same batch again in a different order
+  const [shuffleSalt, setShuffleSalt] = useState(0);
 
   // Scope. Every list empty = run across everything, which is the pre-scoping behaviour.
   const [scopeOptions, setScopeOptions] = useState(null);
@@ -297,10 +300,11 @@ function AutoPostDialog({
       route_ids: selectedRoutes,
       visit_numbers: visitsNarrowed ? selectedVisits : [],
       reserve_other_visits: reserveOtherVisits,
+      shuffle_salt: shuffleSalt,
     }),
     [
       sessionId, sessionVisits, postingType, priorityEnabled, avoidRepeatSchools,
-      reserveOtherVisits, facultyId, selectedSupervisors, selectedFaculties,
+      reserveOtherVisits, shuffleSalt, facultyId, selectedSupervisors, selectedFaculties,
       selectedStates, selectedLgas, selectedRoutes, selectedVisits, visitsNarrowed,
     ]
   );
@@ -313,11 +317,12 @@ function AutoPostDialog({
     setPriorityEnabled(true);
     setAvoidRepeatSchools(true);
     setReserveOtherVisits(true);
+    setShuffleSalt(0);
     resetScope();
     onClose();
   };
 
-  const handlePreview = async () => {
+  const handlePreview = async (overrides = {}) => {
     if (!sessionId) {
       showToast('error', 'Please select a session first');
       return;
@@ -325,7 +330,7 @@ function AutoPostDialog({
 
     setLoading(true);
     try {
-      const response = await autoPostingApi.preview(buildCriteria());
+      const response = await autoPostingApi.preview({ ...buildCriteria(), ...overrides });
       setPreviewData(response.data?.data || response.data);
       setStep('preview');
     } catch (error) {
@@ -333,6 +338,14 @@ function AutoPostDialog({
     } finally {
       setLoading(false);
     }
+  };
+
+  // Same settings, different draw. The salt travels with execute, so the plan
+  // that gets saved is the reshuffled one on screen.
+  const handleReshuffle = () => {
+    const next = shuffleSalt + 1;
+    setShuffleSalt(next);
+    return handlePreview({ shuffle_salt: next });
   };
 
   const handleExecute = async () => {
@@ -1239,6 +1252,15 @@ function AutoPostDialog({
             Cancel
           </Button>
           <Button
+            variant="outline"
+            onClick={handleReshuffle}
+            disabled={loading || !previewData?.assignments?.length}
+            title="Draw a different plan with the same settings"
+          >
+            <IconArrowsShuffle className="h-4 w-4 mr-2" />
+            Reshuffle
+          </Button>
+          <Button
             onClick={handleExecute}
             disabled={loading || !previewData?.assignments?.length}
             variant="primary"
@@ -1265,7 +1287,7 @@ function AutoPostDialog({
             <Button variant="outline" onClick={handleClose} disabled={loading}>
               Cancel
             </Button>
-            <Button onClick={handlePreview} disabled={loading || !sessionId || noVisitChosen}>
+            <Button onClick={() => handlePreview()} disabled={loading || !sessionId || noVisitChosen}>
               {loading ? (
                 <IconLoader2 className="h-4 w-4 animate-spin mr-2" />
               ) : (
