@@ -7,6 +7,7 @@
 
 const { query } = require('../db/database');
 const { NotFoundError, ValidationError } = require('../utils/errors');
+const { buildPageMeta, renderPageShell, loadShellTemplate } = require('../services/pageShellService');
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -330,7 +331,47 @@ const getCurrentSessionPublic = async (req, res, next) => {
 // EXPORTS
 // ============================================================================
 
+/**
+ * The app's index.html with the title and Open Graph tags of the institution
+ * on this subdomain, so a shared link previews as that institution.
+ * GET /public/page-shell
+ *
+ * nginx sends page requests here and passes the address that was actually
+ * asked for in X-Original-URI. Anything other than a 200 makes nginx serve the
+ * static index.html instead, so the app still loads if this cannot answer.
+ */
+const getPageShell = (req, res) => {
+  const template = loadShellTemplate();
+  if (!template) {
+    return res.status(503).type('text/plain').send('Page shell is not built');
+  }
+
+  // The path only: query strings can carry one-off tokens (password resets)
+  // that have no place in a shareable address.
+  const host = /^[a-z0-9.-]+(:\d+)?$/i.test(req.headers.host || '') ? req.headers.host : 'sitpms.com';
+  const requestedPath = String(req.headers['x-original-uri'] || '/').split('?')[0];
+  const pagePath = /^\/[\w\-./~%]*$/.test(requestedPath) ? requestedPath : '/';
+  const scheme = /^(localhost|127\.0\.0\.1)(:|$)|\.localhost(:|$)/.test(host) ? 'http' : 'https';
+
+  const html = renderPageShell(
+    template,
+    buildPageMeta(req.subdomainInstitution || null, { url: `${scheme}://${host}${pagePath}` })
+  );
+
+  // This is the app's own page, not an API response: the API's content
+  // security policy would block the app's fonts and Cloudinary images, and
+  // nginx already adds the framing/sniffing headers it gives static pages.
+  res.removeHeader('Content-Security-Policy');
+  res.removeHeader('X-Frame-Options');
+  res.removeHeader('X-Content-Type-Options');
+  res.removeHeader('X-XSS-Protection');
+
+  res.set('Cache-Control', 'no-cache');
+  res.type('html').send(html);
+};
+
 module.exports = {
+  getPageShell,
   getInstitutionBySubdomain,
   lookupInstitution,
   getInstitutions,

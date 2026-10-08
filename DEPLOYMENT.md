@@ -239,6 +239,24 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
+### Link previews (Open Graph)
+
+Page requests are not served straight from `frontend/dist`. `location /` tries a
+real file first and otherwise proxies to `GET /api/public/page-shell`, which
+returns the built `index.html` with the title, description and Open Graph tags
+of the institution on that subdomain - so `fuk.sitpms.com` shared on WhatsApp
+shows that institution's name and logo. If the backend does not answer, nginx
+falls back to the static `index.html`.
+
+The preview image is the institution's Cloudinary logo composed into a 1200x630
+card by URL transformation; nothing is uploaded. Change a logo or name and the
+card follows. Platforms cache previews: refresh one with the Facebook Sharing
+Debugger or LinkedIn Post Inspector.
+
+After editing `nginx/sitpms.conf` or `nginx/demo_sitpms.conf`, copy it over the
+live file, then `sudo nginx -t && sudo systemctl reload nginx`.
+
+
 ---
 
 ## 6. SSL Configuration (Cloudflare Origin Certificate)

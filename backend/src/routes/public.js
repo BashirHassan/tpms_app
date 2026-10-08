@@ -7,6 +7,9 @@ const router = express.Router();
 const publicController = require('../controllers/publicController');
 const { resolveInstitutionIdParam } = require('../middleware/rbac');
 
+// The app's index.html with this subdomain's Open Graph tags (nginx proxies page loads here)
+router.get('/public/page-shell', publicController.getPageShell);
+
 // Institution lookup by subdomain (for tenant resolution)
 router.get('/public/institution', publicController.getInstitutionBySubdomain);
 router.get('/public/institution/:subdomain', publicController.getInstitutionBySubdomain);
