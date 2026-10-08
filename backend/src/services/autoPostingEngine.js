@@ -19,6 +19,8 @@
  *                           harder/farther geographical work; inversions minimized
  *   STRONG LGA/route cohesion a supervisor's slots for one visit stay in one area
  *                           unless a hard constraint makes that impossible
+ *   STRONG visit spread     a supervisor's postings are mixed across the visits
+ *                           of the run, never piled onto one (planUnitHeadcount)
  *   SOFT  repeat avoidance  prefer a school the supervisor has not already covered
  *   SOFT  workload balance  even total posting counts (including existing load)
  *   SOFT  travel balance    even total kilometres, only within an equivalent
@@ -318,6 +320,10 @@ function buildDemandModel(slots, postingType) {
           lga: postingType === 'lga_based' ? slot.lga : undefined,
           route_id: postingType === 'route_based' ? slot.route_id : undefined,
           route_name: postingType === 'route_based' ? slot.route_name : undefined,
+          // What "the same place again" means for the supervisor seated here: the
+          // LGA/route for clustered postings, the school itself for random ones.
+          areaKey: postingType === 'random' ? `school:${slot.school_id}` : key,
+          cohesive: postingType !== 'random',
           slots: [],
           schools: new Set(),
           groups: new Set(),
@@ -374,6 +380,8 @@ function buildSupervisorModel(supervisors, schoolHistory) {
       totalCapacity: s.remaining_slots,
       currentPostings: s.current_postings,
       usedInRun: 0, // GLOBAL ledger, shared across every visit
+      usedInVisit: new Map(), // visit_number -> seats taken in that visit this run
+      seatsByArea: new Map(), // unit areaKey -> seats taken there, across every visit
       schoolHistory: new Set(schoolHistory.get(s.id) || []),
       visitUnit: new Map(), // visit_number -> unit key this supervisor is committed to
     });
@@ -398,11 +406,21 @@ function cloneSupervisorModel(model) {
     byId.set(id, {
       ...entry,
       usedInRun: 0,
+      usedInVisit: new Map(),
+      seatsByArea: new Map(),
       schoolHistory: new Set(entry.schoolHistory),
       visitUnit: new Map(),
     });
   }
   return { byId, order: [...model.order] };
+}
+
+/** Record `seats` of `unit` against a supervisor on every seating ledger at once. */
+function takeSeats(entry, unit, seats) {
+  entry.usedInRun += seats;
+  entry.usedInVisit.set(unit.visit_number, (entry.usedInVisit.get(unit.visit_number) || 0) + seats);
+  entry.seatsByArea.set(unit.areaKey, (entry.seatsByArea.get(unit.areaKey) || 0) + seats);
+  entry.visitUnit.set(unit.visit_number, unit.key);
 }
 
 function remainingCapacity(entry) {
@@ -550,35 +568,61 @@ function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, optio
   // this is what stops a senior tier with technically-spare capacity from
   // absorbing a second/third unit purely because it still has room, at the
   // expense of junior tiers getting nothing (spec §8's explicit example).
+  //
+  // The walk is kept separately for each visit: a unit belongs to one visit,
+  // so a single walk over every visit's units hands a small tier its whole
+  // share out of one visit's hardest unit and its members never see another
+  // visit. Walking each visit on its own gives every tier its share of EVERY
+  // visit - still hardest-first within it.
   const totalCapacityAll = tiers.reduce((sum, t) => sum + t.totalCapacity, 0);
-  const totalDemandAll = byDifficultyDesc.reduce((sum, u) => sum + u.demand, 0);
-  let cumulative = 0;
-  const thresholds = tiers.map((t) => {
-    cumulative += totalCapacityAll > 0 ? (t.totalCapacity / totalCapacityAll) * totalDemandAll : 0;
-    return cumulative;
-  });
-  if (thresholds.length > 0) thresholds[thresholds.length - 1] = totalDemandAll;
-
-  let tierPointer = 0;
-  let running = 0;
+  const visitWalks = new Map(); // visit_number -> { thresholds, tierPointer, running }
   for (const unit of byDifficultyDesc) {
+    if (!visitWalks.has(unit.visit_number)) visitWalks.set(unit.visit_number, { demand: 0 });
+    visitWalks.get(unit.visit_number).demand += unit.demand;
+  }
+  for (const walk of visitWalks.values()) {
+    let cumulative = 0;
+    walk.thresholds = tiers.map((t) => {
+      cumulative += totalCapacityAll > 0 ? (t.totalCapacity / totalCapacityAll) * walk.demand : 0;
+      return cumulative;
+    });
+    if (walk.thresholds.length > 0) walk.thresholds[walk.thresholds.length - 1] = walk.demand;
+    walk.tierPointer = 0;
+    walk.running = 0;
+    walk.shareLeft = tiers.map((t) =>
+      totalCapacityAll > 0 ? Math.ceil((t.totalCapacity / totalCapacityAll) * walk.demand) : 0
+    );
+  }
+
+  for (const unit of byDifficultyDesc) {
+    const walk = visitWalks.get(unit.visit_number);
     // Advance at most one tier per unit, so a single oversized unit can't skip
     // an entire tier's window.
-    if (tierPointer < tiers.length - 1 && running >= thresholds[tierPointer]) tierPointer++;
-    running += unit.demand;
+    if (walk.tierPointer < tiers.length - 1 && walk.running >= walk.thresholds[walk.tierPointer]) walk.tierPointer++;
+    walk.running += unit.demand;
+    const { tierPointer } = walk;
 
     const key = `${unit.key}-${unit.visit_number}`;
     let remaining = unit.demand;
     const owners = [];
     const tryOrder = [tierPointer, ...spilloverSearchOrder(tierPointer, tiers.length)];
-    for (const idx of tryOrder) {
-      if (remaining <= 0) break;
-      const cap = tiers[idx].remainingCapacity;
-      if (cap <= 0) continue;
-      const grant = Math.min(remaining, cap);
-      owners.push({ tierIndex: idx, amount: grant });
-      tiers[idx].remainingCapacity -= grant;
-      remaining -= grant;
+    // First within each tier's own share of this visit, so a small senior
+    // tier is not handed a whole oversized unit in every visit (which the
+    // workload pass would then have to scatter across areas); only what no
+    // tier's share covers falls back to raw remaining capacity.
+    for (const withinShare of [true, false]) {
+      for (const idx of tryOrder) {
+        if (remaining <= 0) break;
+        const cap = tiers[idx].remainingCapacity;
+        const grant = Math.min(remaining, cap, withinShare ? walk.shareLeft[idx] : cap);
+        if (grant <= 0) continue;
+        const owner = owners.find((o) => o.tierIndex === idx);
+        if (owner) owner.amount += grant;
+        else owners.push({ tierIndex: idx, amount: grant });
+        tiers[idx].remainingCapacity -= grant;
+        walk.shareLeft[idx] -= grant;
+        remaining -= grant;
+      }
     }
 
     if (owners.length > 0) unitOwners.set(key, owners);
@@ -613,9 +657,17 @@ function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, optio
     const tierOwnedDemand = ownedHere.reduce((sum, o) => sum + o.amount, 0);
     const targetPerSupervisor = Math.max(1, Math.ceil(tierOwnedDemand / Math.max(1, tier.supervisorIds.length)));
 
+    // Visit spread: the fair-share cap above only limits a supervisor's TOTAL,
+    // so on its own it hands a supervisor their whole share out of the first
+    // unit they are picked for - six postings, all of them 1st visit. Sharing
+    // every visit's own demand across the whole tier instead is what mixes each
+    // supervisor across the visits of the run.
+    const headcount = planUnitHeadcount(ownedHere, pool.length);
+
     for (const { key, unit, amount } of ownedHere) {
       const seats = seatPlan.get(key) || [];
       let seatsToFill = amount;
+      let headsLeft = headcount.get(key);
 
       while (seatsToFill > 0 && pool.length > 0) {
         let bestIdx = -1;
@@ -623,7 +675,22 @@ function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, optio
         for (let i = 0; i < pool.length; i++) {
           const entry = supervisorModel.byId.get(pool[i]);
           if (remainingCapacity(entry) <= 0) continue;
-          const cmpKey = [repeatCost(entry, unit), entry.usedInRun, rankOf(pool[i])];
+          // Elsewhere this visit already (would split the supervisor's trip),
+          // then a head beyond this unit's plan, then repeats (a known repeat
+          // school, or the same area/school again on another visit), then
+          // whoever has the least of this visit so far.
+          const committedTo = entry.visitUnit.get(unit.visit_number);
+          const splitsVisit = unit.cohesive && committedTo !== undefined && committedTo !== unit.key ? 1 : 0;
+          const extraHead = headsLeft <= 0 && committedTo !== unit.key ? 1 : 0;
+          const cmpKey = [
+            splitsVisit,
+            extraHead,
+            repeatCost(entry, unit),
+            entry.seatsByArea.get(unit.areaKey) || 0,
+            entry.usedInVisit.get(unit.visit_number) || 0,
+            entry.usedInRun,
+            rankOf(pool[i]),
+          ];
           if (bestKey === null || compareArrays(cmpKey, bestKey) < 0) {
             bestKey = cmpKey;
             bestIdx = i;
@@ -633,9 +700,12 @@ function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, optio
 
         const supervisorId = pool[bestIdx];
         const entry = supervisorModel.byId.get(supervisorId);
-        const grant = Math.min(seatsToFill, remainingCapacity(entry), targetPerSupervisor);
-        entry.usedInRun += grant;
-        entry.visitUnit.set(unit.visit_number, unit.key);
+        // An even split of what is left over the heads still to come; once the
+        // planned heads are in, the overflow rotates one seat at a time.
+        const evenSplit = headsLeft > 0 ? Math.ceil(seatsToFill / headsLeft) : 1;
+        const grant = Math.min(seatsToFill, remainingCapacity(entry), targetPerSupervisor, evenSplit);
+        if (entry.visitUnit.get(unit.visit_number) !== unit.key) headsLeft--;
+        takeSeats(entry, unit, grant);
         seats.push({ supervisorId, seats: grant });
         seatsToFill -= grant;
 
@@ -663,8 +733,7 @@ function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, optio
         const entry = supervisorModel.byId.get(supervisorId);
         const grant = Math.min(need, remainingCapacity(entry));
         if (grant <= 0) continue;
-        entry.usedInRun += grant;
-        entry.visitUnit.set(unit.visit_number, unit.key);
+        takeSeats(entry, unit, grant);
         const key = `${unit.key}-${unit.visit_number}`;
         seatPlan.get(key).push({ supervisorId, seats: grant });
         need -= grant;
@@ -682,8 +751,7 @@ function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, optio
       const cap = remainingCapacity(entry);
       if (cap <= 0) continue;
       const grant = Math.min(need, cap);
-      entry.usedInRun += grant;
-      entry.visitUnit.set(unit.visit_number, unit.key);
+      takeSeats(entry, unit, grant);
       const key = `${unit.key}-${unit.visit_number}`;
       if (!seatPlan.has(key)) seatPlan.set(key, []);
       seatPlan.get(key).push({ supervisorId: entry.supervisor.id, seats: grant, fallback: true });
@@ -693,6 +761,41 @@ function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, optio
   }
 
   return { seatPlan, unplacedUnits: unplacedUnits.filter((u) => (u._finalUnfilled ?? u.remainingDemand ?? u.demand) > 0) };
+}
+
+/**
+ * How many distinct supervisors each of a tier's units should be shared between,
+ * per visit. A clustered unit ties its supervisors to that area for the visit, so
+ * a visit can use at most `memberCount` heads in total: every unit gets one, and
+ * the rest go to whichever unit still has the most seats per head. That gives
+ * each supervisor a near-equal slice of every visit without forcing anyone into
+ * a second area. Random postings have no area to protect - one head per slot.
+ * @returns {Map<string, number>} `${key}-${visit}` -> planned heads
+ */
+function planUnitHeadcount(ownedUnits, memberCount) {
+  const heads = new Map();
+  const byVisit = new Map();
+  for (const owned of ownedUnits) {
+    heads.set(owned.key, 1);
+    if (!owned.unit.cohesive) continue;
+    if (!byVisit.has(owned.unit.visit_number)) byVisit.set(owned.unit.visit_number, []);
+    byVisit.get(owned.unit.visit_number).push(owned);
+  }
+
+  for (const visitUnits of byVisit.values()) {
+    for (let spare = memberCount - visitUnits.length; spare > 0; spare--) {
+      let neediest = null;
+      for (const owned of visitUnits) {
+        const count = heads.get(owned.key);
+        if (count >= owned.amount) continue; // already one seat per head
+        if (neediest === null || owned.amount / count > neediest.amount / heads.get(neediest.key)) neediest = owned;
+      }
+      if (neediest === null) break;
+      heads.set(neediest.key, heads.get(neediest.key) + 1);
+    }
+  }
+
+  return heads;
 }
 
 function compareArrays(a, b) {
@@ -1439,6 +1542,41 @@ function reflagRepeatFlag(trial, originalAssignment, newSupervisorId, supervisor
 // small count drift these moves introduce.
 // ============================================================================
 
+/**
+ * Posting counts per supervisor for each visit of the run, so the balancing
+ * passes below can tell whether moving one assignment would undo the visit mix
+ * the seating step built (see planUnitHeadcount).
+ */
+function buildVisitLedger(assignments) {
+  const visits = [...new Set(assignments.map((a) => a.visit_number))];
+  const counts = new Map(); // supervisorId -> Map(visit -> count)
+  for (const a of assignments) {
+    if (!counts.has(a.supervisor_id)) counts.set(a.supervisor_id, new Map());
+    const byVisit = counts.get(a.supervisor_id);
+    byVisit.set(a.visit_number, (byVisit.get(a.visit_number) || 0) + 1);
+  }
+
+  const spread = (supervisorId, visit = null, delta = 0) => {
+    const byVisit = counts.get(supervisorId);
+    let max = -Infinity;
+    let min = Infinity;
+    for (const v of visits) {
+      const count = (byVisit?.get(v) || 0) + (v === visit ? delta : 0);
+      if (count > max) max = count;
+      if (count < min) min = count;
+    }
+    return max - min;
+  };
+
+  return {
+    /** True when adding (`delta` = 1) or removing (-1) a posting on `visit`
+     *  leaves the supervisor lopsided across visits - more than one apart, and
+     *  worse than they already were. */
+    unbalances: (supervisorId, visit, delta) =>
+      spread(supervisorId, visit, delta) > Math.max(1, spread(supervisorId)),
+  };
+}
+
 const EQUALIZE_TRAVEL_MAX_MOVES = 500;
 const EQUALIZE_TRAVEL_MAX_COMPARISONS = 200000;
 
@@ -1485,6 +1623,7 @@ function equalizeTravel(assignments, supervisorModel, tiers, postingType, avoidR
       if (!byUnit.has(uk)) byUnit.set(uk, []);
       byUnit.get(uk).push(a);
     }
+    const visitLedger = buildVisitLedger(assignments);
     const soleUnitFor = (supervisorId, visit) => {
       const byUnit = bySupervisorVisit.get(supervisorId)?.get(visit);
       if (!byUnit || byUnit.size !== 1) return null;
@@ -1539,6 +1678,7 @@ function equalizeTravel(assignments, supervisorModel, tiers, postingType, avoidR
       // holds a whole unit.
       const donorCandidates = assignments
         .filter((a) => a.supervisor_id === donor.supervisor.id && soleUnitFor(a.supervisor_id, a.visit_number) === unitOf(a))
+        .filter((a) => !visitLedger.unbalances(a.supervisor_id, a.visit_number, -1))
         .sort((a, b) => b.distance_km - a.distance_km || a.school_id - b.school_id);
 
       for (const candidate of donorCandidates) {
@@ -1569,6 +1709,7 @@ function equalizeTravel(assignments, supervisorModel, tiers, postingType, avoidR
           const byUnitThisVisit = bySupervisorVisit.get(e.supervisor.id)?.get(visit);
           const compatible = !byUnitThisVisit || byUnitThisVisit.size === 0 || (byUnitThisVisit.size === 1 && byUnitThisVisit.has(uk));
           if (!compatible) continue;
+          if (visitLedger.unbalances(e.supervisor.id, visit, 1)) continue;
 
           const d = distanceBySupervisor.get(e.supervisor.id) || 0;
           if (d >= donorDistance) continue; // wouldn't move either total toward the other
@@ -1725,10 +1866,20 @@ function equalizeWorkload(assignments, supervisorModel, tiers, postingType, avoi
     // cross-tier receiver only ever gets a modest top-up rather than a large
     // chunk of the donor's load.
     const repeatForReceiver = (a) => (avoidRepeatSchools && receiver.schoolHistory.has(a.school_id) ? 1 : 0);
+    // ...and before either, a posting from a visit the donor can spare and
+    // the receiver is short of, so closing the count gap keeps both mixed
+    // across visits.
+    const visitLedger = buildVisitLedger(assignments);
+    const upsetsVisitMix = (a) =>
+      visitLedger.unbalances(donor.supervisor.id, a.visit_number, -1) ||
+      visitLedger.unbalances(receiver.supervisor.id, a.visit_number, 1)
+        ? 1
+        : 0;
     const donorAssignments = assignments
       .filter((a) => a.supervisor_id === donor.supervisor.id)
       .sort(
         (a, b) =>
+          upsetsVisitMix(a) - upsetsVisitMix(b) ||
           repeatForReceiver(a) - repeatForReceiver(b) ||
           a.distance_km - b.distance_km ||
           a.school_id - b.school_id

@@ -83,6 +83,8 @@ The allocation strategy lives in `backend/src/services/autoPostingEngine.js` as 
 
 **Authoritative validation.** A final pass re-derives every hard constraint from the assignments alone - never trusting the optimizer's own running counters - and deterministically repairs (drops the minimum offending assignments) if anything still fails.
 
+**Visit spread.** Whenever a run covers more than one visit, each supervisor's postings are mixed across those visits rather than piled onto one (a supervisor with six postings over three visits gets about two of each). Three things make that hold: priority tiers are given their share of *every* visit, not just of the total; within a tier, each visit's units are shared across the whole tier (`planUnitHeadcount`) instead of one supervisor absorbing a whole unit; and the equalization passes below refuse a move that would leave either supervisor lopsided across visits. For Route/LGA-based runs a supervisor still stays in one area per visit, so uneven area sizes can leave counts up to a couple apart between visits. A run restricted to a single visit (the "Visit 1 only" setting, or one visit picked under "Which visits") can only ever hand out that visit - the dialog therefore defaults to all visits.
+
 **Visit selection.** `visit_numbers` (an exact, possibly non-contiguous set of visits, e.g. `[1, 3]`) is understood natively by the engine via `options.visitNumbers`, and supersedes the `number_of_postings` "visits 1 through N" shorthand when given. `statistics.visits_included` mirrors back whichever form was used (a number for the shorthand, the array for an explicit selection) so the dialog can render either.
 
 ### Reported Statistics

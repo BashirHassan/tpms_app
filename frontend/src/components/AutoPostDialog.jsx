@@ -110,7 +110,9 @@ function AutoPostDialog({
   const { showToast } = useToast();
 
   // Allocation options
-  const [numberOfPostings, setNumberOfPostings] = useState(1);
+  // Defaults to every visit: "Visit 1 only" fills each supervisor's whole
+  // allowance with 1st visits, which is rarely what a first run wants.
+  const [numberOfPostings, setNumberOfPostings] = useState(maxVisits);
   const [postingType, setPostingType] = useState('random');
   const [priorityEnabled, setPriorityEnabled] = useState(true);
   const [avoidRepeatSchools, setAvoidRepeatSchools] = useState(true);
@@ -139,6 +141,11 @@ function AutoPostDialog({
     setSelectedRoutes([]);
     setSelectedVisits([]);
   }, []);
+
+  // The session (and so its visit count) can load after this dialog first mounts
+  useEffect(() => {
+    if (open) setNumberOfPostings(maxVisits);
+  }, [open, maxVisits]);
 
   // Load what can be scoped to. Counts come from the slots that are still open, so the
   // pickers never offer an area with nothing left to fill. A dean's faculty_id narrows
@@ -293,7 +300,7 @@ function AutoPostDialog({
     setStep('scope');
     setPreviewData(null);
     setResultData(null);
-    setNumberOfPostings(1);
+    setNumberOfPostings(maxVisits);
     setPostingType('random');
     setPriorityEnabled(true);
     setAvoidRepeatSchools(true);

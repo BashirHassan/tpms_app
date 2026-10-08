@@ -626,12 +626,12 @@ describe('travel distance equalization', () => {
     const { statistics } = runAutoPostingAlgorithm(supervisors, slots, 2, 'lga_based', false);
 
     // Previously observed baseline for this exact fixture: min~88, max~1506
-    // (a ~1400km spread). A materially tighter result proves the pass works;
-    // the exact figure isn't pinned down further since it depends on which
-    // supervisors happen to be idle-per-visit going into this pass.
+    // (a ~1400km spread). The exact figure isn't pinned down further. Seating
+    // now shares every visit across the whole tier, which already lands well
+    // inside this bound, so the pass may have nothing left to move here - the
+    // peeling itself is covered by the tests below.
     const spread = statistics.travel_km.max - statistics.travel_km.min;
     expect(spread).toBeLessThan(1100);
-    expect(statistics.optimization.travel_equalization_moves).toBeGreaterThan(0);
   }, 20000);
 
   it('preserves the intended cross-tier distance trend when priority is enabled', () => {
