@@ -287,6 +287,39 @@ describe('Auto-posting engine - visit spread per supervisor', () => {
     });
   });
 
+  describe('priority inversion repair', () => {
+    it('never sends a supervisor out of area or onto one visit to soften an inversion', () => {
+      // 7 tiers over 28 uneven areas; area 19's distances wrap around, so its
+      // tier averages nearer than the tier below it - an inversion to repair
+      const supervisors = [];
+      [2, 3, 5, 10, 15, 15, 20].forEach((count, tierIndex) => {
+        for (let i = 0; i < count; i++) {
+          const id = supervisors.length + 1;
+          supervisors.push({ id, name: `Supervisor ${String(id).padStart(3, '0')}`, rank_code: `R${tierIndex + 1}`, priority_number: tierIndex + 1, current_postings: 0, remaining_slots: 20 });
+        }
+      });
+      const slots = [];
+      let schoolId = 0;
+      for (let area = 0; schoolId < 263; area++) {
+        for (let s = 0; s < 2 + (area % 19); s++) {
+          schoolId++;
+          for (let visit = 1; visit <= 2; visit++) {
+            slots.push({ id: `${schoolId}-1-${visit}`, school_id: schoolId, school_name: `School ${String(schoolId).padStart(3, '0')}`, group_number: 1, visit_number: visit, route_id: area + 1, route_name: `Route ${area + 1}`, lga: `LGA ${area + 1}`, distance_km: 5 + (schoolId % 200) });
+          }
+        }
+      }
+
+      const { statistics } = runAutoPostingAlgorithm(supervisors, slots, 2, 'lga_based', true, {});
+      const before = statistics.optimization.objective_before;
+      const after = statistics.optimization.objective_after;
+
+      expect(after.crossLgaAssignmentCount).toBeLessThanOrEqual(before.crossLgaAssignmentCount);
+      expect(after.singleVisitCount).toBeLessThanOrEqual(before.singleVisitCount);
+      // ...while still improving the inversion it set out to repair
+      expect(after.priorityInversionSeverity).toBeLessThan(before.priorityInversionSeverity);
+    }, 30000);
+  });
+
   describe('candidate solutions', () => {
     it('compares genuinely different plans, not five copies of one', () => {
       const config = SCENARIOS[2][1];

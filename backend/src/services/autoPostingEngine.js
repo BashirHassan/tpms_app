@@ -41,6 +41,8 @@
 // Bounds so a very large batch cannot degenerate into a long search
 const LOCAL_SEARCH_MAX_PASSES = 4;
 const LOCAL_SEARCH_MAX_COMPARISONS = 300000;
+// How many of each tier's nearest/farthest whole-visit holdings Move D weighs up
+const WHOLE_VISIT_SWAP_BREADTH = 8;
 
 // ============================================================================
 // SMALL MATH HELPERS
@@ -1400,13 +1402,76 @@ function improveSolution(candidate, demandModel, supervisorModel, tiers, posting
     }
     if (budgetExhausted) break;
 
-    // ---- Move D: controlled cross-tier move, only to shrink an existing inversion
+    // ---- Move D: controlled cross-tier move, only to shrink an existing inversion.
+    // Two forms, tried in this order:
+    //   1. exchange what a senior and a junior supervisor each hold for ONE
+    //      visit, wholesale - each stays in a single area that visit and keeps
+    //      their mix of visits, so the repair costs nothing in cohesion;
+    //   2. exchange one posting each (the senior's easiest, the junior's
+    //      hardest) - a smaller step, used where a whole-visit exchange
+    //      does not help.
+    // Neither may push a supervisor out of area or onto a single visit:
+    // cohesion gives way to hard constraints only, not to a softer inversion.
     if (priorityEnabled && objective.priorityInversionCount > 0 && moves.D < maxMoveD) {
       const { inversionCount: beforeCount, inversionSeverity: beforeSeverity } = computePriorityInversions(
         assignments,
         tiers
       );
       const seniorTiers = [...tiers].filter((t) => t.priority_number != null).sort((a, b) => a.priority_number - b.priority_number);
+
+      const reassign = (a, to) => ({
+        ...a,
+        supervisor_id: to.supervisor_id,
+        supervisor_name: to.supervisor_name,
+        rank_code: to.rank_code,
+        priority_number: to.priority_number,
+        repeat_school:
+          avoidRepeatSchools && !!supervisorModel.byId.get(to.supervisor_id)?.schoolHistory.has(a.school_id),
+      });
+
+      // {supervisor, visit} -> what they hold that visit, with its mean distance
+      const holdingsOf = (tierAssignments) => {
+        const holdings = new Map();
+        for (const a of tierAssignments) {
+          const key = `${a.supervisor_id}|${a.visit_number}`;
+          if (!holdings.has(key)) holdings.set(key, { visit: a.visit_number, items: [], total: 0 });
+          const h = holdings.get(key);
+          h.items.push(a);
+          h.total += a.distance_km || 0;
+        }
+        return [...holdings.values()].map((h) => ({ ...h, mean: h.total / h.items.length }));
+      };
+
+      const tryTrial = (trial, touchedSupervisorIds) => {
+        if (!checkHardConstraints(trial, supervisorModel.byId, ctx.maxAssignments)) return false;
+        reflagClusterBreaks(trial, postingType);
+        const trialObjective = scoreCandidate(trial, { ...ctx, tiers });
+        const { inversionCount: afterCount, inversionSeverity: afterSeverity } = computePriorityInversions(
+          trial,
+          tiers
+        );
+
+        const strictlyBetterInversion =
+          afterCount < beforeCount || (afterCount === beforeCount && afterSeverity < beforeSeverity - 1e-9);
+        const noRegressionElsewhere =
+          trialObjective.unassignedCount === objective.unassignedCount &&
+          trialObjective.hardViolationCount === objective.hardViolationCount &&
+          trialObjective.crossLgaAssignmentCount <= objective.crossLgaAssignmentCount &&
+          trialObjective.lgaFragmentation <= objective.lgaFragmentation &&
+          trialObjective.singleVisitCount <= objective.singleVisitCount &&
+          trialObjective.repeatCount <= objective.repeatCount;
+
+        if (!strictlyBetterInversion || !noRegressionElsewhere) return false;
+
+        for (const a of trial) {
+          if (touchedSupervisorIds.includes(a.supervisor_id)) a.priority_inversion_resolved = true;
+        }
+        assignments = trial;
+        objective = trialObjective;
+        moves.D++;
+        improvedThisPass = true;
+        return true;
+      };
 
       outer: for (let si = 0; si < seniorTiers.length; si++) {
         for (let sj = si + 1; sj < seniorTiers.length; sj++) {
@@ -1416,8 +1481,38 @@ function improveSolution(candidate, demandModel, supervisorModel, tiers, posting
           const juniorAssignments = assignments.filter((a) => a.priority_number === junior.priority_number);
           if (seniorAssignments.length === 0 || juniorAssignments.length === 0) continue;
 
-          // Pick the senior's easiest assignment and the junior's hardest -
-          // a bounded single-slot exchange, not a full re-plan.
+          // Form 1: the senior's nearest whole-visit holding for the junior's
+          // farthest one in the same visit
+          const seniorHoldings = holdingsOf(seniorAssignments).sort(
+            (a, b) => a.mean - b.mean || a.items[0].supervisor_id - b.items[0].supervisor_id
+          );
+          const juniorHoldings = holdingsOf(juniorAssignments).sort(
+            (a, b) => b.mean - a.mean || a.items[0].supervisor_id - b.items[0].supervisor_id
+          );
+          for (const nearest of seniorHoldings.slice(0, WHOLE_VISIT_SWAP_BREADTH)) {
+            for (const farthest of juniorHoldings.slice(0, WHOLE_VISIT_SWAP_BREADTH)) {
+              if (farthest.visit !== nearest.visit || nearest.mean >= farthest.mean) continue;
+              // Same size only, so nobody's posting count moves and the
+              // workload pass has nothing to undo afterwards
+              if (farthest.items.length !== nearest.items.length) continue;
+              if (comparisons > maxComparisons) {
+                budgetExhausted = true;
+                break outer;
+              }
+              comparisons++;
+
+              const seniorSample = nearest.items[0];
+              const juniorSample = farthest.items[0];
+              const trial = assignments.map((a) => {
+                if (nearest.items.includes(a)) return reassign(a, juniorSample);
+                if (farthest.items.includes(a)) return reassign(a, seniorSample);
+                return a;
+              });
+              if (tryTrial(trial, [seniorSample.supervisor_id, juniorSample.supervisor_id])) break outer;
+            }
+          }
+
+          // Form 2: a bounded single-slot exchange, not a full re-plan.
           const seniorEasiest = [...seniorAssignments].sort((a, b) => a.distance_km - b.distance_km)[0];
           const juniorHardest = [...juniorAssignments].sort((a, b) => b.distance_km - a.distance_km)[0];
           if (!seniorEasiest || !juniorHardest) continue;
@@ -1430,41 +1525,11 @@ function improveSolution(candidate, demandModel, supervisorModel, tiers, posting
           comparisons++;
 
           const trial = assignments.map((a) => {
-            if (a === seniorEasiest) {
-              return { ...a, supervisor_id: juniorHardest.supervisor_id, supervisor_name: juniorHardest.supervisor_name, rank_code: juniorHardest.rank_code, priority_number: juniorHardest.priority_number };
-            }
-            if (a === juniorHardest) {
-              return { ...a, supervisor_id: seniorEasiest.supervisor_id, supervisor_name: seniorEasiest.supervisor_name, rank_code: seniorEasiest.rank_code, priority_number: seniorEasiest.priority_number };
-            }
+            if (a === seniorEasiest) return reassign(a, juniorHardest);
+            if (a === juniorHardest) return reassign(a, seniorEasiest);
             return a;
           });
-
-          if (!checkHardConstraints(trial, supervisorModel.byId, ctx.maxAssignments)) continue;
-          reflagClusterBreaks(trial, postingType);
-          const trialObjective = scoreCandidate(trial, { ...ctx, tiers });
-          const { inversionCount: afterCount, inversionSeverity: afterSeverity } = computePriorityInversions(
-            trial,
-            tiers
-          );
-
-          const strictlyBetterInversion =
-            afterCount < beforeCount || (afterCount === beforeCount && afterSeverity < beforeSeverity - 1e-9);
-          const noRegressionElsewhere =
-            trialObjective.unassignedCount === objective.unassignedCount &&
-            trialObjective.hardViolationCount === objective.hardViolationCount;
-
-          if (strictlyBetterInversion && noRegressionElsewhere) {
-            for (const a of trial) {
-              if (a.supervisor_id === seniorEasiest.supervisor_id || a.supervisor_id === juniorHardest.supervisor_id) {
-                a.priority_inversion_resolved = true;
-              }
-            }
-            assignments = trial;
-            objective = trialObjective;
-            moves.D++;
-            improvedThisPass = true;
-            break outer;
-          }
+          if (tryTrial(trial, [seniorEasiest.supervisor_id, juniorHardest.supervisor_id])) break outer;
         }
       }
     }
