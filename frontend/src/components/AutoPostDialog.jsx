@@ -991,7 +991,8 @@ function AutoPostDialog({
               previewData.statistics.visit_spread.supervisors_uneven === 0 ? (
                 <div className="flex items-center gap-2 text-gray-700">
                   <Badge variant="success">Even</Badge>
-                  Every supervisor is spread across the visits, within one posting of even.
+                  Every supervisor is spread across the visits, within one posting of even,
+                  counting postings they already hold.
                 </div>
               ) : (
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-gray-700">
@@ -1003,7 +1004,7 @@ function AutoPostDialog({
                   </span>
                   <span className="flex items-center gap-2">
                     <Badge variant="warning">{previewData.statistics.visit_spread.supervisors_uneven}</Badge>
-                    More than one apart between visits (largest gap {previewData.statistics.visit_spread.max_gap})
+                    More than one apart between visits, counting postings already held (largest gap {previewData.statistics.visit_spread.max_gap})
                   </span>
                 </div>
               )}

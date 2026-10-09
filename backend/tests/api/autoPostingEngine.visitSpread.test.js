@@ -178,7 +178,7 @@ describe('Auto-posting engine - visit spread per supervisor', () => {
       const { statistics, warnings } = runAutoPostingAlgorithm(supervisors, lopsided, 2, 'random', false, {});
 
       expect(statistics.visit_spread.supervisors_on_single_visit).toBeGreaterThan(0);
-      expect(warnings.join(' ')).toMatch(/supervisor\(s\) have all their postings on only one visit/);
+      expect(warnings.join(' ')).toMatch(/supervisor\(s\) will have all their postings on only one visit/);
     });
 
     it('reports an empty spread when there is nothing to assign', () => {
@@ -269,6 +269,76 @@ describe('Auto-posting engine - visit spread per supervisor', () => {
       expect(lightAreas(1).size).toBe(1);
       expect(lightAreas(2).size).toBe(1);
       expect(assignments.filter((a) => a.cluster_break)).toHaveLength(0);
+    });
+  });
+
+  describe('topping up a session that already has postings', () => {
+    // Four supervisors, eight open slots (four a visit). Supervisor 1 already
+    // holds six 1st visits and two 2nd; the others are level at four and four.
+    const build = () => {
+      const supervisors = [1, 2, 3, 4].map((id) => ({
+        id, name: `Supervisor ${id}`, rank_code: 'SL', priority_number: 1, current_postings: 8, remaining_slots: 12,
+      }));
+      const slots = [];
+      for (let school = 1; school <= 4; school++) {
+        for (let visit = 1; visit <= 2; visit++) {
+          slots.push({
+            id: `${school}-1-${visit}`, school_id: school, school_name: `School ${school}`, group_number: 1,
+            visit_number: visit, route_id: 1, route_name: 'Route 1', lga: 'LGA 1', distance_km: 10 * school,
+          });
+        }
+      }
+      const existingByVisit = new Map([
+        [1, new Map([[1, 6], [2, 2]])],
+        [2, new Map([[1, 4], [2, 4]])],
+        [3, new Map([[1, 4], [2, 4]])],
+        [4, new Map([[1, 4], [2, 4]])],
+      ]);
+      return { supervisors, slots, existingByVisit };
+    };
+
+    it.each(POSTING_TYPES)('steers a supervisor toward the visit they are short of (%s)', (postingType) => {
+      const { supervisors, slots, existingByVisit } = build();
+      const result = runAutoPostingAlgorithm(supervisors, slots, 2, postingType, false, { existingByVisit });
+
+      expect(result.assignments).toHaveLength(8);
+      const counts = visitCountsBySupervisor(result.assignments, 2);
+      // Everyone still gets two; supervisor 1's both go on the 2nd visit
+      expect(counts.get(1)).toEqual([0, 2]);
+      for (const id of [2, 3, 4]) expect(counts.get(id).reduce((a, b) => a + b, 0)).toBe(2);
+    });
+
+    it('reports each supervisor\'s full schedule, not just this run', () => {
+      const { supervisors, slots, existingByVisit } = build();
+      const { statistics } = runAutoPostingAlgorithm(supervisors, slots, 2, 'random', false, { existingByVisit });
+
+      expect(statistics.assignments_by_supervisor[1].by_visit).toEqual({ visit_1: 0, visit_2: 2 });
+      expect(statistics.assignments_by_supervisor[1].total_by_visit).toEqual({ visit_1: 6, visit_2: 4 });
+      // Six 1st visits cannot be undone, so 6 and 4 is the best supervisor 1 can
+      // reach - and whoever took their 1st-visit share ends up 6 and 4 as well
+      expect(statistics.visit_spread).toMatchObject({ supervisors_on_single_visit: 0, supervisors_uneven: 2, max_gap: 2 });
+      expect(statistics.optimization.visit_levelling_trades).toBeGreaterThan(0);
+    });
+
+    it('does not call a supervisor single-visit when earlier postings already cover the other visit', () => {
+      const supervisors = [{ id: 1, name: 'Supervisor 1', rank_code: 'SL', priority_number: 1, current_postings: 3, remaining_slots: 5 }];
+      const slots = [1, 2].map((school) => ({
+        id: `${school}-1-1`, school_id: school, school_name: `School ${school}`, group_number: 1, visit_number: 1,
+        route_id: 1, route_name: 'Route 1', lga: 'LGA 1', distance_km: 10,
+      })).concat([{ id: '9-1-2', school_id: 9, school_name: 'School 9', group_number: 2, visit_number: 2, route_id: 1, route_name: 'Route 1', lga: 'LGA 1', distance_km: 10 }]);
+      const existingByVisit = new Map([[1, new Map([[2, 3]])]]);
+
+      // Only the two 1st-visit slots are in play for this supervisor's count on visit 1
+      const { statistics } = runAutoPostingAlgorithm(supervisors, slots.filter((s) => s.visit_number === 1 || s.school_id === 9), 2, 'random', false, { existingByVisit });
+      expect(statistics.visit_spread.supervisors_on_single_visit).toBe(0);
+    });
+
+    it('behaves as before when nobody has earlier postings', () => {
+      const { supervisors, slots } = build();
+      const result = runAutoPostingAlgorithm(supervisors, slots, 2, 'random', false, {});
+      for (const perVisit of visitCountsBySupervisor(result.assignments, 2).values()) {
+        expect(perVisit).toEqual([1, 1]);
+      }
     });
   });
 

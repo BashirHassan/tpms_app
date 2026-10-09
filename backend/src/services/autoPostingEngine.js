@@ -385,8 +385,11 @@ function buildDemandModel(slots, postingType) {
 /**
  * @param {Array} supervisors normalized supervisors
  * @param {Map}   schoolHistory Map<supervisor_id, Set<school_id>> from existing postings
+ * @param {Map}   existingByVisit Map<supervisor_id, Map<visit_number, count>> - primary
+ *                postings already held, so a top-up run mixes visits over the
+ *                supervisor's whole schedule and not just what it adds
  */
-function buildSupervisorModel(supervisors, schoolHistory) {
+function buildSupervisorModel(supervisors, schoolHistory, existingByVisit = new Map()) {
   const byId = new Map();
 
   for (const s of supervisors) {
@@ -397,6 +400,7 @@ function buildSupervisorModel(supervisors, schoolHistory) {
       currentPostings: s.current_postings,
       usedInRun: 0, // GLOBAL ledger, shared across every visit
       usedInVisit: new Map(), // visit_number -> seats taken in that visit this run
+      existingByVisit: existingByVisit.get(s.id) || new Map(), // visit_number -> postings held before this run
       seatsByArea: new Map(), // unit areaKey -> seats taken there, across every visit
       schoolHistory: new Set(schoolHistory.get(s.id) || []),
       visitUnit: new Map(), // visit_number -> unit key this supervisor is committed to
@@ -1112,12 +1116,15 @@ function scoreCandidate(assignments, ctx) {
       const byVisit = perVisit.get(a.supervisor_id);
       byVisit.set(a.visit_number, (byVisit.get(a.visit_number) || 0) + 1);
     }
-    for (const byVisit of perVisit.values()) {
+    for (const [supervisorId, byVisit] of perVisit) {
+      // Earlier postings count too: the mix that matters is the supervisor's
+      // whole schedule across these visits
+      const existing = supervisors.get(supervisorId)?.existingByVisit;
       let max = 0;
       let min = Infinity;
       let total = 0;
       for (const v of runVisits) {
-        const count = byVisit.get(v) || 0;
+        const count = (byVisit.get(v) || 0) + (existing?.get(v) || 0);
         total += count;
         if (count > max) max = count;
         if (count < min) min = count;
@@ -1677,8 +1684,9 @@ function reflagRepeatFlag(trial, originalAssignment, newSupervisorId, supervisor
  * passes below can tell whether moving one assignment would undo the visit mix
  * the seating step built (see planUnitHeadcount).
  */
-function buildVisitLedger(assignments) {
+function buildVisitLedger(assignments, supervisorModel) {
   const visits = [...new Set(assignments.map((a) => a.visit_number))];
+  const existing = (supervisorId, visit) => supervisorModel?.byId.get(supervisorId)?.existingByVisit.get(visit) || 0;
   const counts = new Map(); // supervisorId -> Map(visit -> count)
   for (const a of assignments) {
     if (!counts.has(a.supervisor_id)) counts.set(a.supervisor_id, new Map());
@@ -1691,7 +1699,7 @@ function buildVisitLedger(assignments) {
     let max = -Infinity;
     let min = Infinity;
     for (const v of visits) {
-      const count = (byVisit?.get(v) || 0) + (v === visit ? delta : 0);
+      const count = existing(supervisorId, v) + (byVisit?.get(v) || 0) + (v === visit ? delta : 0);
       if (count > max) max = count;
       if (count < min) min = count;
     }
@@ -1781,7 +1789,7 @@ function equalizeTravel(assignments, supervisorModel, tiers, postingType, avoidR
       if (!byUnit.has(uk)) byUnit.set(uk, []);
       byUnit.get(uk).push(a);
     }
-    const visitLedger = buildVisitLedger(assignments);
+    const visitLedger = buildVisitLedger(assignments, supervisorModel);
     const soleUnitFor = (supervisorId, visit) => {
       const byUnit = bySupervisorVisit.get(supervisorId)?.get(visit);
       if (!byUnit || byUnit.size !== 1) return null;
@@ -2031,7 +2039,7 @@ function equalizeWorkload(assignments, supervisorModel, tiers, postingType, avoi
     // ...and before either, a posting from a visit the donor can spare and
     // the receiver is short of, so closing the count gap keeps both mixed
     // across visits.
-    const visitLedger = buildVisitLedger(assignments);
+    const visitLedger = buildVisitLedger(assignments, supervisorModel);
     const upsetsVisitMix = (a) =>
       visitLedger.unbalances(donor.supervisor.id, a.visit_number, -1) ||
       visitLedger.unbalances(receiver.supervisor.id, a.visit_number, 1)
@@ -2092,6 +2100,125 @@ function equalizeWorkload(assignments, supervisorModel, tiers, postingType, avoi
   if (movesApplied > 0) reflagClusterBreaks(assignments, postingType);
 
   return { movesApplied, remainingGap, belowCapacityCeiling, budgetExhausted };
+}
+
+// ============================================================================
+// PHASE 9.6 - LEVEL EACH SUPERVISOR'S SCHEDULE ACROSS VISITS
+//
+// Seating mixes the postings of THIS run across visits. On a top-up that is
+// not enough: a supervisor who already holds six 1st visits and two 2nd, and
+// gets one more of each, ends up seven and three. This pass looks at the whole
+// schedule - earlier postings plus this run - and trades postings between two
+// supervisors: X hands Y one on the visit X has too many of, and takes one of
+// Y's on the visit X is short of.
+//
+// A trade is a straight exchange, so nobody's posting count changes. It is
+// made only when it levels the pair overall, stays inside a priority tier,
+// keeps each of them in one area per visit, and repeats no school.
+// ============================================================================
+
+const LEVEL_VISITS_MAX_TRADES = 2000;
+
+function levelVisitSchedules(assignments, supervisorModel, postingType, avoidRepeatSchools, priorityEnabled = false, shuffledRank = new Map()) {
+  const runVisits = [...new Set(assignments.map((a) => a.visit_number))].sort((a, b) => a - b);
+  if (runVisits.length < 2) return { tradesApplied: 0 };
+
+  const rankOf = (id) => shuffledRank.get(id) ?? id;
+  const areaOf = (a) => (postingType === 'random' ? null : clusterKeyFor(a, postingType));
+  const schoolCover = buildSchoolCover(assignments, supervisorModel);
+
+  // supervisorId -> visit -> this run's assignments there
+  const held = new Map();
+  for (const a of assignments) {
+    if (!held.has(a.supervisor_id)) held.set(a.supervisor_id, new Map());
+    const byVisit = held.get(a.supervisor_id);
+    if (!byVisit.has(a.visit_number)) byVisit.set(a.visit_number, []);
+    byVisit.get(a.visit_number).push(a);
+  }
+  const total = (id, visit) =>
+    (supervisorModel.byId.get(id)?.existingByVisit.get(visit) || 0) + (held.get(id)?.get(visit)?.length || 0);
+  const gapOf = (id, visitA = null, deltaA = 0, visitB = null, deltaB = 0) => {
+    let max = -Infinity;
+    let min = Infinity;
+    for (const v of runVisits) {
+      const count = total(id, v) + (v === visitA ? deltaA : 0) + (v === visitB ? deltaB : 0);
+      if (count > max) max = count;
+      if (count < min) min = count;
+    }
+    return max - min;
+  };
+  // Taking `posting` must not send `id` into a second area on that visit
+  const fitsArea = (id, posting) => {
+    if (postingType === 'random') return true;
+    const there = held.get(id)?.get(posting.visit_number) || [];
+    return there.every((a) => areaOf(a) === areaOf(posting));
+  };
+  const wouldRepeat = (id, posting) => avoidRepeatSchools && schoolCover.covers(id, posting.school_id);
+  const give = (posting, from, to) => {
+    const list = held.get(from).get(posting.visit_number);
+    list.splice(list.indexOf(posting), 1);
+    if (!held.get(to).has(posting.visit_number)) held.get(to).set(posting.visit_number, []);
+    held.get(to).get(posting.visit_number).push(posting);
+    schoolCover.move(from, to, posting.school_id);
+
+    const receiver = supervisorModel.byId.get(to).supervisor;
+    posting.supervisor_id = receiver.id;
+    posting.supervisor_name = receiver.name;
+    posting.rank_code = receiver.rank_code;
+    posting.priority_number = receiver.priority_number;
+    posting.repeat_school = false;
+  };
+
+  const ids = [...held.keys()].sort((a, b) => rankOf(a) - rankOf(b));
+  const tierOf = (id) => (priorityEnabled ? supervisorModel.byId.get(id)?.priorityNumber : null);
+  const byPosting = (a, b) => a.school_id - b.school_id || a.group_number - b.group_number;
+
+  let tradesApplied = 0;
+  let traded = true;
+  while (traded && tradesApplied < LEVEL_VISITS_MAX_TRADES) {
+    traded = false;
+
+    for (const x of ids) {
+      if (gapOf(x) < 2) continue;
+
+      // X's heaviest and lightest visits of the run
+      const heavy = runVisits.reduce((best, v) => (total(x, v) > total(x, best) ? v : best), runVisits[0]);
+      const light = runVisits.reduce((best, v) => (total(x, v) < total(x, best) ? v : best), runVisits[0]);
+      const spare = [...(held.get(x).get(heavy) || [])].sort(byPosting);
+      if (spare.length === 0) continue; // the lead comes from earlier postings; nothing here to trade
+
+      let best = null;
+      for (const y of ids) {
+        if (y === x || tierOf(y) !== tierOf(x)) continue;
+        const wanted = [...(held.get(y).get(light) || [])].sort(byPosting);
+        if (wanted.length === 0) continue;
+
+        // Level the pair overall: squared gaps, so one big lead outweighs two small ones
+        const before = gapOf(x) ** 2 + gapOf(y) ** 2;
+        const after = gapOf(x, heavy, -1, light, 1) ** 2 + gapOf(y, heavy, 1, light, -1) ** 2;
+        if (after >= before) continue;
+
+        const out = spare.find((p) => !wouldRepeat(y, p) && fitsArea(y, p));
+        if (!out) continue;
+        const back = wanted.find((p) => !wouldRepeat(x, p) && fitsArea(x, p));
+        if (!back) continue;
+
+        if (best === null || after - before < best.gain) best = { y, out, back, gain: after - before };
+      }
+
+      if (best) {
+        give(best.out, x, best.y);
+        give(best.back, best.y, x);
+        tradesApplied++;
+        traded = true;
+        if (tradesApplied >= LEVEL_VISITS_MAX_TRADES) break;
+      }
+    }
+  }
+
+  if (tradesApplied > 0) reflagClusterBreaks(assignments, postingType);
+
+  return { tradesApplied };
 }
 
 // ============================================================================
@@ -2241,10 +2368,15 @@ function calculateStatistics(assignments, supervisorModel, slots, visitsIncluded
         name: a.supervisor_name,
         distance: 0,
         by_visit: Object.fromEntries(runVisits.map((v) => [`visit_${v}`, 0])),
+        // by_visit plus the postings held before this run
+        total_by_visit: Object.fromEntries(
+          runVisits.map((v) => [`visit_${v}`, supervisorModel.byId.get(a.supervisor_id)?.existingByVisit.get(v) || 0])
+        ),
       };
     }
     bySupervisor[a.supervisor_id].count++;
     bySupervisor[a.supervisor_id].by_visit[visitKey]++;
+    bySupervisor[a.supervisor_id].total_by_visit[visitKey]++;
     bySupervisor[a.supervisor_id].distance += a.distance_km || 0;
 
     if (!bySchool[a.school_id]) bySchool[a.school_id] = { count: 0, name: a.school_name };
@@ -2267,13 +2399,15 @@ function calculateStatistics(assignments, supervisorModel, slots, visitsIncluded
 
   const counts = Object.values(bySupervisor).map((s) => s.count);
 
-  // How evenly each supervisor's postings sit across the visits of this run
+  // How evenly each supervisor's postings sit across the visits of this run,
+  // counting what they already held on those visits
   const visitSpread = { supervisors_on_single_visit: 0, supervisors_uneven: 0, max_gap: 0 };
   if (runVisits.length > 1) {
     for (const s of Object.values(bySupervisor)) {
-      const perVisit = Object.values(s.by_visit);
+      const perVisit = Object.values(s.total_by_visit);
+      const held = perVisit.reduce((a, b) => a + b, 0);
       const gap = Math.max(...perVisit) - Math.min(...perVisit);
-      if (s.count > 1 && perVisit.filter((c) => c > 0).length === 1) visitSpread.supervisors_on_single_visit++;
+      if (held > 1 && perVisit.filter((c) => c > 0).length === 1) visitSpread.supervisors_on_single_visit++;
       if (gap > 1) visitSpread.supervisors_uneven++;
       if (gap > visitSpread.max_gap) visitSpread.max_gap = gap;
     }
@@ -2441,7 +2575,7 @@ function buildWarnings(assignments, statistics, extras) {
 
   if (statistics.visit_spread.supervisors_on_single_visit > 0) {
     warnings.push(
-      `${statistics.visit_spread.supervisors_on_single_visit} supervisor(s) have all their postings on only one visit - the other visits did not have enough open slots to share`
+      `${statistics.visit_spread.supervisors_on_single_visit} supervisor(s) will have all their postings on only one visit - the other visits did not have enough open slots to share`
     );
   }
 
@@ -2575,6 +2709,7 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
     maxAssignments = Infinity,
     visitNumbers = [],
     shuffleSalt = 0,
+    existingByVisit = new Map(),
     limits = {},
   } = options;
 
@@ -2623,7 +2758,7 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
   const demandModel = buildDemandModel(eligibleSlots, postingType);
 
   // ---- Phase 3: supervisor capacity model ----
-  const baseSupervisorModel = buildSupervisorModel(normalized.supervisors, schoolHistory);
+  const baseSupervisorModel = buildSupervisorModel(normalized.supervisors, schoolHistory, existingByVisit);
 
   // ---- Phase 4: priority tiers ----
   const baseTiers = buildPriorityTiers(baseSupervisorModel, priorityEnabled);
@@ -2739,6 +2874,16 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
     );
   }
 
+  // ---- Phase 9.6: level each supervisor's schedule across visits ----
+  const visitLevelling = levelVisitSchedules(
+    finalAssignments,
+    baseSupervisorModel,
+    postingType,
+    avoidRepeatSchools,
+    priorityEnabled,
+    winnerRank
+  );
+
   // ---- Phase 10: authoritative validation + repair ----
   const validation = validateSolution(
     finalAssignments,
@@ -2793,6 +2938,7 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
     moves_applied: improvement.movesApplied,
     budget_exhausted: improvement.budgetExhausted,
     travel_equalization_moves: travelEqualization.movesApplied,
+    visit_levelling_trades: visitLevelling.tradesApplied,
   };
 
   const unplacedUnitsCount = winner.unplacedUnits ? winner.unplacedUnits.length : 0;
@@ -2841,5 +2987,6 @@ module.exports = {
   planFingerprint,
   equalizeTravel,
   equalizeWorkload,
+  levelVisitSchedules,
   validateSolution,
 };

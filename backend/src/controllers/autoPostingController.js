@@ -427,12 +427,16 @@ async function planAutoPosting(institutionId, session, body, filters, user) {
   const deanAllocation = await getDeanAllocation(institutionId, session_id, user);
   const maxPostingsPerSupervisor = await getMaxPostingsPerSupervisor(institutionId, session_id);
 
+  // What each supervisor already holds on each visit - used both to share the
+  // posting limit on a partial run and to level their whole schedule on a top-up
+  const existingByVisit = await getPrimaryPostingsByVisit(institutionId, session_id);
+
   const runVisits = visitsInRun(filters.visitNumbers, number_of_postings);
   const limitShared = body.reserve_other_visits && runVisits.length < session.max_supervision_visits;
   if (limitShared) {
     supervisors = shareLimitAcrossVisits(
       supervisors,
-      await getPrimaryPostingsByVisit(institutionId, session_id),
+      existingByVisit,
       runVisits,
       session.max_supervision_visits,
       maxPostingsPerSupervisor
@@ -448,6 +452,7 @@ async function planAutoPosting(institutionId, session, body, filters, user) {
     maxAssignments: deanAllocation ? deanAllocation.remaining : Infinity,
     visitNumbers: filters.visitNumbers,
     shuffleSalt: body.shuffle_salt,
+    existingByVisit,
   });
 
   return {
