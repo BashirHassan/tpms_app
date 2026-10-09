@@ -181,6 +181,12 @@ describe('Auto-posting engine - visit spread per supervisor', () => {
       expect(warnings.join(' ')).toMatch(/supervisor\(s\) have all their postings on only one visit/);
     });
 
+    it('reports an empty spread when there is nothing to assign', () => {
+      const { supervisors } = makeScenario(SCENARIOS[0][1]);
+      const { statistics } = runAutoPostingAlgorithm(supervisors, [], 3, 'random', false, {});
+      expect(statistics.visit_spread).toEqual({ supervisors_on_single_visit: 0, supervisors_uneven: 0, max_gap: 0 });
+    });
+
     it('says nothing about spread on a single-visit run', () => {
       const { supervisors, slots } = makeScenario({ supervisorCount: 5, capacity: 4, areas: 2, schoolsPerArea: 5, groups: 1, visits: 3 });
       const { statistics, warnings } = runAutoPostingAlgorithm(supervisors, slots, 3, 'random', false, { visitNumbers: [2] });
@@ -350,6 +356,35 @@ describe('Auto-posting engine - visit spread per supervisor', () => {
       const outOfArea = result.assignments.filter((a) => a.cluster_break).length;
       expect(outOfArea).toBeLessThan(slots.length * 0.2);
     }, 120000);
+  });
+
+  describe('at the size of a large session', () => {
+    it('plans 499 supervisors over six visits in a few seconds, not minutes', () => {
+      const supervisors = Array.from({ length: 499 }, (_, i) => ({
+        id: i + 1, name: `Supervisor ${String(i + 1).padStart(3, '0')}`, rank_code: 'SL',
+        priority_number: 1 + (i % 6), current_postings: 0, remaining_slots: 15,
+      }));
+      const slots = [];
+      for (let school = 1; school <= 124; school++) {
+        for (let visit = 1; visit <= 6; visit++) {
+          slots.push({
+            id: `${school}-1-${visit}`, school_id: school, school_name: `School ${String(school).padStart(3, '0')}`,
+            group_number: 1, visit_number: visit, route_id: 1 + (school % 9), route_name: `Route ${1 + (school % 9)}`,
+            lga: `LGA ${1 + (school % 17)}`, distance_km: 5 + ((school * 37) % 150),
+          });
+        }
+      }
+
+      for (const postingType of POSTING_TYPES) {
+        const started = Date.now();
+        const result = runAutoPostingAlgorithm(supervisors, slots, 6, postingType, true, {});
+
+        expect(result.assignments).toHaveLength(slots.length);
+        expect(result.statistics.optimization.budget_exhausted).toBe(false);
+        // The web server gives a request 90 seconds; this used to take 30-60
+        expect(Date.now() - started).toBeLessThan(15000);
+      }
+    }, 60000);
   });
 
   describe('priority inversion repair', () => {

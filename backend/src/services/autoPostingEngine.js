@@ -1300,6 +1300,26 @@ function improveSolution(candidate, demandModel, supervisorModel, tiers, posting
   let pass = 0;
   let budgetExhausted = false;
 
+  // Swapping two same-tier supervisors' whole allocations only relabels who
+  // holds what: every term of the objective is unchanged except workload
+  // balance, and that improves only when the one with more existing postings
+  // is also the one holding more new ones. Checking that first skips the full
+  // re-score for the swaps that cannot help - on a fresh session, all of them.
+  let countedFor = null;
+  let postingCounts = new Map();
+  const swapCanHelp = (supervisorIdX, supervisorIdY) => {
+    if (objective.hardViolationCount > 0) return true;
+    if (countedFor !== assignments) {
+      postingCounts = new Map();
+      for (const a of assignments) postingCounts.set(a.supervisor_id, (postingCounts.get(a.supervisor_id) || 0) + 1);
+      countedFor = assignments;
+    }
+    const existing = (id) => supervisorModel.byId.get(id)?.currentPostings || 0;
+    const existingGap = existing(supervisorIdX) - existing(supervisorIdY);
+    const newGap = (postingCounts.get(supervisorIdX) || 0) - (postingCounts.get(supervisorIdY) || 0);
+    return existingGap * newGap > 0;
+  };
+
   for (; pass < maxPasses; pass++) {
     let improvedThisPass = false;
 
@@ -1320,7 +1340,12 @@ function improveSolution(candidate, demandModel, supervisorModel, tiers, posting
           unitOf(b) === unitOf(a) &&
           b.supervisor_id !== a.supervisor_id
       );
+      // One trial per receiving supervisor - the outcome does not depend on
+      // which of their postings stood in as the peer
+      const triedSupervisors = new Set();
       for (const peer of sameUnitPeers) {
+        if (triedSupervisors.has(peer.supervisor_id)) continue;
+        triedSupervisors.add(peer.supervisor_id);
         comparisons++;
         const trial = assignments.map((x) => (x === a ? { ...x, supervisor_id: peer.supervisor_id, supervisor_name: peer.supervisor_name, rank_code: peer.rank_code, priority_number: peer.priority_number } : x));
         reflagRepeatFlag(trial, a, peer.supervisor_id, supervisorModel, avoidRepeatSchools);
@@ -1364,6 +1389,7 @@ function improveSolution(candidate, demandModel, supervisorModel, tiers, posting
           const px = assignments.find((a) => a.supervisor_id === x)?.priority_number;
           const py = assignments.find((a) => a.supervisor_id === y)?.priority_number;
           if (px !== py) continue; // B never crosses tiers
+          if (!swapCanHelp(x, y)) continue;
 
           const trial = swapFullAllocations(assignments, x, y);
           if (!checkHardConstraints(trial, supervisorModel.byId, ctx.maxAssignments)) continue;
@@ -1411,6 +1437,7 @@ function improveSolution(candidate, demandModel, supervisorModel, tiers, posting
         const y = soleOwners[j];
         if (x.visit !== y.visit || x.priority_number !== y.priority_number) continue;
         if (x.unitKey === y.unitKey) continue;
+        if (!swapCanHelp(x.supervisorId, y.supervisorId)) continue;
         if (comparisons > maxComparisons) {
           budgetExhausted = true;
           break;
@@ -1577,15 +1604,18 @@ function improveSolution(candidate, demandModel, supervisorModel, tiers, posting
 }
 
 function swapFullAllocations(assignments, supervisorIdX, supervisorIdY) {
+  const asX = assignments.find((a) => a.supervisor_id === supervisorIdX);
+  const asY = assignments.find((a) => a.supervisor_id === supervisorIdY);
+  const relabel = (a, to) => ({
+    ...a,
+    supervisor_id: to.supervisor_id,
+    supervisor_name: to.supervisor_name,
+    rank_code: to.rank_code,
+    priority_number: to.priority_number,
+  });
   return assignments.map((a) => {
-    if (a.supervisor_id === supervisorIdX) {
-      const template = assignments.find((b) => b.supervisor_id === supervisorIdY);
-      return { ...a, supervisor_id: supervisorIdY, supervisor_name: template.supervisor_name, rank_code: template.rank_code, priority_number: template.priority_number };
-    }
-    if (a.supervisor_id === supervisorIdY) {
-      const template = assignments.find((b) => b.supervisor_id === supervisorIdX);
-      return { ...a, supervisor_id: supervisorIdX, supervisor_name: template.supervisor_name, rank_code: template.rank_code, priority_number: template.priority_number };
-    }
+    if (a.supervisor_id === supervisorIdX) return relabel(a, asY);
+    if (a.supervisor_id === supervisorIdY) return relabel(a, asX);
     return a;
   });
 }
@@ -2502,6 +2532,7 @@ function emptyResult(warnings, visitsIncluded, slotsCount = 0) {
     utilization_rate: 0,
     assignments_by_visit: {},
     assignments_by_supervisor: {},
+    visit_spread: { supervisors_on_single_visit: 0, supervisors_uneven: 0, max_gap: 0 },
     workload: { min: 0, max: 0, mean: 0, median: 0, standard_deviation: 0 },
     travel: { total_km: 0, min_supervisor_km: 0, max_supervisor_km: 0, mean_km: 0, standard_deviation: 0 },
     repeats: { count: 0, rate: 0, unavoidable_count: 0 },
