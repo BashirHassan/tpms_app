@@ -659,7 +659,13 @@ function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, optio
       const match = owners.find((o) => o.tierIndex === tierIndex);
       if (match) ownedHere.push({ key, unit: unitByKey.get(key), amount: match.amount });
     }
-    ownedHere.sort((a, b) => b.unit.difficulty - a.unit.difficulty || a.key.localeCompare(b.key));
+    // Biggest areas first. Members of one tier are peers, so the order only
+    // decides who gets which area, and seating the large areas while people are
+    // still free keeps each of them whole; the small areas left over are then
+    // added to whoever has the most room that visit.
+    ownedHere.sort(
+      (a, b) => b.amount - a.amount || b.unit.difficulty - a.unit.difficulty || a.key.localeCompare(b.key)
+    );
 
     // Fair-share cap: a unit's demand must rotate across this tier's own
     // members instead of one supervisor absorbing a whole unit just because
@@ -679,6 +685,16 @@ function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, optio
     // every visit's own demand across the whole tier instead is what mixes each
     // supervisor across the visits of the run.
     const headcount = planUnitHeadcount(ownedHere, pool.length);
+
+    // A member's even share of each visit. Headcount alone cannot hold the mix
+    // when areas outnumber supervisors (everyone ends up with several small
+    // areas a visit), so no single grant takes a supervisor past this share.
+    const ownedByVisit = new Map();
+    for (const { unit, amount } of ownedHere) {
+      ownedByVisit.set(unit.visit_number, (ownedByVisit.get(unit.visit_number) || 0) + amount);
+    }
+    const tierMembers = Math.max(1, pool.length);
+    const visitShare = (visit) => Math.max(1, Math.ceil((ownedByVisit.get(visit) || 0) / tierMembers));
 
     for (const { key, unit, amount } of ownedHere) {
       const seats = seatPlan.get(key) || [];
@@ -719,7 +735,8 @@ function solveGeographicalAllocation(orderedUnits, tiers, supervisorModel, optio
         // An even split of what is left over the heads still to come; once the
         // planned heads are in, the overflow rotates one seat at a time.
         const evenSplit = headsLeft > 0 ? Math.ceil(seatsToFill / headsLeft) : 1;
-        const grant = Math.min(seatsToFill, remainingCapacity(entry), targetPerSupervisor, evenSplit);
+        const shareLeft = Math.max(1, visitShare(unit.visit_number) - (entry.usedInVisit.get(unit.visit_number) || 0));
+        const grant = Math.min(seatsToFill, remainingCapacity(entry), targetPerSupervisor, evenSplit, shareLeft);
         if (entry.visitUnit.get(unit.visit_number) !== unit.key) headsLeft--;
         takeSeats(entry, unit, grant);
         seats.push({ supervisorId, seats: grant });
@@ -799,6 +816,17 @@ function planUnitHeadcount(ownedUnits, memberCount) {
   }
 
   for (const visitUnits of byVisit.values()) {
+    // More areas than supervisors: one head each would hand a single supervisor
+    // the whole of a dominant area (their entire load, on one visit). Size the
+    // heads by a fair per-visit share instead; supervisors then pick up the
+    // small areas as a second stop, which nothing can avoid in this shape.
+    if (visitUnits.length > memberCount) {
+      const demand = visitUnits.reduce((sum, owned) => sum + owned.amount, 0);
+      const share = Math.max(1, Math.ceil(demand / Math.max(1, memberCount)));
+      for (const owned of visitUnits) heads.set(owned.key, Math.max(1, Math.round(owned.amount / share)));
+      continue;
+    }
+
     for (let spare = memberCount - visitUnits.length; spare > 0; spare--) {
       let neediest = null;
       for (const owned of visitUnits) {

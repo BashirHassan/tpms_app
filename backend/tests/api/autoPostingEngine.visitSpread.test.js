@@ -287,6 +287,71 @@ describe('Auto-posting engine - visit spread per supervisor', () => {
     });
   });
 
+  describe('more areas than supervisors, one of them dominant', () => {
+    // Shaped like a real session: 86 LGAs a visit for 51 supervisors, one LGA
+    // holding 236 of the 547 slots and dozens holding one or two.
+    const AREA_SIZES = [236, 31, 30, 19, 19, 13, 12, 11, 10, 9, 8, 8, 7, 7, 6, 6, 5, 5, 5, 4, 4, 4, 4, 3, 3, 3, 3, 3,
+      ...new Array(18).fill(2), ...new Array(40).fill(1)];
+    const VISITS = 3;
+
+    const build = () => {
+      const supervisors = Array.from({ length: 51 }, (_, i) => ({
+        id: i + 1,
+        name: `Supervisor ${String(i + 1).padStart(3, '0')}`,
+        rank_code: 'SL',
+        priority_number: 1 + (i % 4),
+        current_postings: 0,
+        remaining_slots: 100,
+      }));
+      const slots = [];
+      let schoolId = 0;
+      AREA_SIZES.forEach((size, area) => {
+        for (let s = 0; s < size; s++) {
+          schoolId++;
+          for (let visit = 1; visit <= VISITS; visit++) {
+            slots.push({
+              id: `${schoolId}-1-${visit}`,
+              school_id: schoolId,
+              school_name: `School ${String(schoolId).padStart(4, '0')}`,
+              group_number: 1,
+              visit_number: visit,
+              route_id: 1,
+              route_name: 'Route 1',
+              lga: `LGA ${String(area + 1).padStart(2, '0')}`,
+              distance_km: 5 + ((area * 13 + s) % 120),
+            });
+          }
+        }
+      });
+      return { supervisors, slots };
+    };
+
+    it.each([false, true])('still mixes every supervisor across the visits (priority=%s)', (priorityEnabled) => {
+      const { supervisors, slots } = build();
+      const result = runAutoPostingAlgorithm(supervisors, slots, VISITS, 'lga_based', priorityEnabled, {});
+
+      assertValidSolution(result.assignments, supervisors, slots, VISITS, Infinity, result.statistics);
+      expect(result.assignments).toHaveLength(slots.length);
+      expect(result.statistics.visit_spread.supervisors_on_single_visit).toBe(0);
+
+      const counts = visitCountsBySupervisor(result.assignments, VISITS);
+      expect(counts.size).toBe(supervisors.length);
+      for (const perVisit of counts.values()) {
+        expect(Math.min(...perVisit)).toBeGreaterThan(0);
+        // Without tiers every supervisor's visits come out level. With them a
+        // small tier can be pinned to a small area on one visit, which
+        // cohesion is allowed to cost.
+        if (!priorityEnabled) expect(Math.max(...perVisit) - Math.min(...perVisit)).toBeLessThanOrEqual(4);
+      }
+
+      // 35 more areas than supervisors, so second areas are unavoidable - about
+      // one posting in six here - but only the small areas travel: the dominant
+      // one must not be scattered.
+      const outOfArea = result.assignments.filter((a) => a.cluster_break).length;
+      expect(outOfArea).toBeLessThan(slots.length * 0.2);
+    }, 120000);
+  });
+
   describe('priority inversion repair', () => {
     it('never sends a supervisor out of area or onto one visit to soften an inversion', () => {
       // 7 tiers over 28 uneven areas; area 19's distances wrap around, so its
