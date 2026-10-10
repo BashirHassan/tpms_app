@@ -427,6 +427,7 @@ export default function SchoolRegistrationRequestsPage() {
       <Card>
         <CardContent className="p-0">
           <DataTable
+            mobileCards
             data={requests}
             columns={columns}
             keyField="id"

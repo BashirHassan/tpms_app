@@ -442,6 +442,7 @@ function AcademicPage() {
 
       {/* Content */}
       <DataTable
+        mobileCards
         data={currentData}
         columns={columns}
         keyField="id"

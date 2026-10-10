@@ -804,6 +804,7 @@ function StudentsPage() {
 
       {/* Students Table */}
       <DataTable
+        mobileCards
         data={students}
         columns={columns}
         keyField="id"

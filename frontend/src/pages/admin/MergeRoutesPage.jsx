@@ -547,6 +547,7 @@ function MergeRoutesPage() {
 
       {/* Merged Groups Table */}
       <DataTable
+        mobileCards
         data={mergedGroups}
         columns={mergedColumns}
         keyField="id"

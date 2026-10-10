@@ -663,6 +663,7 @@ export default function SchoolUpdateRequestsPage() {
 
       {/* Requests Table */}
       <DataTable
+        mobileCards
         data={requests}
         columns={columns}
         keyField="id"

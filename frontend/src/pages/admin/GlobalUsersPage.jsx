@@ -639,6 +639,7 @@ function GlobalUsersPage() {
             </div>
           ) : (
             <DataTable
+              mobileCards
               data={users}
               columns={columns}
               keyField="id"

@@ -1171,6 +1171,7 @@ function MasterSchoolsPage() {
       <Card>
         <CardContent className="p-0">
           <DataTable
+            mobileCards
             data={schools}
             columns={columns}
             keyField="id"

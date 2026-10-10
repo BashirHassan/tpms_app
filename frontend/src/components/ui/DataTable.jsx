@@ -9,6 +9,7 @@
  * - Pagination support
  * - Sorting support
  * - Virtual scrolling for large datasets
+ * - Card view on mobile (opt-in via `mobileCards`)
  */
 
 import { useState, useMemo, useCallback, forwardRef, useImperativeHandle, useEffect, useRef } from 'react';
@@ -430,6 +431,36 @@ const getNestedValue = (obj, path) => {
   return path.split('.').reduce((acc, part) => acc?.[part], obj);
 };
 
+// Tailwind's `sm` breakpoint starts at 640px
+const MOBILE_QUERY = '(max-width: 639px)';
+
+/**
+ * True while the viewport is narrower than `sm`. Always false when disabled,
+ * so tables that don't opt in to mobile cards never subscribe.
+ */
+const useIsMobile = (enabled) => {
+  const [isMobile, setIsMobile] = useState(
+    () => enabled && typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches
+  );
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const media = window.matchMedia(MOBILE_QUERY);
+    const update = () => setIsMobile(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [enabled]);
+
+  return enabled && isMobile;
+};
+
+// Pages key their actions column several ways (accessor, key, type, or header only)
+const isActionsColumn = (column) =>
+  (column.accessor || column.key) === 'actions' ||
+  column.type === 'actions' ||
+  (typeof column.header === 'string' && /^actions?$/i.test(column.header.trim()));
+
 /**
  * DataTable Component
  */
@@ -467,6 +498,13 @@ const DataTable = forwardRef(function DataTable(
     // Kept out of `data` so it's never sorted, searched, filtered, or paginated away.
     footerData = null,
 
+    // Mobile cards - below the `sm` breakpoint, show each row as a stacked card
+    // instead of a sideways-scrolling table. A column opts out with
+    // `hideOnMobile: true`; `renderMobileCard(row, rowIndex)` replaces the default
+    // label/value body. Ignored when `virtualScrolling` is set.
+    mobileCards = false,
+    renderMobileCard,
+
     // Callbacks
     onRowClick,
     onSort,
@@ -501,6 +539,7 @@ const DataTable = forwardRef(function DataTable(
 ) {
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
   const [searchQuery, setSearchQuery] = useState('');
+  const showCards = useIsMobile(mobileCards && !virtualScrolling);
   const [clientPage, setClientPage] = useState(1);
   const [clientLimit, setClientLimit] = useState(
     typeof clientPagination === 'number' ? clientPagination : pageSizeOptions[0]
@@ -1038,6 +1077,145 @@ const DataTable = forwardRef(function DataTable(
     }
   }, [columns, exportFilename, onServerExport, sortedData, footerData]);
 
+  // One label/value line per column; actions sit in their own strip at the bottom
+  const renderCardBody = (row, rowIndex, { withActions = true } = {}) => {
+    const mobileColumns = columns.filter((column) => !column.hideOnMobile);
+    const fields = mobileColumns.filter((column) => !isActionsColumn(column));
+    const actions = withActions ? mobileColumns.filter(isActionsColumn) : [];
+
+    return (
+      <>
+        <dl className="space-y-1.5">
+          {fields.map((column, colIndex) => (
+            <div key={column.accessor || colIndex} className="flex items-start justify-between gap-3">
+              <dt className="flex-shrink-0 pt-0.5 text-xs font-medium text-gray-500">{column.header}</dt>
+              <dd className="min-w-0 break-words text-right text-sm text-gray-900">
+                {renderCell(column, row, rowIndex)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        {actions.map((column, colIndex) => (
+          <div key={column.accessor || colIndex} className="mt-2 flex justify-end border-t border-gray-100 pt-2">
+            {renderCell(column, row, rowIndex)}
+          </div>
+        ))}
+      </>
+    );
+  };
+
+  // Mobile card list - the same rows, state and handlers as the table body
+  const renderCards = () => {
+    const sortableColumns = sortable
+      ? columns.filter((c) => c.accessor && c.sortable !== false && typeof c.header === 'string')
+      : [];
+    const sortDirectionLabel = sortConfig.direction === 'asc' ? 'Ascending' : 'Descending';
+
+    return (
+      <div className="space-y-2 bg-gray-50 p-2">
+        {(sortableColumns.length > 0 || (selectable && selectionMode === 'multiple')) && (
+          <div className="flex items-center justify-between gap-2 px-1">
+            {selectable && selectionMode === 'multiple' ? (
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <Checkbox
+                  checked={allSelected}
+                  indeterminate={someSelected}
+                  onChange={handleSelectAll}
+                  aria-label="Select all rows"
+                />
+                Select all
+              </label>
+            ) : <span />}
+            {sortableColumns.length > 0 && (
+              <div className="flex items-center gap-1">
+                <select
+                  aria-label="Sort by"
+                  value={sortConfig.key || ''}
+                  onChange={(e) => {
+                    const key = e.target.value || null;
+                    setSortConfig({ key, direction: 'asc' });
+                    if (key) onSort?.({ key, direction: 'asc' });
+                  }}
+                  className="max-w-[10rem] rounded-md border border-gray-300 bg-white px-1.5 py-1 text-xs text-gray-700 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                >
+                  <option value="">Sort by...</option>
+                  {sortableColumns.map((column) => (
+                    <option key={column.accessor} value={column.accessor}>{column.header}</option>
+                  ))}
+                </select>
+                {sortConfig.key && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleSort(sortConfig.key)}
+                    aria-label={`${sortDirectionLabel} - tap to reverse`}
+                    title={sortDirectionLabel}
+                  >
+                    {sortConfig.direction === 'asc'
+                      ? <IconChevronUp className="w-4 h-4" />
+                      : <IconChevronDown className="w-4 h-4" />}
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {loading ? (
+          Array.from({ length: 3 }).map((_, cardIndex) => (
+            <div key={`skeleton-${cardIndex}`} className="space-y-2 rounded-lg border border-gray-200 bg-white p-3">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-4 w-1/3" />
+            </div>
+          ))
+        ) : sortedData.length === 0 ? (
+          <div className="rounded-lg border border-gray-200 bg-white">{renderEmptyState()}</div>
+        ) : (
+          visibleData.map((row, pageIndex) => {
+            const rowIndex = pageOffset + pageIndex;
+            const rowSelectable = !isRowSelectable || isRowSelectable(row);
+            const selected = isRowSelected(row);
+            const isLastClicked = highlightLastClicked && lastClickedKey != null && row[keyField] === lastClickedKey;
+
+            return (
+              <div
+                key={row[keyField] || rowIndex}
+                className={cn(
+                  'rounded-lg border border-gray-200 bg-white p-3 transition-colors',
+                  onRowClick && 'cursor-pointer active:bg-gray-50',
+                  selected && 'border-primary-300 bg-primary-50',
+                  isLastClicked && 'ring-1 ring-inset ring-gray-300',
+                  typeof rowClassName === 'function' ? rowClassName(row, rowIndex) : rowClassName
+                )}
+                onClickCapture={() => highlightLastClicked && setLastClickedKey(row[keyField])}
+                onClick={() => onRowClick?.(row, rowIndex)}
+              >
+                {selectable && (
+                  <div className="mb-2 border-b border-gray-100 pb-2">
+                    <Checkbox
+                      checked={selected}
+                      onChange={(checked) => handleRowSelect(row, checked)}
+                      disabled={!rowSelectable}
+                      aria-label={`Select row ${rowIndex + 1}`}
+                    />
+                  </div>
+                )}
+                {renderMobileCard ? renderMobileCard(row, rowIndex) : renderCardBody(row, rowIndex)}
+              </div>
+            );
+          })
+        )}
+
+        {footerData && !loading && sortedData.length > 0 && (
+          <div className="rounded-lg border-2 border-gray-300 bg-gray-50 p-3">
+            {renderCardBody(footerData, -1, { withActions: false })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
     exportData: exportDataFromRef,
@@ -1052,6 +1230,7 @@ const DataTable = forwardRef(function DataTable(
     <div className={cn('bg-white rounded-lg shadow-sm', className)}>
       {(toolbarPosition === 'top' || toolbarPosition === 'both') && renderToolbar()}
 
+      {showCards ? renderCards() : (
       <div ref={tableContainerRef} className={cn(tableContainerVariants({ size }))}>
         <table className={cn('w-full min-w-max', tableClassName)}>
           <thead className={cn('bg-gray-50 sticky top-0 z-10', headerClassName)}>
@@ -1223,6 +1402,7 @@ const DataTable = forwardRef(function DataTable(
           )}
         </table>
       </div>
+      )}
 
       {(toolbarPosition === 'bottom' || toolbarPosition === 'both') && renderToolbar()}
       {renderPagination()}

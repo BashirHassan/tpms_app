@@ -519,6 +519,7 @@ function PaymentsPage() {
       <Card>
         <CardContent className="p-0">
           <DataTable
+            mobileCards
             data={payments}
             columns={paymentsColumns}
             keyField="id"

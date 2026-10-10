@@ -493,6 +493,7 @@ function FeaturesPage() {
         )}
         <CardContent className="p-0">
           <DataTable
+            mobileCards
             data={filteredFeatures}
             columns={columns}
             loading={loading}

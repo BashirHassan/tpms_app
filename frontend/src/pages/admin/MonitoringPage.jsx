@@ -910,6 +910,7 @@ function MonitoringPage() {
                 <DataTable
                   data={assignments}
                   columns={assignmentColumns}
+                  mobileCards
                   footerData={assignmentsFooter}
                   clientPagination
                   keyField="id"
@@ -938,6 +939,7 @@ function MonitoringPage() {
                 <DataTable
                   data={myAssignments}
                   columns={myAssignmentColumns}
+                  mobileCards
                   keyField="id"
                   sortable
                   searchable
@@ -960,6 +962,7 @@ function MonitoringPage() {
                 <DataTable
                   data={reports}
                   columns={reportColumns}
+                  mobileCards
                   footerData={reportsFooter}
                   clientPagination
                   keyField="id"

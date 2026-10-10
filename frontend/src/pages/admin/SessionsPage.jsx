@@ -533,6 +533,7 @@ function SessionsPage() {
       <Card>
         <CardContent className="p-0">
           <DataTable
+            mobileCards
             data={sessions}
             columns={sessionsColumns}
             keyField="id"

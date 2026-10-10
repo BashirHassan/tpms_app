@@ -408,6 +408,7 @@ export default function InstitutionsPage() {
       <Card>
         <CardContent className="p-0">
           <DataTable
+            mobileCards
             data={filteredInstitutions}
             columns={columns}
             keyField="id"

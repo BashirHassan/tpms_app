@@ -669,6 +669,7 @@ function PostingsPage() {
             </div>
           </div>
           <DataTable
+            mobileCards
             data={getCurrentData()}
             columns={getCurrentColumns()}
             loading={loading}

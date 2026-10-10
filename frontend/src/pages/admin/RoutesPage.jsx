@@ -227,6 +227,7 @@ function RoutesPage() {
       <Card>
         <CardContent className="p-0">
           <DataTable
+            mobileCards
             data={routes}
             columns={columns}
             loading={loading}

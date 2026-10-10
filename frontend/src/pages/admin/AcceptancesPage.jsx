@@ -511,6 +511,7 @@ function AcceptancesPage() {
 
       {/* Acceptances Table */}
       <DataTable
+        mobileCards
         data={acceptances}
         columns={columns}
         keyField="id"

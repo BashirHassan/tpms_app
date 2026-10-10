@@ -447,6 +447,7 @@ function DeanPostingAllocationPage() {
 
       {/* Allocations Table */}
       <DataTable
+        mobileCards
         data={allocations}
         columns={columns}
         keyField="id"

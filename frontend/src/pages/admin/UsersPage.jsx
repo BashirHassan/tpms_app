@@ -593,6 +593,7 @@ function UsersPage() {
 
       {/* Users Table */}
       <DataTable
+        mobileCards
         data={users}
         columns={columns}
         keyField="id"

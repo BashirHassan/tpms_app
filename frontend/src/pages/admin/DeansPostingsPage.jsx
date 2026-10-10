@@ -329,6 +329,7 @@ function DeansPostingsPage() {
             </div>
           ) : (
             <DataTable
+              mobileCards
               data={postings}
               columns={columns}
               keyField="id"

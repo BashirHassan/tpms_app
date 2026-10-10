@@ -402,6 +402,7 @@ function AdminLocationLogsPage() {
 
       {/* Logs Table */}
       <DataTable
+        mobileCards
         columns={columns}
         data={logs}
         loading={loading}

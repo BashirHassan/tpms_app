@@ -535,6 +535,7 @@ function GlobalPaymentsPage() {
             </div>
           ) : (
             <DataTable
+              mobileCards
               data={payments}
               columns={columns}
               keyField="id"

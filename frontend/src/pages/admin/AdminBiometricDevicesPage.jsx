@@ -432,6 +432,7 @@ function AdminBiometricDevicesPage() {
 
       {/* Devices Table */}
       <DataTable
+        mobileCards
         columns={columns}
         data={credentials}
         loading={loading}
@@ -453,6 +454,7 @@ function AdminBiometricDevicesPage() {
         </CardHeader>
         <CardContent>
           <DataTable
+            mobileCards
             columns={exemptionColumns}
             data={exemptions}
             loading={exemptionsLoading}
