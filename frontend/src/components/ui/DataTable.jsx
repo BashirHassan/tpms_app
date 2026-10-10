@@ -458,6 +458,10 @@ const DataTable = forwardRef(function DataTable(
     // Pagination
     pagination = null, // { page, limit, total, onPageChange, onLimitChange? }
     pageSizeOptions = [20, 50, 100, 200],
+    // Page rows already held in `data` (no server round-trip). Search, sort and
+    // export still cover every row. Pass a number to set the initial page size.
+    // Ignored when `pagination` (server-driven) or `virtualScrolling` is set.
+    clientPagination = false,
 
     // Footer - a single summary row (e.g. totals) pinned below the body.
     // Kept out of `data` so it's never sorted, searched, filtered, or paginated away.
@@ -497,6 +501,10 @@ const DataTable = forwardRef(function DataTable(
 ) {
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
   const [searchQuery, setSearchQuery] = useState('');
+  const [clientPage, setClientPage] = useState(1);
+  const [clientLimit, setClientLimit] = useState(
+    typeof clientPagination === 'number' ? clientPagination : pageSizeOptions[0]
+  );
   const [internalSelectedRows, setInternalSelectedRows] = useState([]);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportType, setExportType] = useState(null); // 'excel' | 'pdf'
@@ -642,6 +650,21 @@ const DataTable = forwardRef(function DataTable(
       return sortConfig.direction === 'asc' ? comparison : -comparison;
     });
   }, [filteredData, sortConfig, columns, onSort]);
+
+  // Client-side paging over the searched + sorted rows
+  const useClientPagination = Boolean(clientPagination) && !pagination && !virtualScrolling;
+  const clientTotalPages = Math.max(1, Math.ceil(sortedData.length / clientLimit));
+  const currentClientPage = Math.min(clientPage, clientTotalPages);
+  const pageOffset = useClientPagination ? (currentClientPage - 1) * clientLimit : 0;
+  const visibleData = useMemo(
+    () => (useClientPagination ? sortedData.slice(pageOffset, pageOffset + clientLimit) : sortedData),
+    [useClientPagination, sortedData, pageOffset, clientLimit]
+  );
+
+  // A new search starts from the first page
+  useEffect(() => {
+    setClientPage(1);
+  }, [searchQuery]);
 
   // Remember the last non-loading row count so a refetch's skeleton state
   // doesn't collapse the scroll container height (and clamp scrollTop) below it
@@ -811,9 +834,18 @@ const DataTable = forwardRef(function DataTable(
 
   // Render pagination
   const renderPagination = () => {
-    if (!pagination) return null;
+    const activePagination = pagination || (useClientPagination && sortedData.length > 0
+      ? {
+          page: currentClientPage,
+          limit: clientLimit,
+          total: sortedData.length,
+          onPageChange: setClientPage,
+          onLimitChange: (limit) => { setClientLimit(limit); setClientPage(1); },
+        }
+      : null);
+    if (!activePagination) return null;
 
-    const { page, limit, total, onPageChange, onLimitChange } = pagination;
+    const { page, limit, total, onPageChange, onLimitChange } = activePagination;
     const totalPages = Math.ceil(total / limit);
     const startItem = (page - 1) * limit + 1;
     const endItem = Math.min(page * limit, total);
@@ -1122,7 +1154,8 @@ const DataTable = forwardRef(function DataTable(
                 </>
               );
             })() : (
-              sortedData.map((row, rowIndex) => {
+              visibleData.map((row, pageIndex) => {
+                const rowIndex = pageOffset + pageIndex;
                 const rowSelectable = !isRowSelectable || isRowSelectable(row);
                 const selected = isRowSelected(row);
                 const isLastClicked = highlightLastClicked && lastClickedKey != null && row[keyField] === lastClickedKey;

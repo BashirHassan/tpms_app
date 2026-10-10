@@ -35,6 +35,12 @@ const monitoringTypeLabel = (type) =>
 
 // Everything a table cell shows, joined so the table search can match any of it
 const searchText = (...parts) => parts.filter(Boolean).join(' ');
+// The list endpoints default to 100 rows; the tables page, search and total
+// client-side, so ask for the whole session.
+const LIST_FETCH_LIMIT = 10000;
+const countLabel = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
+const uniqueCount = (rows, key) => new Set(rows.map(key).filter(Boolean)).size;
+const totalsCell = (value) => <span className="font-bold text-primary-700">{value}</span>;
 const schoolSearchText = (row) => searchText(
   row.school_name, row.school_code, row.route_name, row.lga, row.ward, row.school_address
 );
@@ -103,14 +109,14 @@ function MonitoringPage() {
         if (activeTab === 'assignments') {
           const [statsRes, assignmentsRes] = await Promise.all([
             monitoringApi.getDashboard(selectedSession),
-            monitoringApi.getAssignments({ session_id: selectedSession }),
+            monitoringApi.getAssignments({ session_id: selectedSession, limit: LIST_FETCH_LIMIT }),
           ]);
           setStatistics(statsRes.data.data);
           setAssignments(assignmentsRes.data.data);
         } else if (activeTab === 'reports') {
           const [statsRes, reportsRes] = await Promise.all([
             monitoringApi.getDashboard(selectedSession),
-            monitoringApi.getReports({ session_id: selectedSession }),
+            monitoringApi.getReports({ session_id: selectedSession, limit: LIST_FETCH_LIMIT }),
           ]);
           setStatistics(statsRes.data.data);
           setReports(reportsRes.data.data);
@@ -128,7 +134,7 @@ function MonitoringPage() {
           const myAssignRes = await monitoringApi.getMyAssignments(selectedSession);
           setMyAssignments(myAssignRes.data.data || []);
         } else if (activeTab === 'reports') {
-          const reportsRes = await monitoringApi.getReports({ session_id: selectedSession });
+          const reportsRes = await monitoringApi.getReports({ session_id: selectedSession, limit: LIST_FETCH_LIMIT });
           setReports(reportsRes.data.data);
         }
       }
@@ -310,13 +316,13 @@ function MonitoringPage() {
       header: 'S/N',
       sortable: false,
       searchable: false,
-      render: (_, __, index) => index + 1,
+      render: (val, row, index) => row._isTotalsRow ? totalsCell(val) : index + 1,
     },
     {
       accessor: 'monitor_name',
       header: 'Monitor',
       searchValue: (row) => searchText(row.monitor_name, row.monitor_email),
-      render: (_, row) => (
+      render: (val, row) => row._isTotalsRow ? totalsCell(val) : (
         <div>
           <div className="font-medium text-gray-900">{row.monitor_name}</div>
           <div className="text-sm text-gray-500">{row.monitor_email}</div>
@@ -327,7 +333,7 @@ function MonitoringPage() {
       accessor: 'school_name',
       header: 'School',
       searchValue: schoolSearchText,
-      render: (_, row) => (
+      render: (val, row) => row._isTotalsRow ? totalsCell(val) : (
         <div>
           <div className="font-medium text-gray-900">{row.school_name}</div>
           {row.route_name && (
@@ -340,7 +346,7 @@ function MonitoringPage() {
       accessor: 'monitoring_type',
       header: 'Type',
       searchValue: (row) => monitoringTypeLabel(row.monitoring_type),
-      render: (val) => (
+      render: (val, row) => row._isTotalsRow ? totalsCell(val) : (
         <Badge variant="info">
           {val === 'supervision_evaluation' ? 'Supervision Evaluation' : 'School Evaluation'}
         </Badge>
@@ -349,12 +355,12 @@ function MonitoringPage() {
     {
       accessor: 'status',
       header: 'Status',
-      render: (val) => getStatusBadge(val),
+      render: (val, row) => row._isTotalsRow ? '' : getStatusBadge(val),
     },
     {
       accessor: 'report_count',
       header: 'Reports',
-      render: (val) => (
+      render: (val, row) => row._isTotalsRow ? totalsCell(val) : (
         <span className={val > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>
           {val || 0}
         </span>
@@ -366,7 +372,7 @@ function MonitoringPage() {
       align: 'right',
       sortable: false,
       exportable: false,
-      render: (_, row) => (
+      render: (_, row) => row._isTotalsRow ? null : (
         <div className="flex items-center justify-end gap-2">
           <Button
             variant="ghost"
@@ -381,6 +387,21 @@ function MonitoringPage() {
       ),
     }] : []),
   ], [isTPHead]);
+
+  // Totals footer for the assignments table
+  const assignmentsFooter = useMemo(() => {
+    if (!assignments.length) return null;
+    return {
+      id: 'totals-row',
+      _isTotalsRow: true,
+      sn: 'Total',
+      monitor_name: countLabel(uniqueCount(assignments, (a) => a.monitor_email || a.monitor_name), 'monitor'),
+      school_name: countLabel(uniqueCount(assignments, (a) => a.school_id ?? a.school_name), 'school'),
+      monitoring_type: countLabel(assignments.length, 'assignment'),
+      status: '',
+      report_count: assignments.reduce((sum, a) => sum + (Number(a.report_count) || 0), 0),
+    };
+  }, [assignments]);
 
   // My assignments columns (for monitors)
   const myAssignmentColumns = useMemo(() => [
@@ -644,13 +665,13 @@ function MonitoringPage() {
       header: 'S/N',
       sortable: false,
       searchable: false,
-      render: (_, __, index) => index + 1,
+      render: (val, row, index) => row._isTotalsRow ? totalsCell(val) : index + 1,
     },
     {
       accessor: 'school_name',
       header: 'School',
       searchValue: schoolSearchText,
-      render: (_, row) => (
+      render: (val, row) => row._isTotalsRow ? totalsCell(val) : (
         <div>
           <div className="font-medium text-gray-900">{row.school_name}</div>
           <div className="text-sm text-gray-500">
@@ -664,11 +685,12 @@ function MonitoringPage() {
     {
       accessor: 'monitor_name',
       header: 'Monitor',
+      render: (val, row) => row._isTotalsRow ? totalsCell(val) : val,
     },
     {
       accessor: 'observations',
       header: 'Observations',
-      render: (val) => (
+      render: (val, row) => row._isTotalsRow ? '' : (
         <div className="max-w-xs truncate" title={val}>
           {val || '-'}
         </div>
@@ -677,7 +699,7 @@ function MonitoringPage() {
     {
       accessor: 'recommendations',
       header: 'Recommendations',
-      render: (val) => (
+      render: (val, row) => row._isTotalsRow ? '' : (
         <div className="max-w-xs truncate" title={val}>
           {val || '-'}
         </div>
@@ -686,7 +708,7 @@ function MonitoringPage() {
     {
       accessor: 'additional_notes',
       header: 'Additional Notes',
-      render: (val) => (
+      render: (val, row) => row._isTotalsRow ? '' : (
         <div className="max-w-xs truncate" title={val}>
           {val || '-'}
         </div>
@@ -696,7 +718,7 @@ function MonitoringPage() {
       accessor: 'created_at',
       header: 'Date',
       searchValue: (row) => formatDate(row.created_at),
-      render: (val) => formatDate(val),
+      render: (val, row) => row._isTotalsRow ? totalsCell(val) : formatDate(val),
     },
     {
       accessor: 'actions',
@@ -704,7 +726,7 @@ function MonitoringPage() {
       align: 'right',
       sortable: false,
       exportable: false,
-      render: (_, row) => (
+      render: (_, row) => row._isTotalsRow ? null : (
         <div className="flex items-center justify-end gap-2">
           <Button
             variant="ghost"
@@ -730,6 +752,22 @@ function MonitoringPage() {
       ),
     },
   ], [isTPHead]);
+
+  // Totals footer for the reports table
+  const reportsFooter = useMemo(() => {
+    if (!reports.length) return null;
+    return {
+      id: 'totals-row',
+      _isTotalsRow: true,
+      sn: 'Total',
+      school_name: countLabel(uniqueCount(reports, (r) => r.school_id ?? r.school_name), 'school'),
+      monitor_name: countLabel(uniqueCount(reports, (r) => r.monitor_id ?? r.monitor_name), 'monitor'),
+      observations: '',
+      recommendations: '',
+      additional_notes: '',
+      created_at: countLabel(reports.length, 'report'),
+    };
+  }, [reports]);
 
   // Tabs configuration
   const tabs = isTPHead
@@ -872,6 +910,8 @@ function MonitoringPage() {
                 <DataTable
                   data={assignments}
                   columns={assignmentColumns}
+                  footerData={assignmentsFooter}
+                  clientPagination
                   keyField="id"
                   sortable
                   searchable
@@ -920,6 +960,8 @@ function MonitoringPage() {
                 <DataTable
                   data={reports}
                   columns={reportColumns}
+                  footerData={reportsFooter}
+                  clientPagination
                   keyField="id"
                   sortable
                   searchable
