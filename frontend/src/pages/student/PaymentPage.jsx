@@ -15,6 +15,7 @@ import { useToast } from '../../context/ToastContext';
 import { usePaystackInline } from '../../hooks';
 import { cn, formatCurrency, formatDate } from '../../utils/helpers';
 import { Button } from '../../components/ui/Button';
+import { PaymentEmailDialog } from '../../components/PaymentEmailDialog';
 import {
   IconCreditCard,
   IconCheck,
@@ -133,6 +134,7 @@ function PaymentPage() {
   // State
   const [loading, setLoading] = useState(true);
   const [paymentState, setPaymentState] = useState(PAYMENT_STATES.IDLE);
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
   const [session, setSession] = useState(null);
   const [paymentStatus, setPaymentStatus] = useState(null);
   const [windowStatus, setWindowStatus] = useState(null);
@@ -239,7 +241,7 @@ function PaymentPage() {
   }, [toast, fetchData]);
 
   // Initialize and process payment following JEI Paystack pattern
-  const handlePayment = useCallback(async () => {
+  const handlePayment = useCallback(async (email) => {
     if (!session || !paymentStatus?.remaining) return;
 
     setPaymentState(PAYMENT_STATES.INITIALIZING);
@@ -247,7 +249,7 @@ function PaymentPage() {
 
     try {
       // Step 1: Initialize payment on server (get Paystack access code)
-      const result = await paymentsApi.initializePayment(session.id);
+      const result = await paymentsApi.initializePayment(session.id, email);
       const { paystack } = result.data.data;
 
       if (!paystack || !paystack.accessCode) {
@@ -677,7 +679,7 @@ function PaymentPage() {
                   <div className="space-y-4">
                     <div className="text-end">
                       <Button
-                        onClick={handlePayment}
+                        onClick={() => setShowEmailDialog(true)}
                         disabled={paymentState !== PAYMENT_STATES.IDLE}
                         className={cn(
                           'h-14 px-10 text-base font-semibold rounded-xl transition-all duration-300',
@@ -915,6 +917,15 @@ function PaymentPage() {
           </div>
         </div>
       </div>
+
+      <PaymentEmailDialog
+        isOpen={showEmailDialog}
+        onClose={() => setShowEmailDialog(false)}
+        onConfirm={(email) => {
+          setShowEmailDialog(false);
+          handlePayment(email);
+        }}
+      />
     </div>
   );
 }

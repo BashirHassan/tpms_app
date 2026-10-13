@@ -76,6 +76,7 @@ export const paymentsApi = {
   // Student portal methods (use /portal paths)
   getStudentStatus: (sessionId) => apiClient.get('/portal/payments/status', { params: { session_id: sessionId } }),
   getPendingTransactions: (sessionId) => apiClient.get('/portal/payments/pending', { params: { session_id: sessionId } }),
-  initializePayment: (sessionId) => apiClient.post('/portal/payments/initialize', { session_id: sessionId }),
+  initializePayment: (sessionId, email) =>
+    apiClient.post('/portal/payments/initialize', { session_id: sessionId, ...(email ? { email } : {}) }),
   verifyPayment: (reference) => apiClient.post('/portal/payments/verify', { reference }),
 };

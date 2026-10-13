@@ -1174,7 +1174,7 @@ const initializeStudentPayment = async (req, res, next) => {
   try {
     const studentId = req.student?.id || req.user?.id;
     const institutionId = req.student?.institution_id || req.user?.institution_id;
-    const { session_id } = req.body;
+    const { session_id, email: providedEmail } = req.body;
 
     if (!studentId || !institutionId) {
       throw new AuthorizationError('Student authentication required');
@@ -1261,7 +1261,15 @@ const initializeStudentPayment = async (req, res, next) => {
 
     // Generate reference
     const reference = `TP${institution.code || institutionId}-${studentId}-${Date.now()}`;
-    const email = `${student.registration_number.replace(/\//g, '_')}@student.sitpms.com`;
+    const generatedEmail = `${student.registration_number.replace(/\//g, '_')}@student.sitpms.com`;
+    let email = generatedEmail;
+    if (providedEmail) {
+      const parsed = z.string().email().safeParse(providedEmail.trim().toLowerCase());
+      if (!parsed.success) {
+        throw new ValidationError('Invalid email address');
+      }
+      email = parsed.data;
+    }
 
     // Use Paystack service - REQUIRED for payment initialization
     const paystackService = require('../services/paystackService');
