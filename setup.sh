@@ -78,12 +78,14 @@ cd $PROJECT_DIR
 # Install backend dependencies
 print_status "Installing backend dependencies..."
 cd $PROJECT_DIR/backend
-npm install --production
+command -v pnpm >/dev/null 2>&1 || sudo npm install -g pnpm@12.13.0
+pnpm install --prod --frozen-lockfile
 
 # Install frontend dependencies
 print_status "Installing frontend dependencies..."
 cd $PROJECT_DIR/frontend
-npm install
+command -v pnpm >/dev/null 2>&1 || sudo npm install -g pnpm@12.13.0
+pnpm install --frozen-lockfile
 
 # Create environment files
 print_status "Creating environment files..."
@@ -154,7 +156,7 @@ fi
 # Build frontend
 print_status "Building frontend..."
 cd $PROJECT_DIR/frontend
-npm run build
+pnpm run build
 
 # Setup PM2
 print_status "Setting up PM2..."

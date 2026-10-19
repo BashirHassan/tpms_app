@@ -83,10 +83,11 @@ main() {
         cd "$BACKEND_DIR"
 
         print_status "Installing dependencies..."
-        npm install --production
+        command -v pnpm >/dev/null 2>&1 || sudo npm install -g pnpm@12.13.0
+        pnpm install --prod --frozen-lockfile
 
         print_status "Running database migrations..."
-        if ! npm run migrate -- --pending; then
+        if ! pnpm run migrate --pending; then
             print_error "Database migration failed! Aborting deployment to prevent schema mismatch."
             exit 1
         fi
@@ -103,13 +104,14 @@ main() {
         cd "$FRONTEND_DIR"
 
         print_status "Installing dependencies..."
-        npm install
+        command -v pnpm >/dev/null 2>&1 || sudo npm install -g pnpm@12.13.0
+        pnpm install --frozen-lockfile
 
         print_status "Removing old build..."
         rm -rf dist
 
         print_status "Building production bundle..."
-        npm run build
+        pnpm run build
 
         print_success "Frontend deployed successfully!"
     }
