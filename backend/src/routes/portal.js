@@ -43,6 +43,7 @@ router.post('/portal/acceptance/submit', authenticate, studentOnly, upload.singl
 router.get('/portal/school-registration-requests/status', authenticate, studentOnly, requireFeature('school_registration_requests'), schoolRegistrationRequestController.getStudentRequestStatus);
 router.get('/portal/school-registration-requests/search-master', authenticate, studentOnly, requireFeature('school_registration_requests'), schoolRegistrationRequestController.searchMasterSchools);
 router.post('/portal/school-registration-requests', authenticate, studentOnly, requireFeature('school_registration_requests'), validate(schoolRegistrationRequestController.schemas.submit), schoolRegistrationRequestController.submitRequest);
+router.put('/portal/school-registration-requests/:id', authenticate, studentOnly, requireFeature('school_registration_requests'), validate(schoolRegistrationRequestController.schemas.update), schoolRegistrationRequestController.updateRequest);
 
 // Student payment endpoints
 router.get('/portal/payments/status', authenticate, studentOnly, paymentController.getStudentPaymentStatus);

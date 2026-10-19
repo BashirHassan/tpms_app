@@ -11,7 +11,7 @@
 
 const { z } = require('zod');
 const { query, queryOne, transaction } = require('../db/database');
-const { NotFoundError, ValidationError, AuthorizationError } = require('../utils/errors');
+const { NotFoundError, ValidationError, AuthorizationError, ConflictError } = require('../utils/errors');
 const { normalizeLocationValue, normalizeOptionalLocationValue, normalizeSchoolName } = require('../utils/locationNormalizer');
 
 const schemas = {
@@ -31,14 +31,63 @@ const schemas = {
       address: z.string().min(3, 'Address is required'),
     }),
   }),
+  // Full replace of the editable fields, same shape as submit
+  update: z.object({
+    body: z.object({
+      name: z.string().min(2, 'School name must be at least 2 characters'),
+      official_code: z.string().optional().nullable(),
+      school_type: z.enum(['primary', 'junior', 'senior', 'both'], {
+        errorMap: () => ({ message: 'School type is required' }),
+      }),
+      category: z.enum(['public', 'private', 'others'], {
+        errorMap: () => ({ message: 'Category is required' }),
+      }),
+      state: z.string().min(1, 'State is required'),
+      lga: z.string().min(1, 'LGA is required'),
+      ward: z.string().optional().nullable(),
+      address: z.string().min(3, 'Address is required'),
+    }),
+  }),
+  // expected_resubmit_count is the edit count the reviewer was looking at; a
+  // mismatch means the student changed the request after the reviewer opened it
+  approve: z.object({
+    body: z.object({
+      expected_resubmit_count: z.number().int().min(0).optional(),
+    }).optional().default({}),
+  }),
   reject: z.object({
     body: z.object({
       rejection_reason: z.string().min(5, 'Rejection reason must be at least 5 characters'),
+      expected_resubmit_count: z.number().int().min(0).optional(),
     }),
   }),
 };
 
 const DUPLICATE_REQUEST_MESSAGE = 'You already have a pending or approved school registration request for this session';
+
+/**
+ * Refuses to act on a request the student has edited since the reviewer loaded
+ * it, so a reviewer never approves or rejects details they haven't seen.
+ * Callers that don't send a count are not checked.
+ */
+function assertNotEditedSince(request, expectedResubmitCount) {
+  if (expectedResubmitCount === undefined || expectedResubmitCount === null) return;
+  if (request.resubmit_count !== expectedResubmitCount) {
+    throw new ConflictError(
+      'The student has edited this request since you opened it. Reload the list to review the latest details.'
+    );
+  }
+}
+
+// Students type these freehand - store them in the registry's upper-case form
+function normalizeRequestFields({ name, state, lga, ward }) {
+  return {
+    name: normalizeSchoolName(name),
+    state: normalizeLocationValue(state),
+    lga: normalizeLocationValue(lga),
+    ward: normalizeOptionalLocationValue(ward),
+  };
+}
 
 async function resolveCurrentSession(institutionId) {
   return queryOne(
@@ -125,10 +174,12 @@ const submitRequest = async (req, res, next) => {
 
     const { name: rawName, official_code, school_type, category, state: rawState, lga: rawLga, ward: rawWard, address } = req.body;
 
-    const name = normalizeSchoolName(rawName);
-    const state = normalizeLocationValue(rawState);
-    const lga = normalizeLocationValue(rawLga);
-    const ward = normalizeOptionalLocationValue(rawWard);
+    const { name, state, lga, ward } = normalizeRequestFields({
+      name: rawName,
+      state: rawState,
+      lga: rawLga,
+      ward: rawWard,
+    });
 
     const session = await resolveCurrentSession(institutionId);
     if (!session) {
@@ -175,6 +226,133 @@ const submitRequest = async (req, res, next) => {
     const created = await queryOne(`SELECT * FROM school_registration_requests WHERE id = ?`, [insertId]);
 
     res.status(201).json({ success: true, data: created });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PUT /portal/school-registration-requests/:id
+ * Student corrects their own request while it is pending or after a rejection.
+ * A rejected request goes back to pending; the rejection reason it carried is
+ * kept in previous_rejection_reason so the reviewer can see what was flagged.
+ */
+const updateRequest = async (req, res, next) => {
+  try {
+    const studentId = req.student?.id || req.user?.id;
+    const institutionId = req.student?.institution_id || req.user?.institution_id;
+    if (!studentId || !institutionId) {
+      throw new AuthorizationError('Student authentication required');
+    }
+
+    const { name: rawName, official_code, school_type, category, state: rawState, lga: rawLga, ward: rawWard, address } = req.body;
+
+    const { name, state, lga, ward } = normalizeRequestFields({
+      name: rawName,
+      state: rawState,
+      lga: rawLga,
+      ward: rawWard,
+    });
+
+    const requestId = parseInt(req.params.id);
+
+    try {
+      await transaction(async (conn) => {
+        // Lock so a concurrent approve/reject can't land between the status check and the update
+        const [rows] = await conn.execute(
+          `SELECT * FROM school_registration_requests
+           WHERE id = ? AND student_id = ? AND institution_id = ? FOR UPDATE`,
+          [requestId, studentId, institutionId]
+        );
+        const current = rows[0];
+
+        if (!current) throw new NotFoundError('School registration request not found');
+        if (current.status === 'approved') {
+          throw new ConflictError('This request has already been approved and can no longer be edited');
+        }
+
+        // Only the current session's request can be reopened, and only if the
+        // student has no other live request there (submitRequest allows a fresh
+        // one after a rejection, so an older rejected row must not be revived
+        // alongside it).
+        const [sessionRows] = await conn.execute(
+          `SELECT id FROM academic_sessions WHERE institution_id = ? AND is_current = 1 AND status = 'active' LIMIT 1`,
+          [institutionId]
+        );
+        if (!sessionRows[0] || sessionRows[0].id !== current.session_id) {
+          throw new ConflictError('This request belongs to a previous session and can no longer be edited');
+        }
+
+        const [otherRows] = await conn.execute(
+          `SELECT id FROM school_registration_requests
+           WHERE student_id = ? AND session_id = ? AND id <> ? AND status IN ('pending', 'approved') LIMIT 1`,
+          [studentId, current.session_id, requestId]
+        );
+        if (otherRows[0]) {
+          throw new ConflictError(DUPLICATE_REQUEST_MESSAGE);
+        }
+
+        await conn.execute(
+          `INSERT INTO audit_logs (institution_id, user_id, user_type, action, resource_type, resource_id, details, ip_address)
+           VALUES (?, ?, 'student', 'school_request_resubmitted', 'school_registration_request', ?, ?, ?)`,
+          [
+            institutionId,
+            studentId,
+            requestId,
+            JSON.stringify({
+              previous_status: current.status,
+              previous_rejection_reason: current.rejection_reason,
+              previous_values: {
+                name: current.name,
+                official_code: current.official_code,
+                school_type: current.school_type,
+                category: current.category,
+                state: current.state,
+                lga: current.lga,
+                ward: current.ward,
+                address: current.address,
+              },
+            }),
+            req.ip,
+          ]
+        );
+
+        // Only a rejected row carries a reason to remember; editing a pending row
+        // again must not wipe the one saved by an earlier correction.
+        const previousReason =
+          current.status === 'rejected' ? current.rejection_reason : current.previous_rejection_reason;
+
+        await conn.execute(
+          `UPDATE school_registration_requests
+           SET name = ?, official_code = ?, school_type = ?, category = ?, state = ?, lga = ?, ward = ?, address = ?,
+               status = 'pending', rejection_reason = NULL, reviewed_by = NULL, reviewed_at = NULL,
+               previous_rejection_reason = ?, resubmitted_at = NOW(), resubmit_count = resubmit_count + 1
+           WHERE id = ?`,
+          [
+            name.trim(),
+            official_code ? official_code.trim() : null,
+            school_type,
+            category,
+            state,
+            lga,
+            ward,
+            address.trim(),
+            previousReason || null,
+            requestId,
+          ]
+        );
+      });
+    } catch (error) {
+      // pending_unique_key allows one live request per student per session
+      if (error.code === 'ER_DUP_ENTRY') {
+        throw new ConflictError(DUPLICATE_REQUEST_MESSAGE);
+      }
+      throw error;
+    }
+
+    const updated = await queryOne(`SELECT * FROM school_registration_requests WHERE id = ?`, [requestId]);
+
+    res.json({ success: true, data: updated });
   } catch (error) {
     next(error);
   }
@@ -235,7 +413,7 @@ const getAll = async (req, res, next) => {
        JOIN academic_sessions sess ON srr.session_id = sess.id
        LEFT JOIN users u ON srr.reviewed_by = u.id
        ${whereClause}
-       ORDER BY srr.created_at ASC
+       ORDER BY COALESCE(srr.resubmitted_at, srr.created_at) ASC
        LIMIT ? OFFSET ?`,
       [...params, limitNum, offset]
     );
@@ -343,6 +521,7 @@ const approve = async (req, res, next) => {
       if (request.status !== 'pending') {
         throw new ValidationError(`Request is already ${request.status}`);
       }
+      assertNotEditedSince(request, req.body?.expected_resubmit_count);
       // Requests filed before names were normalised on submit may be mixed-case
       request.name = normalizeSchoolName(request.name);
 
@@ -424,7 +603,7 @@ const reject = async (req, res, next) => {
 
     await transaction(async (conn) => {
       const [rows] = await conn.execute(
-        `SELECT id, status FROM school_registration_requests WHERE id = ? FOR UPDATE`,
+        `SELECT id, status, resubmit_count FROM school_registration_requests WHERE id = ? FOR UPDATE`,
         [parseInt(id)]
       );
       const request = rows[0];
@@ -432,6 +611,7 @@ const reject = async (req, res, next) => {
       if (request.status !== 'pending') {
         throw new ValidationError(`Request is already ${request.status}`);
       }
+      assertNotEditedSince(request, req.body?.expected_resubmit_count);
 
       const [updateResult] = await conn.execute(
         `UPDATE school_registration_requests
@@ -459,6 +639,7 @@ module.exports = {
   getStudentRequestStatus,
   searchMasterSchools,
   submitRequest,
+  updateRequest,
   getAll,
   getStats,
   getById,

@@ -1260,7 +1260,7 @@ router.post('/global/master-schools/merge', authenticate, isSuperAdmin, validate
 router.get('/global/school-registration-requests/stats', authenticate, isSuperAdmin, schoolRegistrationRequestController.getStats);
 router.get('/global/school-registration-requests', authenticate, isSuperAdmin, schoolRegistrationRequestController.getAll);
 router.get('/global/school-registration-requests/:id', authenticate, isSuperAdmin, schoolRegistrationRequestController.getById);
-router.post('/global/school-registration-requests/:id/approve', authenticate, isSuperAdmin, schoolRegistrationRequestController.approve);
+router.post('/global/school-registration-requests/:id/approve', authenticate, isSuperAdmin, validate(schoolRegistrationRequestController.schemas.approve), schoolRegistrationRequestController.approve);
 router.post('/global/school-registration-requests/:id/reject', authenticate, isSuperAdmin, validate(schoolRegistrationRequestController.schemas.reject), schoolRegistrationRequestController.reject);
 
 // =============================================================================

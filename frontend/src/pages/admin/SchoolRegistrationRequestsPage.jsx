@@ -180,7 +180,7 @@ export default function SchoolRegistrationRequestsPage() {
     approveInFlightRef.current = true;
     try {
       setProcessing(true);
-      await schoolRegistrationRequestsApi.approve(approvingRequest.id);
+      await schoolRegistrationRequestsApi.approve(approvingRequest.id, approvingRequest.resubmit_count);
       toast.success('Request approved - school added to the central registry');
       loadRequests();
       loadStatistics();
@@ -189,6 +189,11 @@ export default function SchoolRegistrationRequestsPage() {
       setApprovingRequest(null);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to approve request');
+      if (err.response?.status === 409) {
+        setShowApproveConfirm(false);
+        setApprovingRequest(null);
+        loadRequests();
+      }
     } finally {
       setProcessing(false);
       approveInFlightRef.current = false;
@@ -211,7 +216,7 @@ export default function SchoolRegistrationRequestsPage() {
     rejectInFlightRef.current = true;
     try {
       setProcessing(true);
-      await schoolRegistrationRequestsApi.reject(rejectingRequest.id, rejectionReason);
+      await schoolRegistrationRequestsApi.reject(rejectingRequest.id, rejectionReason, rejectingRequest.resubmit_count);
       toast.success('Request rejected');
       loadRequests();
       loadStatistics();
@@ -220,6 +225,11 @@ export default function SchoolRegistrationRequestsPage() {
       setRejectingRequest(null);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to reject request');
+      if (err.response?.status === 409) {
+        setShowRejectModal(false);
+        setRejectingRequest(null);
+        loadRequests();
+      }
     } finally {
       setProcessing(false);
       rejectInFlightRef.current = false;
@@ -281,6 +291,15 @@ export default function SchoolRegistrationRequestsPage() {
           <div className="text-sm text-gray-500">
             {[row.ward, row.lga, row.state].filter(Boolean).join(', ')}
           </div>
+          {row.resubmit_count > 0 && (
+            <Badge
+              variant="info"
+              className="mt-1"
+              title={`Corrected by the student on ${formatDateTime(row.resubmitted_at, '-')}`}
+            >
+              Resubmitted{row.resubmit_count > 1 ? ` (${row.resubmit_count}x)` : ''}
+            </Badge>
+          )}
         </div>
       ),
     },
@@ -292,7 +311,14 @@ export default function SchoolRegistrationRequestsPage() {
     {
       accessor: 'created_at',
       header: 'Submitted',
-      render: (value) => <span className="text-sm text-gray-500">{formatDateTime(value, '-')}</span>,
+      render: (value, row) => (
+        <div className="text-sm text-gray-500">
+          <div>{formatDateTime(value, '-')}</div>
+          {row.resubmitted_at && (
+            <div className="text-xs text-blue-600">Resubmitted {formatDateTime(row.resubmitted_at, '-')}</div>
+          )}
+        </div>
+      ),
     },
     {
       accessor: 'status',
@@ -481,6 +507,29 @@ export default function SchoolRegistrationRequestsPage() {
       >
         {selectedRequest && (
           <div className="space-y-4 text-sm">
+            {/* Resubmission context - shown first so the reviewer knows what the student was asked to fix */}
+            {selectedRequest.resubmit_count > 0 && (
+              <div className="bg-amber-50 border border-amber-300 rounded-lg p-3">
+                <p className="text-amber-900 font-medium text-xs">
+                  Resubmitted by the student {selectedRequest.resubmit_count} time{selectedRequest.resubmit_count > 1 ? 's' : ''}
+                  {selectedRequest.resubmitted_at ? `, last on ${formatDateTime(selectedRequest.resubmitted_at, '-')}` : ''}
+                </p>
+                {selectedRequest.previous_rejection_reason ? (
+                  <>
+                    <p className="text-amber-800 text-xs mt-2 mb-0.5">Previous rejection reason:</p>
+                    <p className="text-amber-900 text-sm">{selectedRequest.previous_rejection_reason}</p>
+                    <p className="text-amber-700 text-xs mt-2">
+                      Check the details below to confirm this has been fixed before approving.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-amber-700 text-xs mt-1">
+                    The student edited this request before it was reviewed.
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Master Registry Check - inline at top for quick duplicate validation */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <div className="flex items-center gap-2 mb-2">
@@ -685,7 +734,16 @@ export default function SchoolRegistrationRequestsPage() {
         <div className="space-y-4">
           <p className="text-sm text-gray-600">
             Please provide a reason for rejecting this school registration request.
+            The student will be able to see this reason and can correct and resubmit the request.
           </p>
+          {rejectingRequest?.previous_rejection_reason && (
+            <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm">
+              <p className="text-amber-800 text-xs mb-0.5">
+                Previously rejected for (student has since resubmitted):
+              </p>
+              <p className="text-amber-900">{rejectingRequest.previous_rejection_reason}</p>
+            </div>
+          )}
           <textarea
             value={rejectionReason}
             onChange={(e) => setRejectionReason(e.target.value)}

@@ -14,7 +14,7 @@ import { nigeriaGeoData } from '../../data/nigeria';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useFeature } from '../../context';
-import { formatFileSize } from '../../utils/helpers';
+import { formatDate, formatFileSize } from '../../utils/helpers';
 import { prepareImageForUpload } from '../../utils/imageCompression';
 import { PHOTO_ACCEPT_ATTR } from '../../utils/imageFormats';
 import {
@@ -54,6 +54,7 @@ import {
   IconX,
   IconPlus,
   IconClock,
+  IconExternalLink,
 } from '@tabler/icons-react';
 
 // Form steps configuration
@@ -459,6 +460,11 @@ function AcceptanceFormPage() {
         <SchoolRegistrationRequestModal
           isOpen={showRegistrationModal}
           onClose={() => setShowRegistrationModal(false)}
+          editingRequest={
+            registrationRequest && ['pending', 'rejected'].includes(registrationRequest.status)
+              ? registrationRequest
+              : null
+          }
           schools={schools}
           onSelectSchool={(school) => {
             setSelectedSchool(school);
@@ -776,6 +782,18 @@ function SchoolRegistrationBanner({ registrationRequest, onOpenRequestModal }) {
         <IconClock className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
         <p className="text-xs sm:text-sm text-amber-800">
           Your request to register <strong>{registrationRequest.name}</strong> is pending review.
+          {registrationRequest.resubmit_count > 0 && (
+            <span className="block text-xs text-amber-700 mt-0.5">
+              Corrected and resubmitted on {formatDate(registrationRequest.resubmitted_at)}.
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onOpenRequestModal}
+            className="block text-primary-600 hover:text-primary-700 font-medium underline mt-1"
+          >
+            Edit request
+          </button>
         </p>
       </div>
     );
@@ -803,19 +821,26 @@ function SchoolRegistrationBanner({ registrationRequest, onOpenRequestModal }) {
           onClick={onOpenRequestModal}
           className="text-primary-600 hover:text-primary-700 font-medium underline mt-1"
         >
-          Submit a new request
+          Correct and resubmit
         </button>
       </div>
     </div>
   );
 }
 
+// WhatsApp number the admin is notified on (international format, no +)
+const ADMIN_WHATSAPP_NUMBER = '2348134119230';
+
 /**
  * Modal for a student to request that a brand-new school (not in the
  * institution's list) be added to the central registry.
  */
-function SchoolRegistrationRequestModal({ isOpen, onClose, schools, onSelectSchool, onSubmitted }) {
+function SchoolRegistrationRequestModal({ isOpen, onClose, schools, onSelectSchool, onSubmitted, editingRequest = null }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isEditing = Boolean(editingRequest);
+  // Holds the saved request once a correction succeeds, to show the notify step
+  const [corrected, setCorrected] = useState(null);
 
   const emptyForm = {
     name: '',
@@ -840,9 +865,24 @@ function SchoolRegistrationRequestModal({ isOpen, onClose, schools, onSelectScho
     if (!isOpen) {
       setForm(emptyForm);
       setSuggestions([]);
+      setCorrected(null);
+      return;
+    }
+    // Prefill from the existing request each time the modal opens in edit mode
+    if (editingRequest) {
+      setForm({
+        name: editingRequest.name || '',
+        official_code: editingRequest.official_code || '',
+        school_type: editingRequest.school_type || '',
+        category: editingRequest.category || '',
+        state: editingRequest.state || '',
+        lga: editingRequest.lga || '',
+        ward: editingRequest.ward || '',
+        address: editingRequest.address || '',
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, editingRequest?.id]);
 
   useEffect(() => {
     if (!form.state) {
@@ -908,7 +948,7 @@ function SchoolRegistrationRequestModal({ isOpen, onClose, schools, onSelectScho
 
     setSubmitting(true);
     try {
-      const res = await schoolRegistrationRequestsApi.submit({
+      const payload = {
         name: form.name.trim(),
         official_code: form.official_code.trim() || null,
         school_type: form.school_type,
@@ -917,35 +957,107 @@ function SchoolRegistrationRequestModal({ isOpen, onClose, schools, onSelectScho
         lga: form.lga,
         ward: form.ward || null,
         address: form.address.trim(),
-      });
-      toast.success('School registration request submitted for review');
-      onSubmitted(res.data.data);
+      };
+      if (isEditing) {
+        const res = await schoolRegistrationRequestsApi.update(editingRequest.id, payload);
+        toast.success('Request updated and sent back for review');
+        setCorrected(res.data.data);
+      } else {
+        const res = await schoolRegistrationRequestsApi.submit(payload);
+        toast.success('School registration request submitted for review');
+        onSubmitted(res.data.data);
+      }
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to submit request');
+      toast.error(err.response?.data?.message || (isEditing ? 'Failed to update request' : 'Failed to submit request'));
     } finally {
       setSubmitting(false);
     }
   };
 
+  const finishCorrection = () => {
+    const request = corrected;
+    setCorrected(null);
+    onSubmitted(request);
+  };
+
+  const buildWhatsAppUrl = (request) => {
+    const lines = [
+      'Corrected School Registration Request (please review again)',
+      '',
+      `*Student*: ${user?.full_name || user?.name || 'N/A'} (${user?.registration_number || 'N/A'})`,
+      '',
+      '*Corrected School Details:*',
+      `Name: ${request.name}`,
+      `Type: ${SCHOOL_TYPE_LABELS[request.school_type] || request.school_type}`,
+      `Category: ${SCHOOL_CATEGORY_LABELS[request.category] || request.category}`,
+      `State: ${request.state}`,
+      `LGA: ${request.lga}`,
+      request.ward ? `Ward: ${request.ward}` : null,
+      `Address: ${request.address}`,
+    ].filter((l) => l !== null).join('\n');
+    return `https://wa.me/${ADMIN_WHATSAPP_NUMBER}?text=${encodeURIComponent(lines)}`;
+  };
+
   return (
     <Dialog
       isOpen={isOpen}
-      onClose={onClose}
-      title="Request a New School"
+      onClose={corrected ? finishCorrection : onClose}
+      title={isEditing ? 'Edit School Request' : 'Request a New School'}
       width="2xl"
       footer={
-        <>
-          <Button variant="outline" onClick={onClose} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} loading={submitting}>
-            <IconPlus className="w-4 h-4" />
-            Submit Request
-          </Button>
-        </>
+        corrected ? (
+          <Button onClick={finishCorrection}>Done</Button>
+        ) : (
+          <>
+            <Button variant="outline" onClick={onClose} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} loading={submitting}>
+              {!isEditing && <IconPlus className="w-4 h-4" />}
+              {isEditing ? 'Save and Resubmit' : 'Submit Request'}
+            </Button>
+          </>
+        )
       }
     >
+      {corrected ? (
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <IconCheck className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-green-900">Request Updated Successfully</p>
+              <p className="text-sm text-green-700 mt-1">
+                Your corrected request for <strong>{corrected.name}</strong> has been sent back to pending review.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 border border-green-200 bg-green-50 rounded-lg">
+            <div>
+              <p className="font-semibold text-green-900">Notify Admin on WhatsApp</p>
+              <p className="text-sm text-green-700 mt-1">
+                Your corrections are saved. Tap the button to let the administrator know on WhatsApp.
+              </p>
+            </div>
+            <Button
+              type="button"
+              onClick={() => window.open(buildWhatsAppUrl(corrected), '_blank', 'noopener,noreferrer')}
+              className="gap-2 whitespace-nowrap"
+            >
+              Notify Admin
+              <IconExternalLink className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      ) : (
       <div className="space-y-4">
+        {isEditing && editingRequest.status === 'rejected' && editingRequest.rejection_reason && (
+          <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-xs sm:text-sm text-red-800">
+            <IconAlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>
+              <strong>Reason for rejection:</strong> {editingRequest.rejection_reason}
+            </span>
+          </div>
+        )}
         <p className="text-sm text-gray-600">
           Fill in the details of your Place of Primary Assignment. A super admin will review this request before it becomes selectable.
         </p>
@@ -1073,6 +1185,7 @@ function SchoolRegistrationRequestModal({ isOpen, onClose, schools, onSelectScho
           />
         </div>
       </div>
+      )}
     </Dialog>
   );
 }
