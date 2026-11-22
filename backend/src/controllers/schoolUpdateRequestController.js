@@ -121,15 +121,29 @@ function reviewEvent(request, type, eventType, userId, extra = {}) {
 }
 
 /**
- * High-risk supervisor captures (typed/faked GPS, impossible travel, a point
- * already used for another school...) are never swept up by a bulk or
- * approve-all. A reviewer has to open each one and approve it deliberately.
+ * Supervisor captures that need a person to look at them are never swept up by a
+ * bulk approve or approve-all - a reviewer opens each one and approves it
+ * deliberately:
+ *   - high risk (typed/faked GPS, impossible travel, a point already used for
+ *     another school...), and
+ *   - typed-in coordinates. Choosing "manual entry" skips the GPS evidence and the
+ *     session's max-accuracy check altogether, so on its own it would be the
+ *     easiest way past every other control.
  */
-function holdBackHighRisk(toApprove, skipped) {
+function needsIndividualReview(request) {
+  if (request.risk_level === 'high') return 'Flagged high-risk capture - review it and approve it individually';
+  if (request.submitted_by_user_id && request.capture_method === 'manual') {
+    return 'Coordinates were typed in by the supervisor, not recorded by GPS - review it and approve it individually';
+  }
+  return null;
+}
+
+function holdBackForReview(toApprove, skipped) {
   const clear = [];
   for (const request of toApprove) {
-    if (request.risk_level === 'high') {
-      skipped.push({ id: request.id, reason: 'Flagged high-risk capture - review it and approve it individually' });
+    const reason = needsIndividualReview(request);
+    if (reason) {
+      skipped.push({ id: request.id, reason });
     } else {
       clear.push(request);
     }
@@ -250,7 +264,7 @@ async function bulkApprove(req, table, applyApproval) {
 
   const newest = keepNewestPerSchool(requests);
   const { skipped } = newest;
-  const toApprove = holdBackHighRisk(newest.toApprove, skipped);
+  const toApprove = holdBackForReview(newest.toApprove, skipped);
 
   const foundIds = new Set(requests.map((r) => r.id));
   for (const id of ids) {
@@ -361,14 +375,14 @@ async function approveAllMatching(req, type) {
   const newest = keepNewestPerSchool(requests);
   const { skipped } = newest;
   const newestCount = newest.toApprove.length;
-  const toApprove = holdBackHighRisk(newest.toApprove, skipped);
+  const toApprove = holdBackForReview(newest.toApprove, skipped);
 
   if (preview) {
     return {
       total: requests.length,
       to_approve: toApprove.length,
       superseded: requests.length - newestCount,
-      // High-risk supervisor captures that need an individual look
+      // Supervisor captures (high risk, or typed-in coordinates) that need an individual look
       held_for_review: newestCount - toApprove.length,
       // Only meaningful for location requests - see buildLocationProvenance
       overwrites_other_institution: type === 'location'
@@ -1027,6 +1041,9 @@ const getLocationStatistics = async (req, res, next) => {
 module.exports = {
   // Validation schemas
   schemas,
+  // Exposed for tests
+  needsIndividualReview,
+  holdBackForReview,
   
   // Principal requests
   getPrincipalRequests,

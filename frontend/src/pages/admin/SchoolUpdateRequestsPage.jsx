@@ -1078,7 +1078,7 @@ export default function SchoolUpdateRequestsPage() {
           <div className="space-y-2">
             {approveAllPreview.held_for_review > 0 && (
               <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-                {approveAllPreview.held_for_review} high-risk supervisor capture{approveAllPreview.held_for_review === 1 ? '' : 's'} will be skipped - review and approve them individually.
+                {approveAllPreview.held_for_review} supervisor capture{approveAllPreview.held_for_review === 1 ? '' : 's'} (high risk or typed-in coordinates) will be skipped - review and approve them individually.
               </p>
             )}
             {approveAllPreview.superseded > 0 && (
