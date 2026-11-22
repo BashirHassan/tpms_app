@@ -82,6 +82,7 @@ const deanAllocationRoutes = require('./deanAllocations');
 const locationTrackingRoutes = require('./locationTracking');
 const biometricRoutes = require('./biometric');
 const autoPostingRoutes = require('./autoPosting');
+const schoolCaptureRoutes = require('./schoolCapture');
 
 // =============================================================================
 // API INFO ENDPOINT (no auth)
@@ -123,6 +124,7 @@ router.get('/', (req, res) => {
       groups: '/api/:institutionId/groups',
       results: '/api/:institutionId/results',
       schoolUpdateRequests: '/api/:institutionId/school-update-requests',
+      schoolCapture: '/api/:institutionId/school-capture/* (supervisor school data capture)',
       documentTemplates: '/api/:institutionId/document-templates',
       locationTracking: '/api/:institutionId/location/* (supervisor geofencing)',
       biometric: '/api/:institutionId/biometric/* (supervisor check-in fingerprint gate)',
@@ -231,6 +233,9 @@ router.use('/', resultRoutes);
 
 // School update requests
 router.use('/', schoolUpdateRequestRoutes);
+
+// Supervisor school data capture (assignments + field submissions)
+router.use('/', schoolCaptureRoutes);
 
 // Document templates
 router.use('/', documentTemplateRoutes);

@@ -7,6 +7,7 @@
 
 const { z } = require('zod');
 const { query, transaction } = require('../db/database');
+const { insertEvents, recordEvent, requestContext } = require('../services/schoolCaptureEvents');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 const { distanceMeters } = require('../utils/geo');
 const { normalizeOptionalLocationValue } = require('../utils/locationNormalizer');
@@ -96,6 +97,47 @@ const schemas = {
 // ============================================================================
 
 /**
+ * Timeline event for a supervisor-captured request being reviewed. Requests that
+ * did not come from a capture assignment (students, public) have no timeline.
+ */
+function reviewEvent(request, type, eventType, userId, extra = {}) {
+  if (!request.submitted_by_user_id) return null;
+  const { context, ...metadata } = extra;
+  return {
+    institutionId: request.institution_id,
+    sessionId: request.session_id,
+    assignmentId: request.capture_assignment_id,
+    institutionSchoolId: request.institution_school_id,
+    supervisorId: request.submitted_by_user_id,
+    actorUserId: userId,
+    actorType: 'admin',
+    eventType,
+    requestType: type,
+    requestId: request.id,
+    summary: `${type === 'location' ? 'Location' : 'Principal details'} ${eventType === 'request_approved' ? 'approved' : 'rejected'}`,
+    metadata: { risk_level: request.risk_level || null, ...metadata },
+    ...(context || {}),
+  };
+}
+
+/**
+ * High-risk supervisor captures (typed/faked GPS, impossible travel, a point
+ * already used for another school...) are never swept up by a bulk or
+ * approve-all. A reviewer has to open each one and approve it deliberately.
+ */
+function holdBackHighRisk(toApprove, skipped) {
+  const clear = [];
+  for (const request of toApprove) {
+    if (request.risk_level === 'high') {
+      skipped.push({ id: request.id, reason: 'Flagged high-risk capture - review it and approve it individually' });
+    } else {
+      clear.push(request);
+    }
+  }
+  return clear;
+}
+
+/**
  * Mark a request approved, guarding on status so a request approved or rejected
  * by someone else in the meantime is never processed twice. Throwing here rolls
  * back the surrounding transaction, including the school update.
@@ -130,6 +172,7 @@ async function applyPrincipalApproval(conn, request, institutionId, userId, admi
   }
 
   await markApproved(conn, 'school_principal_update_requests', request.id, institutionId, userId, adminNotes);
+  await insertEvents(conn, [reviewEvent(request, 'principal', 'request_approved', userId, { admin_notes: adminNotes || null })].filter(Boolean));
 }
 
 async function applyLocationApproval(conn, request, institutionId, userId, adminNotes) {
@@ -176,6 +219,7 @@ async function applyLocationApproval(conn, request, institutionId, userId, admin
   }
 
   await markApproved(conn, 'school_location_update_requests', request.id, institutionId, userId, adminNotes);
+  await insertEvents(conn, [reviewEvent(request, 'location', 'request_approved', userId, { admin_notes: adminNotes || null })].filter(Boolean));
 }
 
 /**
@@ -204,7 +248,9 @@ async function bulkApprove(req, table, applyApproval) {
     [instId, ...ids]
   );
 
-  const { toApprove, skipped } = keepNewestPerSchool(requests);
+  const newest = keepNewestPerSchool(requests);
+  const { skipped } = newest;
+  const toApprove = holdBackHighRisk(newest.toApprove, skipped);
 
   const foundIds = new Set(requests.map((r) => r.id));
   for (const id of ids) {
@@ -312,13 +358,18 @@ async function approveAllMatching(req, type) {
   sql += ' ORDER BY r.created_at DESC, r.id DESC';
 
   const requests = await query(sql, params);
-  const { toApprove, skipped } = keepNewestPerSchool(requests);
+  const newest = keepNewestPerSchool(requests);
+  const { skipped } = newest;
+  const newestCount = newest.toApprove.length;
+  const toApprove = holdBackHighRisk(newest.toApprove, skipped);
 
   if (preview) {
     return {
       total: requests.length,
       to_approve: toApprove.length,
-      superseded: skipped.length,
+      superseded: requests.length - newestCount,
+      // High-risk supervisor captures that need an individual look
+      held_for_review: newestCount - toApprove.length,
       // Only meaningful for location requests - see buildLocationProvenance
       overwrites_other_institution: type === 'location'
         ? toApprove.filter((r) => buildLocationProvenance(r, instId)?.by_other_institution).length
@@ -356,12 +407,15 @@ const getPrincipalRequests = async (req, res, next) => {
              ms.principal_name as current_principal_name,
              ms.principal_phone as current_principal_phone,
              sess.name as session_name,
-             u.name as reviewed_by_name
+             u.name as reviewed_by_name,
+             sub.name as submitted_by_name,
+             CASE WHEN spur.submitted_by_user_id IS NOT NULL THEN 'supervisor' ELSE 'student' END as source
       FROM school_principal_update_requests spur
       LEFT JOIN institution_schools isv ON spur.institution_school_id = isv.id
       LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
       LEFT JOIN academic_sessions sess ON spur.session_id = sess.id
       LEFT JOIN users u ON spur.reviewed_by = u.id
+      LEFT JOIN users sub ON spur.submitted_by_user_id = sub.id
       WHERE spur.institution_id = ?
     `;
     const params = [parseInt(institutionId)];
@@ -425,12 +479,15 @@ const getPrincipalRequestById = async (req, res, next) => {
               ms.principal_name as current_principal_name,
               ms.principal_phone as current_principal_phone,
               sess.name as session_name,
-              u.name as reviewed_by_name
+              u.name as reviewed_by_name,
+             sub.name as submitted_by_name,
+             CASE WHEN spur.submitted_by_user_id IS NOT NULL THEN 'supervisor' ELSE 'student' END as source
        FROM school_principal_update_requests spur
        LEFT JOIN institution_schools isv ON spur.institution_school_id = isv.id
        LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
        LEFT JOIN academic_sessions sess ON spur.session_id = sess.id
        LEFT JOIN users u ON spur.reviewed_by = u.id
+      LEFT JOIN users sub ON spur.submitted_by_user_id = sub.id
        WHERE spur.id = ? AND spur.institution_id = ?`,
       [parseInt(id), parseInt(institutionId)]
     );
@@ -552,6 +609,12 @@ const rejectPrincipalRequest = async (req, res, next) => {
       [rejection_reason, req.user.id, admin_notes, parseInt(id), parseInt(institutionId)]
     );
 
+    const principalEvent = reviewEvent(request, 'principal', 'request_rejected', req.user.id, {
+      rejection_reason,
+      context: requestContext(req),
+    });
+    if (principalEvent) await recordEvent(principalEvent);
+
     res.json({
       success: true,
       message: 'Request rejected',
@@ -572,10 +635,13 @@ const getPrincipalRequestsBySchool = async (req, res, next) => {
     const requests = await query(
       `SELECT spur.*, 
               sess.name as session_name,
-              u.name as reviewed_by_name
+              u.name as reviewed_by_name,
+             sub.name as submitted_by_name,
+             CASE WHEN spur.submitted_by_user_id IS NOT NULL THEN 'supervisor' ELSE 'student' END as source
        FROM school_principal_update_requests spur
        LEFT JOIN academic_sessions sess ON spur.session_id = sess.id
        LEFT JOIN users u ON spur.reviewed_by = u.id
+      LEFT JOIN users sub ON spur.submitted_by_user_id = sub.id
        WHERE spur.institution_school_id = ? AND spur.institution_id = ?
        ORDER BY spur.created_at DESC`,
       [parseInt(schoolId), parseInt(institutionId)]
@@ -651,12 +717,15 @@ const getLocationRequests = async (req, res, next) => {
              ms.location_updated_at,
              ms.location_updated_by_institution_id,
              sess.name as session_name,
-             u.name as reviewed_by_name
+             u.name as reviewed_by_name,
+             sub.name as submitted_by_name,
+             CASE WHEN slur.submitted_by_user_id IS NOT NULL THEN 'supervisor' ELSE 'student' END as source
       FROM school_location_update_requests slur
       LEFT JOIN institution_schools isv ON slur.institution_school_id = isv.id
       LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
       LEFT JOIN academic_sessions sess ON slur.session_id = sess.id
       LEFT JOIN users u ON slur.reviewed_by = u.id
+      LEFT JOIN users sub ON slur.submitted_by_user_id = sub.id
       WHERE slur.institution_id = ?
     `;
     const params = [parseInt(institutionId)];
@@ -727,12 +796,15 @@ const getLocationRequestById = async (req, res, next) => {
               ms.location_updated_at,
               ms.location_updated_by_institution_id,
               sess.name as session_name,
-              u.name as reviewed_by_name
+              u.name as reviewed_by_name,
+             sub.name as submitted_by_name,
+             CASE WHEN slur.submitted_by_user_id IS NOT NULL THEN 'supervisor' ELSE 'student' END as source
        FROM school_location_update_requests slur
        LEFT JOIN institution_schools isv ON slur.institution_school_id = isv.id
        LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
        LEFT JOIN academic_sessions sess ON slur.session_id = sess.id
        LEFT JOIN users u ON slur.reviewed_by = u.id
+      LEFT JOIN users sub ON slur.submitted_by_user_id = sub.id
        WHERE slur.id = ? AND slur.institution_id = ?`,
       [parseInt(id), parseInt(institutionId)]
     );
@@ -863,6 +935,12 @@ const rejectLocationRequest = async (req, res, next) => {
       [rejection_reason, req.user.id, admin_notes, parseInt(id), parseInt(institutionId)]
     );
 
+    const locationEvent = reviewEvent(request, 'location', 'request_rejected', req.user.id, {
+      rejection_reason,
+      context: requestContext(req),
+    });
+    if (locationEvent) await recordEvent(locationEvent);
+
     res.json({
       success: true,
       message: 'Request rejected',
@@ -883,10 +961,13 @@ const getLocationRequestsBySchool = async (req, res, next) => {
     const requests = await query(
       `SELECT slur.*, 
               sess.name as session_name,
-              u.name as reviewed_by_name
+              u.name as reviewed_by_name,
+             sub.name as submitted_by_name,
+             CASE WHEN slur.submitted_by_user_id IS NOT NULL THEN 'supervisor' ELSE 'student' END as source
        FROM school_location_update_requests slur
        LEFT JOIN academic_sessions sess ON slur.session_id = sess.id
        LEFT JOIN users u ON slur.reviewed_by = u.id
+      LEFT JOIN users sub ON slur.submitted_by_user_id = sub.id
        WHERE slur.institution_school_id = ? AND slur.institution_id = ?
        ORDER BY slur.created_at DESC`,
       [parseInt(schoolId), parseInt(institutionId)]

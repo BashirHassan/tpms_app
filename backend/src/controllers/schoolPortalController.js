@@ -663,6 +663,12 @@ const submitMyLocationUpdate = async (req, res, next) => {
 
 module.exports = {
   schemas,
+  // Shared with the supervisor school-capture flow so both submit under the same rules
+  MIN_CORRECTION_DISTANCE_M,
+  NIGERIAN_PHONE,
+  getExternalVerification,
+  toNumber,
+  mapsUrl,
   getMySchoolPrincipal,
   submitMyPrincipalUpdate,
   getMySchoolLocation,

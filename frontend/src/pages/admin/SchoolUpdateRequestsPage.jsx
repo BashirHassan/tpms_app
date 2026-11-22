@@ -15,6 +15,7 @@ import {
   IconRefresh,
   IconExternalLink,
   IconClock,
+  IconClipboardCheck,
 } from '@tabler/icons-react';
 import { schoolUpdateRequestsApi } from '../../api/schoolUpdateRequestsApi';
 import { sessionsApi } from '../../api';
@@ -29,6 +30,11 @@ import { Input } from '../../components/ui/Input';
 import { Dialog } from '../../components/ui/Dialog';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable } from '../../components/ui/DataTable';
+import { useInstitutionSelection } from '../../context/InstitutionSelectionContext';
+import { FEATURE_KEY } from '../../api/schoolCapture';
+import FieldCapturePanel, { RequestSourceBadges } from '../../components/schoolCapture/FieldCapturePanel';
+import CaptureTimelineDialog from '../../components/schoolCapture/CaptureTimelineDialog';
+import RiskBadge from '../../components/schoolCapture/RiskBadge';
 
 // Status badge variant mapping
 const getStatusVariant = (status) => {
@@ -66,9 +72,12 @@ function TabButton({ active, onClick, icon: Icon, label, count }) {
 
 export default function SchoolUpdateRequestsPage() {
   const { toast } = useToast();
+  const { isFeatureEnabled } = useInstitutionSelection();
+  const captureEnabled = isFeatureEnabled(FEATURE_KEY);
 
   // State
   const [activeTab, setActiveTab] = useState('principal');
+  const isCaptureTab = captureEnabled && activeTab === 'capture';
   const [requests, setRequests] = useState([]);
   const [statistics, setStatistics] = useState({ pending: 0, approved: 0, rejected: 0 });
   const [sessions, setSessions] = useState([]);
@@ -91,6 +100,7 @@ export default function SchoolUpdateRequestsPage() {
   const [showBulkApproveConfirm, setShowBulkApproveConfirm] = useState(false);
   // Server-side counts for "approve all pending"; non-null while its dialog is open
   const [approveAllPreview, setApproveAllPreview] = useState(null);
+  const [timelineAssignmentId, setTimelineAssignmentId] = useState(null);
 
   // Filters
   const [filters, setFilters] = useState({
@@ -188,9 +198,10 @@ export default function SchoolUpdateRequestsPage() {
 
   // Load data when tab or filters change
   useEffect(() => {
+    if (activeTab === 'capture') return; // the Field Capture panel loads its own data
     loadRequests();
     loadStatistics();
-  }, [loadRequests, loadStatistics]);
+  }, [activeTab, loadRequests, loadStatistics]);
 
   const handleApprove = (request) => {
     setApprovingRequest(request);
@@ -350,6 +361,7 @@ export default function SchoolUpdateRequestsPage() {
       render: (value, row) => (
         <div>
           <div className="font-medium text-gray-900">{value}</div>
+          <RequestSourceBadges row={row} />
           {(row.ward || row.lga || row.state) && (
             <div className="text-sm text-gray-500">
               {[row.ward, row.lga, row.state].filter(Boolean).join(', ')}
@@ -443,6 +455,7 @@ export default function SchoolUpdateRequestsPage() {
       render: (value, row) => (
         <div>
           <div className="font-medium text-gray-900">{value}</div>
+          <RequestSourceBadges row={row} />
           {(row.ward || row.lga || row.state) && (
             <div className="text-sm text-gray-500">
               {[row.ward, row.lga, row.state].filter(Boolean).join(', ')}
@@ -595,6 +608,7 @@ export default function SchoolUpdateRequestsPage() {
       </div>
 
       {/* Statistics Cards */}
+      {!isCaptureTab && (
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <Card>
           <CardContent className="p-3 sm:p-4">
@@ -636,6 +650,7 @@ export default function SchoolUpdateRequestsPage() {
           </CardContent>
         </Card>
       </div>
+      )}
 
       {/* Tabs */}
       <div className="border-b border-gray-200 -mx-2 px-2 sm:mx-0 sm:px-0 overflow-x-auto">
@@ -658,10 +673,27 @@ export default function SchoolUpdateRequestsPage() {
             icon={IconMapPin}
             label="Location Updates"
           />
+          {captureEnabled && (
+            <TabButton
+              active={activeTab === 'capture'}
+              onClick={() => setActiveTab('capture')}
+              icon={IconClipboardCheck}
+              label="Field Capture"
+            />
+          )}
         </div>
       </div>
 
+      {isCaptureTab && (
+        <FieldCapturePanel
+          sessionId={filters.session_id}
+          sessions={sessions}
+          onSessionChange={(value) => setFilters((prev) => ({ ...prev, session_id: value }))}
+        />
+      )}
+
       {/* Requests Table */}
+      {!isCaptureTab && (
       <DataTable
         mobileCards
         data={requests}
@@ -716,6 +748,7 @@ export default function SchoolUpdateRequestsPage() {
           setShowDetailModal(true);
         }}
       />
+      )}
 
       {/* Detail Modal */}
       <Dialog
@@ -752,6 +785,7 @@ export default function SchoolUpdateRequestsPage() {
             <div>
               <h3 className="text-sm font-medium text-gray-500 mb-2">School</h3>
               <p className="font-medium text-gray-900">{selectedRequest.school_name}</p>
+              <RequestSourceBadges row={selectedRequest} showAccuracy />
               {(selectedRequest.ward || selectedRequest.lga || selectedRequest.state) && (
                 <p className="text-sm text-gray-500">
                   {[selectedRequest.ward, selectedRequest.lga, selectedRequest.state].filter(Boolean).join(', ')}
@@ -857,6 +891,46 @@ export default function SchoolUpdateRequestsPage() {
                         `, moving the point ${selectedRequest.location_provenance.distance_m} m`}
                       . Check the two pins on the map before you approve.
                     </p>
+                  </div>
+                )}
+
+                {selectedRequest.source === 'supervisor' && selectedRequest.risk_level && (
+                  <div className="mt-4">
+                    <h3 className="text-sm font-medium text-gray-500 mb-2 flex items-center gap-2">
+                      Capture risk
+                      <RiskBadge level={selectedRequest.risk_level} />
+                    </h3>
+                    {Array.isArray(selectedRequest.risk_flags) && selectedRequest.risk_flags.length > 0 ? (
+                      <ul className="space-y-1.5">
+                        {selectedRequest.risk_flags.map((f, i) => (
+                          <li
+                            key={`${f.code}-${i}`}
+                            className={`rounded-md border px-3 py-1.5 text-sm ${
+                              f.severity === 'high'
+                                ? 'border-red-200 bg-red-50 text-red-800'
+                                : 'border-amber-200 bg-amber-50 text-amber-900'
+                            }`}
+                          >
+                            {f.message || f.code}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-green-700">No risk signals.</p>
+                    )}
+                    {selectedRequest.distance_from_record_m != null && (
+                      <p className="mt-2 text-sm text-gray-600">
+                        Distance from the location on file: {Math.round(Number(selectedRequest.distance_from_record_m)).toLocaleString()} m
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {selectedRequest.capture_assignment_id && (
+                  <div className="mt-4">
+                    <Button variant="outline" size="sm" onClick={() => setTimelineAssignmentId(selectedRequest.capture_assignment_id)}>
+                      View capture timeline
+                    </Button>
                   </div>
                 )}
 
@@ -983,6 +1057,12 @@ export default function SchoolUpdateRequestsPage() {
         })()}
       </ConfirmDialog>
 
+      <CaptureTimelineDialog
+        isOpen={!!timelineAssignmentId}
+        onClose={() => setTimelineAssignmentId(null)}
+        assignmentId={timelineAssignmentId}
+      />
+
       {/* Approve All Pending Confirmation Dialog */}
       <ConfirmDialog
         isOpen={!!approveAllPreview}
@@ -994,8 +1074,13 @@ export default function SchoolUpdateRequestsPage() {
         confirmVariant="primary"
         loading={processing}
       >
-        {approveAllPreview && (approveAllPreview.superseded > 0 || approveAllPreview.overwrites_other_institution > 0) && (
+        {approveAllPreview && (approveAllPreview.held_for_review > 0 || approveAllPreview.superseded > 0 || approveAllPreview.overwrites_other_institution > 0) && (
           <div className="space-y-2">
+            {approveAllPreview.held_for_review > 0 && (
+              <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                {approveAllPreview.held_for_review} high-risk supervisor capture{approveAllPreview.held_for_review === 1 ? '' : 's'} will be skipped - review and approve them individually.
+              </p>
+            )}
             {approveAllPreview.superseded > 0 && (
               <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
                 {approveAllPreview.superseded} older request{approveAllPreview.superseded === 1 ? '' : 's'} will stay

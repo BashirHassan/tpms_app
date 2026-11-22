@@ -85,6 +85,7 @@ const AdminBiometricDevicesPage = lazy(() => import('./pages/admin/AdminBiometri
 const SupervisorResultUploadPage = lazy(() => import('./pages/supervisor/SupervisorResultUploadPage'));
 const SupervisorMyPostingsPage = lazy(() => import('./pages/supervisor/SupervisorMyPostingsPage'));
 const SupervisorFieldMapPage = lazy(() => import('./pages/supervisor/SupervisorFieldMapPage'));
+const SupervisorSchoolCapturePage = lazy(() => import('./pages/supervisor/SupervisorSchoolCapturePage'));
 const SupervisorInvitationPage = lazy(() => import('./pages/supervisor/SupervisorInvitationPage'));
 const LocationTrackerPage = lazy(() => import('./pages/supervisor/LocationTrackerPage'));
 
@@ -330,6 +331,7 @@ function AppRoutes() {
               <Route path="result-upload" element={<SupervisorResultUploadPage />} />
               <Route path="my-postings" element={<SupervisorMyPostingsPage />} />
               <Route path="field-map" element={<SupervisorFieldMapPage />} />
+              <Route path="school-capture" element={<SupervisorSchoolCapturePage />} />
               <Route path="my-invitation" element={<SupervisorInvitationPage />} />
               <Route path="location-tracker" element={<LocationTrackerPage />} />
               

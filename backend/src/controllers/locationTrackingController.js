@@ -27,6 +27,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 const { query, transaction } = require('../db/database');
+const { detectZeroJitter } = require('../utils/gpsSignals');
 const { NotFoundError, ValidationError } = require('../utils/errors');
 const { isFeatureEnabled } = require('../middleware/featureToggle');
 
@@ -105,20 +106,6 @@ function generateDeviceHash(req, deviceInfo) {
   return crypto.createHash('sha256').update(fingerprint).digest('hex').substring(0, 32);
 }
 
-/**
- * Flag GPS captures where every sample is bit-for-bit identical. Real GPS
- * chips jitter slightly between readings even when stationary; several
- * mock-location tools return the exact same coordinate every time. A minimum
- * sample count is required so a single throttled duplicate-reading burst some
- * browsers produce doesn't false-positive.
- * @param {Array<{latitude: number, longitude: number}>} samples
- * @returns {boolean}
- */
-function detectZeroJitter(samples) {
-  if (!Array.isArray(samples) || samples.length < 4) return false;
-  const first = samples[0];
-  return samples.every((s) => s.latitude === first.latitude && s.longitude === first.longitude);
-}
 
 /**
  * Verify supervisor location for a posting

@@ -2965,6 +2965,9 @@ function runAutoPostingAlgorithm(supervisors, slots, numberOfPostings, postingTy
 
 module.exports = {
   runAutoPostingAlgorithm,
+  // Seeded-randomness helpers, shared with the school-capture allocator
+  hashSeed,
+  mulberry32,
   // Small math/geography helpers
   clusterKeyFor,
   describeVisits,

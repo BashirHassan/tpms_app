@@ -34,6 +34,7 @@ import {
   IconCreditCard,
   IconFileCheck,
   IconMap2,
+  IconMapPinPlus,
   IconUserCheck,
   IconCalculator,
   IconSignature,
@@ -109,6 +110,7 @@ const navigationGroups = [
     items: [
       { name: 'My Postings', href: '/admin/my-postings', icon: IconFileCheck, roles: ROLE_GROUPS.SUPERVISOR_PLUS },
       { name: 'Field Map', href: '/admin/field-map', icon: IconMap2, roles: ROLE_GROUPS.SUPERVISOR_PLUS, feature: 'supervisor_field_map' },
+      { name: 'School Capture', href: '/admin/school-capture', icon: IconMapPinPlus, roles: ROLE_GROUPS.SUPERVISOR_PLUS, feature: 'school_data_capture' },
       { name: 'Location Tracker', href: '/admin/location-tracker', icon: IconMapPin, roles: ROLE_GROUPS.SUPERVISOR_PLUS, feature: 'supervisor_location_tracking' },
       { name: 'Result Upload', href: '/admin/result-upload', icon: IconSignature, roles: ROLE_GROUPS.SUPERVISOR_PLUS },
       { name: 'Manage Results', href: '/admin/results', icon: IconClipboardList, roles: ROLE_GROUPS.ADMIN },

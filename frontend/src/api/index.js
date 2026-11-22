@@ -81,3 +81,4 @@ export { schoolUpdateRequestsApi } from './schoolUpdateRequests';
 export { usersApi } from './users';
 export { deanAllocationsApi } from './deanAllocations';
 export { autoPostingApi } from './autoPosting';
+export { schoolCaptureApi } from './schoolCapture';
