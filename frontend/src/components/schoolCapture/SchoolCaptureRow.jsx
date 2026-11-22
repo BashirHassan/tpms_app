@@ -25,6 +25,9 @@ export default function SchoolCaptureRow({ school, onOpen }) {
             {school.school_code}
             {place && ` · ${place}`}
           </p>
+          {school.linked === false && (
+            <p className="mt-1 text-xs text-gray-500">Not on your institution&apos;s school list</p>
+          )}
           <div className="mt-2 flex flex-wrap gap-1.5">
             {school.needs_location && <StatusBadge prefix="Location" status={school.location_status} />}
             {school.needs_principal && <StatusBadge prefix="Principal" status={school.principal_status} />}

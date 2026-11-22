@@ -582,6 +582,27 @@ const merge = async (req, res, next) => {
           }
         }
 
+        // Supervisor capture records are keyed on the master school itself. A live
+        // capture already held on the target for the same institution and session wins:
+        // the source's copy is cancelled rather than colliding with it.
+        await conn.execute(
+          `UPDATE school_capture_assignments s
+           SET s.status = 'cancelled'
+           WHERE s.master_school_id = ? AND s.status = 'active'
+             AND EXISTS (SELECT 1 FROM (SELECT institution_id, session_id FROM school_capture_assignments
+                                        WHERE master_school_id = ? AND status = 'active') t
+                         WHERE t.institution_id = s.institution_id AND t.session_id = s.session_id)`,
+          [sourceId, target_id]
+        );
+        for (const table of ['school_capture_assignments', 'school_location_update_requests', 'school_principal_update_requests']) {
+          // IGNORE: a pending request on both schools in one session keeps the source's
+          // row on the (now merged) source as history rather than aborting the merge
+          await conn.execute(`UPDATE IGNORE ${table} SET master_school_id = ? WHERE master_school_id = ?`, [
+            target_id,
+            sourceId,
+          ]);
+        }
+
         // Mark source as merged
         await conn.execute(
           'UPDATE master_schools SET status = ?, merged_into_id = ? WHERE id = ?',

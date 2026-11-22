@@ -394,6 +394,7 @@ export default function CaptureTimelineDialog({ isOpen, onClose, assignmentId })
                 {a.assignment_status === 'active' ? 'Active' : 'Cancelled'}
               </Badge>
               <Badge variant="info">{PROGRESS_LABELS[a.progress] || a.progress}</Badge>
+              {a.linked === false && <Badge variant="warning">Not linked to institution</Badge>}
               {a.risk_level && <RiskBadge level={a.risk_level} />}
             </div>
             <p className="text-sm text-gray-600">{[a.ward, a.lga, a.state].filter(Boolean).join(', ')}</p>

@@ -5,7 +5,11 @@
  * must never be swept up by bulk approve / approve-all.
  */
 
-const { needsIndividualReview, holdBackForReview } = require('../../src/controllers/schoolUpdateRequestController');
+const {
+  needsIndividualReview,
+  holdBackForReview,
+  keepNewestPerSchool,
+} = require('../../src/controllers/schoolUpdateRequestController');
 
 const student = (over = {}) => ({ id: 1, submitted_by_user_id: null, risk_level: null, capture_method: null, ...over });
 const supervisorGps = (over = {}) => ({ id: 2, submitted_by_user_id: 9, risk_level: 'none', capture_method: 'gps', ...over });
@@ -57,5 +61,31 @@ describe('holdBackForReview', () => {
     const skipped = [{ id: 99, reason: 'superseded' }];
     holdBackForReview([supervisorGps({ id: 3, risk_level: 'high' })], skipped);
     expect(skipped.map((s) => s.id)).toEqual([99, 3]);
+  });
+});
+
+describe('keepNewestPerSchool - schools with no institution link', () => {
+  // Newest first, as the callers order them. Capturing a master school that the
+  // institution has not linked leaves institution_school_id NULL; those must not all
+  // be treated as "the same school".
+  const unlinked = (id, master) => ({ id, institution_school_id: null, master_school_id: master });
+
+  it('keeps one request per master school, not one for every unlinked school', () => {
+    const { toApprove, skipped } = keepNewestPerSchool([unlinked(5, 100), unlinked(4, 200), unlinked(3, 300)]);
+    expect(toApprove.map((r) => r.id)).toEqual([5, 4, 3]);
+    expect(skipped).toEqual([]);
+  });
+
+  it('still keeps only the newest when the same master school has several requests', () => {
+    const { toApprove, skipped } = keepNewestPerSchool([unlinked(9, 100), unlinked(8, 100), unlinked(7, 200)]);
+    expect(toApprove.map((r) => r.id)).toEqual([9, 7]);
+    expect(skipped.map((s) => s.id)).toEqual([8]);
+  });
+
+  it('falls back to the institution link for older rows that have no master id', () => {
+    const legacy = (id, link) => ({ id, institution_school_id: link, master_school_id: null });
+    const { toApprove, skipped } = keepNewestPerSchool([legacy(3, 11), legacy(2, 11), legacy(1, 12)]);
+    expect(toApprove.map((r) => r.id)).toEqual([3, 1]);
+    expect(skipped.map((s) => s.id)).toEqual([2]);
   });
 });

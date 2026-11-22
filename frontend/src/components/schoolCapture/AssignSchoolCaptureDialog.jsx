@@ -63,6 +63,20 @@ const SCOPES = [
   { value: 'all', label: 'All active schools' },
 ];
 
+const SCHOOL_SOURCES = [
+  {
+    value: 'institution',
+    label: "This institution's schools",
+    description: 'Schools already linked to this institution.',
+  },
+  {
+    value: 'master',
+    label: 'All master schools',
+    description:
+      'Every school in the national master list, including ones not yet linked to this institution. Once a school is captured it is never captured again, even if it is linked later.',
+  },
+];
+
 const DISTRIBUTION_MODES = [
   {
     value: 'lga',
@@ -85,6 +99,7 @@ const matches = (term, ...values) => values.some((v) => v && String(v).toLowerCa
 function NeedBadges({ school }) {
   return (
     <span className="inline-flex flex-wrap gap-1">
+      {school.linked === false && <Badge variant="warning">Not linked</Badge>}
       {school.needs_location && <Badge variant="info">Needs location</Badge>}
       {school.needs_principal && <Badge variant="warning">Needs principal</Badge>}
       {!school.needs_location && !school.needs_principal && <Badge variant="default">Complete</Badge>}
@@ -121,6 +136,8 @@ export default function AssignSchoolCaptureDialog({
 
   // ---- Shared options (counts, supervisors, states, LGAs) ----
   const [scope, setScope] = useState('missing_any');
+  // Where the list of schools comes from: this institution's linked schools, or the whole master registry
+  const [schoolSource, setSchoolSource] = useState('institution');
   const [options, setOptions] = useState(null);
   const [loadingOptions, setLoadingOptions] = useState(false);
 
@@ -152,6 +169,7 @@ export default function AssignSchoolCaptureDialog({
   useEffect(() => {
     if (!open) return;
     setMode(initialMode);
+    setSchoolSource('institution');
     setStep('scope');
     setManualStep('pick');
     setPreview(null);
@@ -170,7 +188,7 @@ export default function AssignSchoolCaptureDialog({
     let cancelled = false;
     setLoadingOptions(true);
     schoolCaptureApi
-      .getOptions({ session_id: sessionId, scope })
+      .getOptions({ session_id: sessionId, scope, school_source: schoolSource })
       .then((response) => {
         if (!cancelled) setOptions(response.data?.data || null);
       })
@@ -183,14 +201,18 @@ export default function AssignSchoolCaptureDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, sessionId, scope, toast]);
+  }, [open, sessionId, scope, schoolSource, toast]);
 
   // Eligible (unassigned) schools for manual mode
   const loadEligible = useCallback(async () => {
     if (!sessionId) return;
     setLoadingEligible(true);
     try {
-      const response = await schoolCaptureApi.getEligibleSchools({ session_id: sessionId, scope });
+      const response = await schoolCaptureApi.getEligibleSchools({
+        session_id: sessionId,
+        scope,
+        school_source: schoolSource,
+      });
       setEligible(response.data?.data || []);
       setSelectedSchoolIds(new Set());
     } catch (error) {
@@ -198,7 +220,7 @@ export default function AssignSchoolCaptureDialog({
     } finally {
       setLoadingEligible(false);
     }
-  }, [sessionId, scope, toast]);
+  }, [sessionId, scope, schoolSource, toast]);
 
   useEffect(() => {
     if (open && mode === 'manual') loadEligible();
@@ -223,6 +245,15 @@ export default function AssignSchoolCaptureDialog({
     });
   }, [lgaOptions]);
 
+  // The other source offers different states
+  useEffect(() => {
+    setSelectedStates((current) => {
+      const offered = new Set(allStates.map((s) => s.state));
+      const kept = current.filter((s) => offered.has(s));
+      return kept.length === current.length ? current : kept;
+    });
+  }, [allStates]);
+
   useEffect(() => {
     setSelectedSupervisors((current) => {
       const offered = new Set(supervisors.map((s) => s.id));
@@ -238,6 +269,7 @@ export default function AssignSchoolCaptureDialog({
         session_id: Number(sessionId),
         mode: distribution,
         scope,
+        school_source: schoolSource,
         supervisor_ids: selectedSupervisors,
         states: selectedStates,
         lgas: selectedLgas.map(parseLgaKey),
@@ -245,7 +277,7 @@ export default function AssignSchoolCaptureDialog({
         shuffle_salt: salt,
       };
     },
-    [sessionId, distribution, scope, selectedSupervisors, selectedStates, selectedLgas, maxPerSupervisor, shuffleSalt]
+    [sessionId, distribution, scope, schoolSource, selectedSupervisors, selectedStates, selectedLgas, maxPerSupervisor, shuffleSalt]
   );
 
   const handleClose = () => {
@@ -354,6 +386,7 @@ export default function AssignSchoolCaptureDialog({
       const response = await schoolCaptureApi.bulkAssign({
         session_id: Number(sessionId),
         supervisor_id: Number(manualSupervisorId),
+        school_source: schoolSource,
         school_ids: [...selectedSchoolIds],
       });
       setManualResult(response.data?.data || {});
@@ -370,6 +403,43 @@ export default function AssignSchoolCaptureDialog({
   // ==========================================================================
   // Shared scope picker
   // ==========================================================================
+
+  // Switching source invalidates everything chosen against the old one - above all a
+  // preview, which must never be saved against a different list of schools.
+  const changeSource = (value) => {
+    if (value === schoolSource) return;
+    setSchoolSource(value);
+    setPreview(null);
+    setResult(null);
+    setSelectedStates([]);
+    setSelectedLgas([]);
+    setSelectedSchoolIds(new Set());
+  };
+
+  const renderSourcePicker = () => (
+    <div className="space-y-2">
+      <RadioGroup
+        name="captureSchoolSource"
+        label="School list"
+        value={schoolSource}
+        onChange={changeSource}
+        options={SCHOOL_SOURCES}
+        renderOption={(s) => (
+          <div className="w-full">
+            <span className="font-medium text-gray-900">{s.label}</span>
+            <p className="text-xs text-gray-500 mt-0.5">{s.description}</p>
+          </div>
+        )}
+      />
+      {schoolSource === 'master' && (options?.unlinked_count ?? 0) > 0 && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+          {(options.unlinked_count ?? 0).toLocaleString()} of the {(options.counts?.all ?? 0).toLocaleString()} schools
+          available are not linked to this institution yet. They are captured once and never need capturing again,
+          even after they are linked.
+        </p>
+      )}
+    </div>
+  );
 
   const scopeRadioOptions = SCOPES.map((s) => ({
     ...s,
@@ -398,6 +468,8 @@ export default function AssignSchoolCaptureDialog({
 
   const renderScopeStep = () => (
     <div className="space-y-6">
+      {renderSourcePicker()}
+
       {renderScopeRadio()}
 
       <div className="space-y-4 pt-2 border-t border-gray-200">
@@ -536,8 +608,15 @@ export default function AssignSchoolCaptureDialog({
   const renderPreviewStep = () => {
     const assigned = preview?.assigned_count ?? preview?.assignments?.length ?? 0;
     const searching = planSearch.trim() !== '';
+    const unlinkedInPlan = (preview?.assignments || []).filter((a) => a.school?.linked === false).length;
     return (
       <div className="space-y-4">
+        {unlinkedInPlan > 0 && (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            {unlinkedInPlan.toLocaleString()} of these schools are not linked to this institution. They are captured
+            against the master school list.
+          </p>
+        )}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatsCard title="Schools in scope" value={preview?.total_schools} icon={IconSchool} tone="primary" />
           <StatsCard title="Will be assigned" value={assigned} icon={IconCheck} tone="green" />
@@ -694,6 +773,8 @@ export default function AssignSchoolCaptureDialog({
     const searching = manualSearch.trim() !== '';
     return (
       <div className="space-y-4">
+        {renderSourcePicker()}
+
         <div>
           <label htmlFor="capture-manual-scope" className="block text-sm font-medium text-gray-700 mb-1">
             Which schools

@@ -126,7 +126,7 @@ export default function FieldCapturePanel({ sessionId, sessions = [], onSessionC
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
 
-  const [filters, setFilters] = useState({ supervisor: '', state: '', lga: '', progress: '', risk: '' });
+  const [filters, setFilters] = useState({ supervisor: '', state: '', lga: '', progress: '', risk: '', linked: '' });
 
   const [dialogMode, setDialogMode] = useState(null); // null | 'auto' | 'manual'
   const [reassigning, setReassigning] = useState(null);
@@ -200,6 +200,7 @@ export default function FieldCapturePanel({ sessionId, sessions = [], onSessionC
           (!filters.state || a.state === filters.state) &&
           (!filters.lga || a.lga === filters.lga) &&
           (!filters.progress || a.progress === filters.progress) &&
+          (!filters.linked || (filters.linked === 'linked' ? a.linked !== false : a.linked === false)) &&
           (!filters.risk ||
             (filters.risk === 'high' ? a.risk_level === 'high' : a.risk_level === 'high' || a.risk_level === 'medium'))
       ),
@@ -311,6 +312,13 @@ export default function FieldCapturePanel({ sessionId, sessions = [], onSessionC
       { accessor: 'lga', header: 'LGA' },
       { accessor: 'ward', header: 'Ward', hideOnMobile: true },
       {
+        accessor: 'linked',
+        header: 'Linked to institution',
+        hideOnMobile: true,
+        render: (value) => (value === false ? <Badge variant="warning">Not linked</Badge> : <Badge variant="success">Linked</Badge>),
+        exportFormatter: (value) => (value === false ? 'No' : 'Yes'),
+      },
+      {
         accessor: 'distance_km',
         header: 'Distance from institution (km)',
         render: (value) => <span className="text-sm text-gray-700">{formatKm(value)}</span>,
@@ -421,6 +429,11 @@ export default function FieldCapturePanel({ sessionId, sessions = [], onSessionC
       <Select value={filters.progress} onChange={(e) => setFilter('progress', e.target.value)} className="w-auto" aria-label="Progress">
         <option value="">All progress</option>
         {Object.entries(PROGRESS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </Select>
+      <Select value={filters.linked} onChange={(e) => setFilter('linked', e.target.value)} className="w-auto" aria-label="Linked">
+        <option value="">Linked and not linked</option>
+        <option value="linked">Linked to institution</option>
+        <option value="unlinked">Not linked</option>
       </Select>
       <Select value={filters.risk} onChange={(e) => setFilter('risk', e.target.value)} className="w-auto" aria-label="Risk">
         <option value="">All risk levels</option>

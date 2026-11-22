@@ -35,10 +35,19 @@ const idList = () => z.array(z.coerce.number().int().positive()).optional().defa
 
 const SCOPES = ['missing_any', 'missing_location', 'missing_principal', 'all'];
 
+// Where the list of schools comes from:
+//   institution - the schools this institution has linked
+//   master      - every active school in the master registry, linked or not
+// Capture is always recorded against the MASTER school, so a school captured once is
+// never captured again - not even after it is later linked to an institution.
+const SCHOOL_SOURCES = ['institution', 'master'];
+const normaliseSource = (v) => (SCHOOL_SOURCES.includes(v) ? v : 'institution');
+
 const planBody = z.object({
   session_id: z.coerce.number().int().positive('Session ID is required'),
   mode: z.enum(['lga', 'random']).default('lga'),
   scope: z.enum(SCOPES).default('missing_any'),
+  school_source: z.enum(SCHOOL_SOURCES).default('institution'),
   supervisor_ids: idList(),
   states: z.array(z.string().min(1)).optional().default([]),
   lgas: z.array(z.object({ state: z.string().min(1), lga: z.string().min(1) })).optional().default([]),
@@ -60,6 +69,8 @@ const schemas = {
     body: z.object({
       session_id: z.coerce.number().int().positive('Session ID is required'),
       supervisor_id: z.coerce.number().int().positive('Supervisor is required'),
+      school_source: z.enum(SCHOOL_SOURCES).default('institution'),
+      // master_schools.id values, whichever source they were picked from
       school_ids: z.array(z.coerce.number().int().positive()).min(1, 'Select at least one school').max(5000),
     }),
   }),
@@ -138,30 +149,44 @@ function computeNeeds(row, scope) {
 }
 
 /**
- * Active schools of the institution not yet held by a live capture assignment
- * this session, with what each still needs. A school whose location (or
- * principal) request is already awaiting review is treated as handled - sending
- * a supervisor to it would only duplicate a request.
+ * Schools a run could pick up: not yet held by a live capture assignment this
+ * session, with what each still needs. Every id here is a MASTER school id.
+ *
+ * "Missing" is read from the master school's own record, so a school captured by
+ * ANY institution (or by this one earlier) no longer shows up. A school whose
+ * location (or principal) request is already awaiting review is treated as handled -
+ * sending a supervisor to it would only duplicate a request.
  */
-async function getEligibleSchools(institutionId, sessionId, { scope = 'missing_any', states = [], lgas = [] } = {}) {
+async function getEligibleSchools(
+  institutionId,
+  sessionId,
+  { scope = 'missing_any', states = [], lgas = [], source = 'institution' } = {}
+) {
+  const fromClause =
+    source === 'master'
+      ? `FROM master_schools ms
+         LEFT JOIN institution_schools isv ON isv.master_school_id = ms.id AND isv.institution_id = ?
+         WHERE ms.status = 'active'`
+      : `FROM institution_schools isv
+         JOIN master_schools ms ON ms.id = isv.master_school_id
+         WHERE isv.institution_id = ? AND isv.status = 'active'`;
+
   const rows = await query(
-    `SELECT isv.id, isv.master_school_id,
+    `SELECT ms.id AS id, isv.id AS institution_school_id, (isv.id IS NOT NULL) AS linked,
             ms.name, ms.official_code AS code, ms.state, ms.lga, ms.ward, ms.address,
             (ms.location IS NULL OR ms.location_updated_at IS NULL) AS loc_missing,
             (ms.principal_name IS NULL OR TRIM(ms.principal_name) = ''
               OR ms.principal_phone IS NULL OR TRIM(ms.principal_phone) = '') AS princ_missing,
             EXISTS (SELECT 1 FROM school_location_update_requests r
-                    WHERE r.institution_school_id = isv.id AND r.session_id = ?
+                    WHERE r.master_school_id = ms.id AND r.session_id = ?
                       AND r.institution_id = ? AND r.status = 'pending') AS loc_pending,
             EXISTS (SELECT 1 FROM school_principal_update_requests r
-                    WHERE r.institution_school_id = isv.id AND r.session_id = ?
+                    WHERE r.master_school_id = ms.id AND r.session_id = ?
                       AND r.institution_id = ? AND r.status = 'pending') AS princ_pending
-     FROM institution_schools isv
-     JOIN master_schools ms ON ms.id = isv.master_school_id
-     WHERE isv.institution_id = ? AND isv.status = 'active'
+     ${fromClause}
        AND NOT EXISTS (
          SELECT 1 FROM school_capture_assignments a
-         WHERE a.institution_school_id = isv.id AND a.session_id = ?
+         WHERE a.master_school_id = ms.id AND a.session_id = ?
            AND a.institution_id = ? AND a.status = 'active'
        )
      ORDER BY ms.state, ms.lga, ms.name`,
@@ -213,6 +238,7 @@ async function buildPlan(institutionId, session, body) {
       scope: body.scope,
       states: body.states,
       lgas: body.lgas,
+      source: body.school_source,
     }),
     getEligibleSupervisors(institutionId, body.supervisor_ids),
     getExistingLoad(institutionId, session.id),
@@ -244,6 +270,7 @@ function shapeSchool(s) {
     state: s.state || null,
     lga: s.lga || null,
     ward: s.ward || null,
+    linked: !!Number(s.linked),
     needs_location: !!s.needs_location,
     needs_principal: !!s.needs_principal,
   };
@@ -252,7 +279,7 @@ function shapeSchool(s) {
 // Newest request per school+session for one request table - status/ids only
 const latestRequestSql = (table, column) => `
   (SELECT r.${column} FROM ${table} r
-   WHERE r.institution_school_id = a.institution_school_id
+   WHERE r.master_school_id = a.master_school_id
      AND r.session_id = a.session_id AND r.institution_id = a.institution_id
    ORDER BY r.created_at DESC, r.id DESC LIMIT 1)`;
 
@@ -262,7 +289,8 @@ function deriveStatus(latestStatus, needed) {
 }
 
 const ASSIGNMENT_SELECT = `
-  SELECT a.id, a.session_id, a.supervisor_id, a.institution_school_id, a.batch_id, a.status AS assignment_status,
+  SELECT a.id, a.session_id, a.supervisor_id, a.master_school_id, a.batch_id, a.status AS assignment_status,
+         isv.id AS institution_school_id, (isv.id IS NOT NULL) AS linked,
          a.needs_location, a.needs_principal, a.created_at AS assigned_at,
          u.name AS supervisor_name, u.email AS supervisor_email, u.phone AS supervisor_phone,
          ms.name AS school_name, ms.official_code AS school_code,
@@ -278,8 +306,8 @@ const ASSIGNMENT_SELECT = `
          ${latestRequestSql('school_principal_update_requests', 'status')} AS principal_status
   FROM school_capture_assignments a
   JOIN users u ON u.id = a.supervisor_id AND u.institution_id = a.institution_id
-  JOIN institution_schools isv ON isv.id = a.institution_school_id AND isv.institution_id = a.institution_id
-  JOIN master_schools ms ON ms.id = isv.master_school_id`;
+  JOIN master_schools ms ON ms.id = a.master_school_id
+  LEFT JOIN institution_schools isv ON isv.master_school_id = a.master_school_id AND isv.institution_id = a.institution_id`;
 
 function shapeAssignment(row) {
   return {
@@ -289,7 +317,10 @@ function shapeAssignment(row) {
     supervisor_name: row.supervisor_name,
     supervisor_email: row.supervisor_email || null,
     supervisor_phone: row.supervisor_phone || null,
-    institution_school_id: row.institution_school_id,
+    master_school_id: row.master_school_id,
+    // The institution's own link to this school, if it has one (resolved live)
+    institution_school_id: row.institution_school_id || null,
+    linked: !!Number(row.linked),
     school_name: row.school_name,
     school_code: row.school_code || null,
     state: row.state || null,
@@ -326,9 +357,9 @@ function overallProgress(a) {
  * Write an 'assigned' event for every live assignment of a batch (inside the
  * same transaction as the assignments, so the trail can never lag behind them).
  */
-async function recordBatchAssigned(conn, req, { institutionId, sessionId, batchId, mode }) {
+async function recordBatchAssigned(conn, req, { institutionId, sessionId, batchId, mode, schoolSource = 'institution' }) {
   const [rows] = await conn.query(
-    `SELECT a.id, a.supervisor_id, a.institution_school_id, a.needs_location, a.needs_principal
+    `SELECT a.id, a.supervisor_id, a.master_school_id, a.needs_location, a.needs_principal
      FROM school_capture_assignments a
      WHERE a.batch_id = ? AND a.institution_id = ?`,
     [batchId, institutionId]
@@ -340,13 +371,18 @@ async function recordBatchAssigned(conn, req, { institutionId, sessionId, batchI
       institutionId,
       sessionId,
       assignmentId: a.id,
-      institutionSchoolId: a.institution_school_id,
       supervisorId: a.supervisor_id,
       actorUserId: req.user.id,
       actorType: 'admin',
       eventType: 'assigned',
       summary: mode === 'manual' ? 'Assigned manually' : `Assigned by ${mode === 'lga' ? 'LGA-based' : 'even-split'} auto-assign`,
-      metadata: { batch_id: batchId, mode, needs_location: !!a.needs_location, needs_principal: !!a.needs_principal },
+      metadata: {
+        batch_id: batchId,
+        mode,
+        school_source: schoolSource,
+        needs_location: !!a.needs_location,
+        needs_principal: !!a.needs_principal,
+      },
       ...ctx,
     }))
   );
@@ -365,9 +401,10 @@ const getOptions = async (req, res, next) => {
     const institutionId = instId(req);
     const session = await resolveSession(institutionId, req.query.session_id);
     const scope = SCOPES.includes(req.query.scope) ? req.query.scope : 'missing_any';
+    const source = normaliseSource(req.query.school_source);
 
     const [allSchools, supervisors, existingLoad] = await Promise.all([
-      getEligibleSchools(institutionId, session.id, { scope: 'all' }),
+      getEligibleSchools(institutionId, session.id, { scope: 'all', source }),
       getEligibleSupervisors(institutionId),
       getExistingLoad(institutionId, session.id),
     ]);
@@ -394,6 +431,9 @@ const getOptions = async (req, res, next) => {
       data: {
         session: { id: session.id, name: session.name, max_gps_accuracy_meters: session.max_gps_accuracy_meters ?? null },
         scope,
+        school_source: source,
+        linked_count: allSchools.filter((s) => Number(s.linked)).length,
+        unlinked_count: allSchools.filter((s) => !Number(s.linked)).length,
         counts: {
           missing_any: countFor('missing_any'),
           missing_location: countFor('missing_location'),
@@ -427,6 +467,7 @@ const getEligibleSchoolList = async (req, res, next) => {
 
     const schools = await getEligibleSchools(institutionId, session.id, {
       scope,
+      source: normaliseSource(req.query.school_source),
       states: req.query.state ? [String(req.query.state)] : [],
       lgas: req.query.state && req.query.lga ? [{ state: String(req.query.state), lga: String(req.query.lga) }] : [],
     });
@@ -486,7 +527,7 @@ async function insertAssignments(conn, rows) {
     for (let i = 0; i < rows.length; i += CHUNK) {
       await conn.query(
         `INSERT INTO school_capture_assignments
-           (institution_id, session_id, supervisor_id, institution_school_id, batch_id,
+           (institution_id, session_id, supervisor_id, master_school_id, batch_id,
             needs_location, needs_principal, assigned_by)
          VALUES ?`,
         [rows.slice(i, i + CHUNK)]
@@ -531,6 +572,7 @@ const executePlan = async (req, res, next) => {
           body.mode,
           body.scope,
           JSON.stringify({
+            school_source: body.school_source,
             supervisor_ids: body.supervisor_ids,
             states: body.states,
             lgas: body.lgas,
@@ -559,7 +601,13 @@ const executePlan = async (req, res, next) => {
           ];
         })
       );
-      await recordBatchAssigned(conn, req, { institutionId, sessionId: session.id, batchId: batch.insertId, mode: body.mode });
+      await recordBatchAssigned(conn, req, {
+        institutionId,
+        sessionId: session.id,
+        batchId: batch.insertId,
+        mode: body.mode,
+        schoolSource: body.school_source,
+      });
       return batch.insertId;
     });
 
@@ -593,7 +641,7 @@ const manualBulkAssign = async (req, res, next) => {
     const [supervisor] = await getEligibleSupervisors(institutionId, [supervisor_id]);
     if (!supervisor) throw new ValidationError('Supervisor not found or not eligible in this institution');
 
-    const eligible = await getEligibleSchools(institutionId, session.id, { scope: 'all' });
+    const eligible = await getEligibleSchools(institutionId, session.id, { scope: 'all', source: req.body.school_source });
     const wanted = new Set(school_ids);
     const chosen = eligible.filter((s) => wanted.has(s.id));
     const skipped = school_ids.length - chosen.length; // already assigned, inactive, or not in this institution
@@ -610,7 +658,7 @@ const manualBulkAssign = async (req, res, next) => {
         `INSERT INTO school_capture_batches
            (institution_id, session_id, mode, scope, filters, school_count, supervisor_count, status, created_by)
          VALUES (?, ?, 'manual', 'missing_any', ?, ?, 1, 'completed', ?)`,
-        [institutionId, session.id, JSON.stringify({ supervisor_ids: [supervisor_id] }), chosen.length, req.user.id]
+        [institutionId, session.id, JSON.stringify({ school_source: req.body.school_source, supervisor_ids: [supervisor_id] }), chosen.length, req.user.id]
       );
       await insertAssignments(
         conn,
@@ -629,7 +677,13 @@ const manualBulkAssign = async (req, res, next) => {
           ];
         })
       );
-      await recordBatchAssigned(conn, req, { institutionId, sessionId: session.id, batchId: batch.insertId, mode: 'manual' });
+      await recordBatchAssigned(conn, req, {
+        institutionId,
+        sessionId: session.id,
+        batchId: batch.insertId,
+        mode: 'manual',
+        schoolSource: req.body.school_source,
+      });
       return batch.insertId;
     });
 
@@ -768,7 +822,6 @@ const reassignAssignment = async (req, res, next) => {
           institutionId,
           sessionId: assignment.session_id,
           assignmentId: assignment.id,
-          institutionSchoolId: assignment.institution_school_id,
           supervisorId: supervisor.id,
           actorUserId: req.user.id,
           actorType: 'admin',
@@ -803,7 +856,6 @@ const cancelAssignment = async (req, res, next) => {
           institutionId,
           sessionId: assignment.session_id,
           assignmentId: assignment.id,
-          institutionSchoolId: assignment.institution_school_id,
           supervisorId: assignment.supervisor_id,
           actorUserId: req.user.id,
           actorType: 'admin',
@@ -860,7 +912,7 @@ const rollbackBatch = async (req, res, next) => {
 
     const cancelled = await transaction(async (conn) => {
       const [live] = await conn.query(
-        `SELECT id, session_id, supervisor_id, institution_school_id FROM school_capture_assignments
+        `SELECT id, session_id, supervisor_id FROM school_capture_assignments
          WHERE batch_id = ? AND institution_id = ? AND status = 'active'`,
         [batchId, institutionId]
       );
@@ -871,7 +923,6 @@ const rollbackBatch = async (req, res, next) => {
           institutionId,
           sessionId: a.session_id,
           assignmentId: a.id,
-          institutionSchoolId: a.institution_school_id,
           supervisorId: a.supervisor_id,
           actorUserId: req.user.id,
           actorType: 'admin',
@@ -918,7 +969,7 @@ const parseJson = (v) => {
 };
 
 const EVENT_SELECT = `
-  SELECT e.id, e.session_id, e.assignment_id, e.institution_school_id, e.supervisor_id, e.actor_user_id,
+  SELECT e.id, e.session_id, e.assignment_id, a.master_school_id, e.supervisor_id, e.actor_user_id,
          e.actor_type, e.event_type, e.request_type, e.request_id, e.summary, e.metadata,
          e.ip_address, e.user_agent, e.created_at,
          actor.name AS actor_name, sup.name AS supervisor_name,
@@ -926,14 +977,14 @@ const EVENT_SELECT = `
   FROM school_capture_events e
   LEFT JOIN users actor ON actor.id = e.actor_user_id
   LEFT JOIN users sup ON sup.id = e.supervisor_id
-  LEFT JOIN institution_schools isv ON isv.id = e.institution_school_id
-  LEFT JOIN master_schools ms ON ms.id = isv.master_school_id`;
+  LEFT JOIN school_capture_assignments a ON a.id = e.assignment_id
+  LEFT JOIN master_schools ms ON ms.id = a.master_school_id`;
 
 function shapeEvent(row) {
   return {
     id: row.id,
     assignment_id: row.assignment_id,
-    institution_school_id: row.institution_school_id,
+    master_school_id: row.master_school_id || null,
     supervisor_id: row.supervisor_id,
     supervisor_name: row.supervisor_name || null,
     school_name: row.school_name || null,
@@ -1057,7 +1108,7 @@ const getActivityLog = async (req, res, next) => {
       params.push(parseInt(supervisor_id));
     }
     if (school_id) {
-      where += ' AND e.institution_school_id = ?';
+      where += ' AND a.master_school_id = ?';
       params.push(parseInt(school_id));
     }
     if (event_type) {
@@ -1138,7 +1189,7 @@ const getMySchools = async (req, res, next) => {
       [institutionId, session.id, userId]
     );
 
-    const schoolIds = rows.map((r) => r.institution_school_id);
+    const schoolIds = rows.map((r) => r.master_school_id);
     let locationRequests = [];
     let principalRequests = [];
     if (schoolIds.length > 0) {
@@ -1146,14 +1197,14 @@ const getMySchools = async (req, res, next) => {
         query(
           `SELECT r.*, (r.submitted_by_user_id = ?) AS by_me
            FROM school_location_update_requests r
-           WHERE r.institution_id = ? AND r.session_id = ? AND r.institution_school_id IN (?)
+           WHERE r.institution_id = ? AND r.session_id = ? AND r.master_school_id IN (?)
            ORDER BY r.created_at DESC, r.id DESC`,
           [userId, institutionId, session.id, schoolIds]
         ),
         query(
           `SELECT r.*, (r.submitted_by_user_id = ?) AS by_me
            FROM school_principal_update_requests r
-           WHERE r.institution_id = ? AND r.session_id = ? AND r.institution_school_id IN (?)
+           WHERE r.institution_id = ? AND r.session_id = ? AND r.master_school_id IN (?)
            ORDER BY r.created_at DESC, r.id DESC`,
           [userId, institutionId, session.id, schoolIds]
         ),
@@ -1162,7 +1213,7 @@ const getMySchools = async (req, res, next) => {
 
     const latestBySchool = (requests) => {
       const map = new Map();
-      for (const r of requests) if (!map.has(r.institution_school_id)) map.set(r.institution_school_id, r);
+      for (const r of requests) if (!map.has(r.master_school_id)) map.set(r.master_school_id, r);
       return map;
     };
     const latestLocation = latestBySchool(locationRequests);
@@ -1175,8 +1226,8 @@ const getMySchools = async (req, res, next) => {
       const latitude = toNumber(row.latitude);
       const longitude = toNumber(row.longitude);
       const hasCoordinates = latitude !== null && longitude !== null;
-      const locReq = latestLocation.get(row.institution_school_id) || null;
-      const prReq = latestPrincipal.get(row.institution_school_id) || null;
+      const locReq = latestLocation.get(row.master_school_id) || null;
+      const prReq = latestPrincipal.get(row.master_school_id) || null;
       return {
         ...a,
         progress: overallProgress(a),
@@ -1226,12 +1277,13 @@ const getMySchools = async (req, res, next) => {
 async function loadOwnAssignment(req) {
   const institutionId = instId(req);
   const assignment = await queryOne(
-    `SELECT a.*, isv.master_school_id,
+    `SELECT a.*, ms.name AS school_name,
             ST_Latitude(ms.location) AS latitude, ST_Longitude(ms.location) AS longitude,
-            ms.location_updated_at
+            ms.location_updated_at,
+            isv.id AS live_institution_school_id
      FROM school_capture_assignments a
-     JOIN institution_schools isv ON isv.id = a.institution_school_id AND isv.institution_id = a.institution_id
-     JOIN master_schools ms ON ms.id = isv.master_school_id
+     JOIN master_schools ms ON ms.id = a.master_school_id
+     LEFT JOIN institution_schools isv ON isv.master_school_id = a.master_school_id AND isv.institution_id = a.institution_id
      WHERE a.id = ? AND a.institution_id = ?`,
     [parseInt(req.params.assignmentId), institutionId]
   );
@@ -1252,7 +1304,7 @@ async function getSubmitter(userId) {
  * schools' points sitting on (almost exactly) the same spot. Bounding-box
  * prefilters in SQL, exact distances in the analyzer.
  */
-async function gatherRiskEvidence({ institutionId, userId, institutionSchoolId, latitude, longitude }) {
+async function gatherRiskEvidence({ institutionId, userId, masterSchoolId, latitude, longitude }) {
   const DEG = 0.0004; // ~44 m in latitude; wider than any threshold the analyzer applies
   const [previous, submitted, registered] = await Promise.all([
     queryOne(
@@ -1262,24 +1314,25 @@ async function gatherRiskEvidence({ institutionId, userId, institutionSchoolId, 
        ORDER BY created_at DESC, id DESC LIMIT 1`,
       [institutionId, userId]
     ),
+    // This institution's other submissions (tenancy: never another institution's requests)
     query(
       `SELECT r.proposed_latitude AS latitude, r.proposed_longitude AS longitude, ms.name AS school_name
        FROM school_location_update_requests r
-       JOIN institution_schools isv ON isv.id = r.institution_school_id
-       JOIN master_schools ms ON ms.id = isv.master_school_id
-       WHERE r.institution_id = ? AND r.institution_school_id <> ? AND r.status <> 'rejected'
+       JOIN master_schools ms ON ms.id = r.master_school_id
+       WHERE r.institution_id = ? AND r.master_school_id <> ? AND r.status <> 'rejected'
          AND r.proposed_latitude BETWEEN ? AND ? AND r.proposed_longitude BETWEEN ? AND ?
        LIMIT 20`,
-      [institutionId, institutionSchoolId, latitude - DEG, latitude + DEG, longitude - DEG, longitude + DEG]
+      [institutionId, masterSchoolId, latitude - DEG, latitude + DEG, longitude - DEG, longitude + DEG]
     ),
+    // Every school in the master registry - its points are shared data, so a point
+    // reused from ANY institution's school is caught, not just this institution's
     query(
       `SELECT ST_Latitude(ms.location) AS latitude, ST_Longitude(ms.location) AS longitude, ms.name AS school_name
-       FROM institution_schools isv
-       JOIN master_schools ms ON ms.id = isv.master_school_id
-       WHERE isv.institution_id = ? AND isv.id <> ? AND ms.location IS NOT NULL
+       FROM master_schools ms
+       WHERE ms.id <> ? AND ms.status = 'active' AND ms.location IS NOT NULL
          AND ST_Latitude(ms.location) BETWEEN ? AND ? AND ST_Longitude(ms.location) BETWEEN ? AND ?
        LIMIT 20`,
-      [institutionId, institutionSchoolId, latitude - DEG, latitude + DEG, longitude - DEG, longitude + DEG]
+      [masterSchoolId, latitude - DEG, latitude + DEG, longitude - DEG, longitude + DEG]
     ),
   ]);
 
@@ -1318,9 +1371,9 @@ const submitLocation = async (req, res, next) => {
 
     const pending = await queryOne(
       `SELECT id, submitted_by_user_id FROM school_location_update_requests
-       WHERE institution_school_id = ? AND session_id = ? AND institution_id = ? AND status = 'pending'
+       WHERE master_school_id = ? AND session_id = ? AND institution_id = ? AND status = 'pending'
        ORDER BY created_at DESC LIMIT 1`,
-      [assignment.institution_school_id, assignment.session_id, institutionId]
+      [assignment.master_school_id, assignment.session_id, institutionId]
     );
     if (pending) {
       throw new ValidationError(
@@ -1353,12 +1406,12 @@ const submitLocation = async (req, res, next) => {
 
     const approvedThisSession = await queryOne(
       `SELECT id FROM school_location_update_requests
-       WHERE institution_school_id = ? AND session_id = ? AND institution_id = ? AND status = 'approved' LIMIT 1`,
-      [assignment.institution_school_id, assignment.session_id, institutionId]
+       WHERE master_school_id = ? AND session_id = ? AND institution_id = ? AND status = 'approved' LIMIT 1`,
+      [assignment.master_school_id, assignment.session_id, institutionId]
     );
     const external = approvedThisSession
       ? null
-      : await getExternalVerification(assignment.master_school_id, assignment.institution_school_id);
+      : await getExternalVerification(assignment.master_school_id, assignment.live_institution_school_id);
     const verified = !!approvedThisSession || !!external || !!assignment.location_updated_at;
 
     if (verified && hasCurrent) {
@@ -1383,7 +1436,7 @@ const submitLocation = async (req, res, next) => {
     const evidence = await gatherRiskEvidence({
       institutionId,
       userId: req.user.id,
-      institutionSchoolId: assignment.institution_school_id,
+      masterSchoolId: assignment.master_school_id,
       latitude: proposed_latitude,
       longitude: proposed_longitude,
     });
@@ -1404,18 +1457,19 @@ const submitLocation = async (req, res, next) => {
     try {
       const inserted = await query(
         `INSERT INTO school_location_update_requests
-           (institution_id, session_id, institution_school_id, student_id,
+           (institution_id, session_id, institution_school_id, master_school_id, student_id,
             submitted_by_user_id, capture_assignment_id,
             proposed_latitude, proposed_longitude, proposed_ward, proposed_address,
             accuracy_meters, capture_method, gps_samples, client_timestamp,
             distance_from_record_m, risk_level, risk_flags, student_note,
             previous_latitude, previous_longitude,
             contributor_name, contributor_phone, ip_address, user_agent, status, created_at)
-         VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())`,
+         VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())`,
         [
           institutionId,
           assignment.session_id,
-          assignment.institution_school_id,
+          assignment.live_institution_school_id || null,
+          assignment.master_school_id,
           req.user.id,
           assignment.id,
           proposed_latitude,
@@ -1451,7 +1505,6 @@ const submitLocation = async (req, res, next) => {
       institutionId,
       sessionId: assignment.session_id,
       assignmentId: assignment.id,
-      institutionSchoolId: assignment.institution_school_id,
       supervisorId: req.user.id,
       actorUserId: req.user.id,
       actorType: 'supervisor',
@@ -1498,9 +1551,9 @@ const submitPrincipal = async (req, res, next) => {
 
     const existing = await queryOne(
       `SELECT id, status FROM school_principal_update_requests
-       WHERE institution_school_id = ? AND session_id = ? AND institution_id = ? AND status IN ('pending', 'approved')
+       WHERE master_school_id = ? AND session_id = ? AND institution_id = ? AND status IN ('pending', 'approved')
        ORDER BY created_at DESC LIMIT 1`,
-      [assignment.institution_school_id, assignment.session_id, institutionId]
+      [assignment.master_school_id, assignment.session_id, institutionId]
     );
     if (existing) {
       throw new ValidationError(
@@ -1511,10 +1564,8 @@ const submitPrincipal = async (req, res, next) => {
     }
 
     const master = await queryOne(
-      `SELECT ms.principal_name, ms.principal_phone
-       FROM institution_schools isv JOIN master_schools ms ON ms.id = isv.master_school_id
-       WHERE isv.id = ? AND isv.institution_id = ?`,
-      [assignment.institution_school_id, institutionId]
+      `SELECT principal_name, principal_phone FROM master_schools WHERE id = ?`,
+      [assignment.master_school_id]
     );
     const submitter = await getSubmitter(req.user.id);
 
@@ -1522,16 +1573,17 @@ const submitPrincipal = async (req, res, next) => {
     try {
       const inserted = await query(
         `INSERT INTO school_principal_update_requests
-           (institution_id, session_id, institution_school_id,
+           (institution_id, session_id, institution_school_id, master_school_id,
             submitted_by_user_id, capture_assignment_id,
             proposed_principal_name, proposed_principal_phone,
             previous_principal_name, previous_principal_phone,
             contributor_name, contributor_phone, ip_address, user_agent, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())`,
         [
           institutionId,
           assignment.session_id,
-          assignment.institution_school_id,
+          assignment.live_institution_school_id || null,
+          assignment.master_school_id,
           req.user.id,
           assignment.id,
           proposed_principal_name,
@@ -1556,7 +1608,6 @@ const submitPrincipal = async (req, res, next) => {
       institutionId,
       sessionId: assignment.session_id,
       assignmentId: assignment.id,
-      institutionSchoolId: assignment.institution_school_id,
       supervisorId: req.user.id,
       actorUserId: req.user.id,
       actorType: 'supervisor',

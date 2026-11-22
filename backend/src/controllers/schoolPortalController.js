@@ -162,17 +162,20 @@ async function getSchoolRecord(institutionSchoolId, institutionId) {
 async function getExternalVerification(masterSchoolId, institutionSchoolId) {
   if (!masterSchoolId) return null;
 
+  // Matches an approval made through ANY link to this master school - and a capture
+  // approved while the school was not linked to anyone (institution_school_id NULL),
+  // so linking a school later never asks for its location again.
   const row = await queryOne(
     `SELECT r.reviewed_at
      FROM school_location_update_requests r
-     JOIN institution_schools isv ON isv.id = r.institution_school_id
-     WHERE isv.master_school_id = ?
-       AND r.institution_school_id <> ?
+     LEFT JOIN institution_schools isv ON isv.id = r.institution_school_id
+     WHERE (r.master_school_id = ? OR isv.master_school_id = ?)
+       AND (? IS NULL OR r.institution_school_id IS NULL OR r.institution_school_id <> ?)
        AND r.status = 'approved'
        AND r.reviewed_at IS NOT NULL
      ORDER BY r.reviewed_at DESC
      LIMIT 1`,
-    [masterSchoolId, institutionSchoolId]
+    [masterSchoolId, masterSchoolId, institutionSchoolId ?? null, institutionSchoolId ?? null]
   );
 
   return row ? { verified_at: row.reviewed_at } : null;
@@ -447,15 +450,16 @@ const submitMyPrincipalUpdate = async (req, res, next) => {
 
     await query(
       `INSERT INTO school_principal_update_requests
-         (institution_id, session_id, institution_school_id,
+         (institution_id, session_id, institution_school_id, master_school_id,
           proposed_principal_name, proposed_principal_phone,
           previous_principal_name, previous_principal_phone,
           contributor_name, contributor_phone, ip_address, user_agent, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())`,
       [
         institutionId,
         session.id,
         acceptance.institution_school_id,
+        acceptance.master_school_id || null,
         proposed_principal_name,
         proposed_principal_phone,
         acceptance.principal_name || null,
@@ -615,16 +619,17 @@ const submitMyLocationUpdate = async (req, res, next) => {
     try {
       await query(
         `INSERT INTO school_location_update_requests
-           (institution_id, session_id, institution_school_id, student_id,
+           (institution_id, session_id, institution_school_id, master_school_id, student_id,
             proposed_latitude, proposed_longitude, proposed_ward, proposed_address,
             accuracy_meters, student_note,
             previous_latitude, previous_longitude,
             contributor_name, contributor_phone, ip_address, user_agent, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())`,
         [
           institutionId,
           session.id,
           acceptance.institution_school_id,
+          acceptance.master_school_id || null,
           studentId,
           proposed_latitude,
           proposed_longitude,

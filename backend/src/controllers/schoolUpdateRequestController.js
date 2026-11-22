@@ -168,12 +168,21 @@ async function markApproved(conn, table, requestId, institutionId, userId, admin
   }
 }
 
+/**
+ * The master school a request is about. Supervisor captures carry it directly (and
+ * may have no institution link at all); older/student requests only know their
+ * institution school, so fall back to that link.
+ */
+async function resolveMasterSchool(conn, request) {
+  if (request.master_school_id) return [{ master_school_id: request.master_school_id }];
+  const [rows] = await conn.execute('SELECT master_school_id FROM institution_schools WHERE id = ?', [
+    request.institution_school_id,
+  ]);
+  return rows;
+}
+
 async function applyPrincipalApproval(conn, request, institutionId, userId, adminNotes) {
-  // Get the master_school_id from the institution_school
-  const [isv] = await conn.execute(
-    'SELECT master_school_id FROM institution_schools WHERE id = ?',
-    [request.institution_school_id]
-  );
+  const isv = await resolveMasterSchool(conn, request);
 
   if (isv.length > 0) {
     // Update the master_school with new principal info
@@ -190,11 +199,7 @@ async function applyPrincipalApproval(conn, request, institutionId, userId, admi
 }
 
 async function applyLocationApproval(conn, request, institutionId, userId, adminNotes) {
-  // Get the master_school_id from the institution_school
-  const [isv] = await conn.execute(
-    'SELECT master_school_id FROM institution_schools WHERE id = ?',
-    [request.institution_school_id]
-  );
+  const isv = await resolveMasterSchool(conn, request);
 
   if (isv.length > 0) {
     // master_schools.location is shared across every institution linked to this
@@ -291,10 +296,12 @@ function keepNewestPerSchool(requests) {
   const seenSchools = new Set();
 
   for (const request of requests) {
-    if (seenSchools.has(request.institution_school_id)) {
+    // Keyed on the master school: a capture of an unlinked school has no institution link
+    const schoolKey = request.master_school_id ? `m${request.master_school_id}` : `i${request.institution_school_id}`;
+    if (seenSchools.has(schoolKey)) {
       skipped.push({ id: request.id, reason: 'A newer request for the same school was approved' });
     } else {
-      seenSchools.add(request.institution_school_id);
+      seenSchools.add(schoolKey);
       toApprove.push(request);
     }
   }
@@ -352,7 +359,7 @@ async function approveAllMatching(req, type) {
     SELECT r.*${source.extraColumns}
     FROM ${source.table} r
     LEFT JOIN institution_schools isv ON r.institution_school_id = isv.id
-    LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
+    LEFT JOIN master_schools ms ON ms.id = COALESCE(isv.master_school_id, r.master_school_id)
     WHERE r.institution_id = ? AND r.status = 'pending'
   `;
   const params = [instId];
@@ -426,7 +433,7 @@ const getPrincipalRequests = async (req, res, next) => {
              CASE WHEN spur.submitted_by_user_id IS NOT NULL THEN 'supervisor' ELSE 'student' END as source
       FROM school_principal_update_requests spur
       LEFT JOIN institution_schools isv ON spur.institution_school_id = isv.id
-      LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
+      LEFT JOIN master_schools ms ON ms.id = COALESCE(isv.master_school_id, spur.master_school_id)
       LEFT JOIN academic_sessions sess ON spur.session_id = sess.id
       LEFT JOIN users u ON spur.reviewed_by = u.id
       LEFT JOIN users sub ON spur.submitted_by_user_id = sub.id
@@ -498,7 +505,7 @@ const getPrincipalRequestById = async (req, res, next) => {
              CASE WHEN spur.submitted_by_user_id IS NOT NULL THEN 'supervisor' ELSE 'student' END as source
        FROM school_principal_update_requests spur
        LEFT JOIN institution_schools isv ON spur.institution_school_id = isv.id
-       LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
+       LEFT JOIN master_schools ms ON ms.id = COALESCE(isv.master_school_id, spur.master_school_id)
        LEFT JOIN academic_sessions sess ON spur.session_id = sess.id
        LEFT JOIN users u ON spur.reviewed_by = u.id
       LEFT JOIN users sub ON spur.submitted_by_user_id = sub.id
@@ -736,7 +743,7 @@ const getLocationRequests = async (req, res, next) => {
              CASE WHEN slur.submitted_by_user_id IS NOT NULL THEN 'supervisor' ELSE 'student' END as source
       FROM school_location_update_requests slur
       LEFT JOIN institution_schools isv ON slur.institution_school_id = isv.id
-      LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
+      LEFT JOIN master_schools ms ON ms.id = COALESCE(isv.master_school_id, slur.master_school_id)
       LEFT JOIN academic_sessions sess ON slur.session_id = sess.id
       LEFT JOIN users u ON slur.reviewed_by = u.id
       LEFT JOIN users sub ON slur.submitted_by_user_id = sub.id
@@ -815,7 +822,7 @@ const getLocationRequestById = async (req, res, next) => {
              CASE WHEN slur.submitted_by_user_id IS NOT NULL THEN 'supervisor' ELSE 'student' END as source
        FROM school_location_update_requests slur
        LEFT JOIN institution_schools isv ON slur.institution_school_id = isv.id
-       LEFT JOIN master_schools ms ON isv.master_school_id = ms.id
+       LEFT JOIN master_schools ms ON ms.id = COALESCE(isv.master_school_id, slur.master_school_id)
        LEFT JOIN academic_sessions sess ON slur.session_id = sess.id
        LEFT JOIN users u ON slur.reviewed_by = u.id
       LEFT JOIN users sub ON slur.submitted_by_user_id = sub.id
@@ -1044,6 +1051,7 @@ module.exports = {
   // Exposed for tests
   needsIndividualReview,
   holdBackForReview,
+  keepNewestPerSchool,
   
   // Principal requests
   getPrincipalRequests,
