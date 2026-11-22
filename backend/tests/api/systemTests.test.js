@@ -15,7 +15,7 @@ const {
 } = require('../helpers/testUtils');
 
 // A real login needs a real password, which the suite has no business knowing.
-// Supply one to exercise it: TEST_STAFF_PASSWORD=... npm test
+// Supply one to exercise it: TEST_STAFF_PASSWORD=... pnpm test
 const testWithStaffPassword = process.env.TEST_STAFF_PASSWORD ? test : test.skip;
 const pool = require('../../src/db/connection');
 

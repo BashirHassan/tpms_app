@@ -7,27 +7,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Backend (`cd backend`)
 
 ```bash
-npm run dev          # Start dev server with hot reload (port 5000)
-npm start            # Start production server
-npm test             # Run Jest test suite with coverage
-npm run migrate      # Run database migrations
-npm run seed         # Seed base reference data
-npm run seed:students # Seed sample student and acceptance data
+pnpm dev          # Start dev server with hot reload (port 5000)
+pnpm start            # Start production server
+pnpm test             # Run Jest test suite with coverage
+pnpm migrate      # Run database migrations
+pnpm seed         # Seed base reference data
+pnpm seed:students # Seed sample student and acceptance data
 ```
 
 ### Frontend (`cd frontend`)
 
 ```bash
-npm run dev          # Start Vite dev server (port 5173)
-npm run build        # Build production bundle
-npm run lint         # Run ESLint
-npm run lint:fix     # Auto-fix ESLint issues
+pnpm dev          # Start Vite dev server (port 5173)
+pnpm build        # Build production bundle
+pnpm lint         # Run ESLint
+pnpm lint:fix     # Auto-fix ESLint issues
 ```
 
 ### Running a single test
 
 ```bash
-cd backend && npx jest path/to/test.file.js --coverage=false
+cd backend && pnpm exec jest path/to/test.file.js --coverage=false
 ```
 
 ### Local development with institution context
@@ -145,7 +145,7 @@ Direct SQL via [backend/src/db/database.js](backend/src/db/database.js):
 
 All queries use `?` placeholders - never string interpolation.
 
-Migrations live in `backend/database/migrations/` numbered sequentially (e.g., `035_feature_name.sql`). Run with `npm run migrate` from `/backend`.
+Migrations live in `backend/database/migrations/` numbered sequentially (e.g., `035_feature_name.sql`). Run with `pnpm migrate` from `/backend`.
 
 ### Frontend State & Context
 

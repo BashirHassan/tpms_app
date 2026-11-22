@@ -3,11 +3,11 @@
  * Executes SQL migration files and tracks which ones have been applied.
  *
  * Usage:
- *   npm run migrate            - show status (applied vs pending)
- *   npm run migrate -- <file>     - run a specific migration (skips if already applied)
- *   npm run migrate -- --pending  - run all pending migrations in order
- *   npm run migrate -- --force <file> - re-run a migration even if already applied
- *   npm run migrate -- --backfill - mark ALL migrations as applied without running them
+ *   pnpm migrate            - show status (applied vs pending)
+ *   pnpm migrate <file>     - run a specific migration (skips if already applied)
+ *   pnpm migrate --pending  - run all pending migrations in order
+ *   pnpm migrate --force <file> - re-run a migration even if already applied
+ *   pnpm migrate --backfill - mark ALL migrations as applied without running them
  *                                   (use once on a DB that already has all migrations applied)
  */
 
@@ -135,9 +135,9 @@ async function showStatus(pool) {
   if (pending.length > 0) {
     console.log(`\nPending (${pending.length}):`);
     pending.forEach(f => console.log(`  ⏳ ${f}`));
-    console.log('\nTo apply all pending:  npm run migrate -- --pending');
-    console.log('To apply one:          npm run migrate -- <filename>');
-    console.log('To mark all applied:   npm run migrate -- --backfill  (use on a DB that already has all migrations)');
+    console.log('\nTo apply all pending:  pnpm migrate --pending');
+    console.log('To apply one:          pnpm migrate <filename>');
+    console.log('To mark all applied:   pnpm migrate --backfill  (use on a DB that already has all migrations)');
   } else {
     console.log('\n✅ Database is up to date.');
   }
@@ -165,7 +165,7 @@ async function main() {
     } else if (args[0] === '--force') {
       const filename = args[1];
       if (!filename) {
-        console.error('❌ --force requires a filename: npm run migrate -- --force <filename>');
+        console.error('❌ --force requires a filename: pnpm migrate --force <filename>');
         process.exit(1);
       }
       await runFile(pool, filename, true);

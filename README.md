@@ -222,7 +222,7 @@ digitaltp/
 
 - **Node.js** 18 or later
 - **MySQL** 8.0 or later
-- **npm** 9 or later
+- **pnpm** 12 or later (the exact version is pinned in `package.json`; `corepack enable` installs it)
 - A **Cloudinary** account (for acceptance form uploads)
 - A **Paystack** account (for payment processing)
 - An SMTP provider (for email notifications)
@@ -236,10 +236,10 @@ git clone <repository-url>
 cd digitaltp
 
 # Install backend dependencies
-cd backend && npm install
+cd backend && pnpm install
 
 # Install frontend dependencies
-cd ../frontend && npm install
+cd ../frontend && pnpm install
 ```
 
 ### Environment Variables
@@ -286,14 +286,14 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
 ```bash
 cd backend
-npm run dev
+pnpm dev
 ```
 
 **Frontend** (runs on `http://localhost:5173`):
 
 ```bash
 cd frontend
-npm run dev
+pnpm dev
 ```
 
 The Vite dev server is pre-configured to proxy all `/api` requests to the backend. The frontend resolves the current institution via the `X-Subdomain` request header, which can be set via a query parameter in development: `http://localhost:5173?subdomain=demo`.
@@ -302,7 +302,7 @@ The Vite dev server is pre-configured to proxy all `/api` requests to the backen
 
 ```bash
 cd backend
-npm test
+pnpm test
 ```
 
 ---
@@ -515,13 +515,13 @@ Cloudflare is configured with:
 
 ```bash
 # Run database migrations
-cd backend && npm run migrate
+cd backend && pnpm migrate
 
 # Seed base data
-npm run seed
+pnpm seed
 
 # Seed sample students
-npm run seed:students
+pnpm seed:students
 ```
 
 ---
@@ -552,19 +552,19 @@ npm run seed:students
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start development server with hot reload |
-| `npm start` | Start production server |
-| `npm test` | Run Jest test suite with coverage |
-| `npm run migrate` | Run database migrations |
-| `npm run seed` | Seed base reference data |
-| `npm run seed:students` | Seed sample student and acceptance data |
+| `pnpm dev` | Start development server with hot reload |
+| `pnpm start` | Start production server |
+| `pnpm test` | Run Jest test suite with coverage |
+| `pnpm migrate` | Run database migrations |
+| `pnpm seed` | Seed base reference data |
+| `pnpm seed:students` | Seed sample student and acceptance data |
 
 ### Frontend
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start Vite dev server on port 5173 |
-| `npm run build` | Build production bundle |
-| `npm run preview` | Preview production build locally |
-| `npm run lint` | Run ESLint |
-| `npm run lint:fix` | Auto-fix ESLint issues |
+| `pnpm dev` | Start Vite dev server on port 5173 |
+| `pnpm build` | Build production bundle |
+| `pnpm preview` | Preview production build locally |
+| `pnpm lint` | Run ESLint |
+| `pnpm lint:fix` | Auto-fix ESLint issues |

@@ -7,7 +7,7 @@ This project uses **Tabler Icons** (`@tabler/icons-react`) as the sole icon libr
 Tabler Icons is already installed. If you need to reinstall:
 
 ```bash
-npm install @tabler/icons-react
+pnpm add @tabler/icons-react
 ```
 
 ## Import Pattern

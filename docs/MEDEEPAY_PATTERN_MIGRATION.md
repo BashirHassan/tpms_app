@@ -1161,7 +1161,7 @@ static async canAccessInstitution(userId, institutionId) {
 
 ```bash
 # From backend directory
-npm run migrate
+pnpm migrate
 # Or manually:
 mysql -u root -p digitaltp < database/migrations/019_database_cleanup.sql
 ```

@@ -75,14 +75,14 @@ chmod +x setup.sh
 #### Install Backend Dependencies
 ```bash
 cd /var/www/tpms/backend
-npm install --production
+pnpm install --prod --frozen-lockfile
 ```
 
 #### Install Frontend Dependencies & Build
 ```bash
 cd /var/www/tpms/frontend
-npm install
-npm run build
+pnpm install
+pnpm build
 ```
 
 ---
@@ -189,7 +189,7 @@ mysql -u psimas -p tpms < backend/database/tpms.sql
 ### Run Migrations
 ```bash
 cd /var/www/tpms/backend
-npm run migrate
+pnpm migrate
 ```
 
 ---
@@ -311,8 +311,8 @@ cd /var/www/tpms
 ```bash
 cd /var/www/tpms
 git pull origin main
-cd backend && npm install --production && npm run migrate
-cd ../frontend && npm install && npm run build
+cd backend && pnpm install --prod --frozen-lockfile && pnpm migrate
+cd ../frontend && pnpm install && pnpm build
 pm2 restart tpms-backend
 ```
 
@@ -441,4 +441,4 @@ The nginx wildcard configuration (`*.sitpms.com`) routes all subdomain requests 
 | Restart backend | `pm2 restart tpms-backend` |
 | Nginx reload | `sudo systemctl reload nginx` |
 | Health check | `curl http://127.0.0.1:5007/api/health` |
-| Run migrations | `cd backend && npm run migrate` |
+| Run migrations | `cd backend && pnpm migrate` |

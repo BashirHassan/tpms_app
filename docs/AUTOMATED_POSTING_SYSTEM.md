@@ -1220,7 +1220,7 @@ const [showAutoPostDialog, setShowAutoPostDialog] = useState(false);
 # backend/database/migrations/037_add_rank_priority_and_auto_posting.sql
 
 # Run migration
-cd backend && npm run migrate
+cd backend && pnpm migrate
 ```
 
 ### Step 2: Backend Implementation

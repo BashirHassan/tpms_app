@@ -61,9 +61,9 @@ backend/uploads/schools/*
 backend/uploads/students/*
 !backend/uploads/**/.gitkeep
 
-# Package locks (optional - uncomment if you want to ignore)
-# package-lock.json
-# yarn.lock
+# Lockfiles of other package managers - this project uses pnpm (pnpm-lock.yaml stays tracked)
+package-lock.json
+yarn.lock
 # pnpm-lock.yaml
 
 # Misc

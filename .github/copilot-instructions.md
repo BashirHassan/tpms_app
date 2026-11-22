@@ -130,7 +130,7 @@ See `frontend/ICON_GUIDELINES.md` for full icon reference.
 - MySQL with `mysql2` driver
 - Migrations in `backend/database/migrations/` (numbered sequentially, e.g., `035_feature_name.sql`)
 - All tables have `institution_id` foreign key (except `institutions` itself)
-- Run migrations: `npm run migrate` (from `/backend`)
+- Run migrations: `pnpm migrate` (from `/backend`)
 
 ## Key Services
 
@@ -152,13 +152,13 @@ See `frontend/ICON_GUIDELINES.md` for full icon reference.
 
 ```bash
 # Backend (from /backend)
-npm run dev          # Start with nodemon on :3000
-npm run migrate      # Run database migrations
-npm test             # Jest tests with coverage
+pnpm dev          # Start with nodemon on :3000
+pnpm migrate      # Run database migrations
+pnpm test             # Jest tests with coverage
 
 # Frontend (from /frontend)
-npm run dev          # Vite dev server on :5173
-npm run build        # Production build
+pnpm dev          # Vite dev server on :5173
+pnpm build        # Production build
 
 # Test subdomain locally
 http://localhost:5173/?subdomain=fuk
